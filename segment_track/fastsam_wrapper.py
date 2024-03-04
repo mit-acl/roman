@@ -117,8 +117,10 @@ class FastSAMWrapper():
         contains_edge = np.zeros(numMasks).astype(np.bool_)
         for i in range(numMasks):
             mask = segmask[i,:,:]
-            contains_edge[i] = (np.sum(mask[:,0]) > 0 and not self.allow_tblr_edges[2]) or (np.sum(mask[:,-1]) > 0 and not self.allow_tblr_edges[3]) or \
-                            (np.sum(mask[0,:]) > 0 and not self.allow_tblr_edges[0]) or (np.sum(mask[-1, :]) > 0 and not self.allow_tblr_edges[1])
+            edge_width = 5
+            # TODO: should be a parameter
+            contains_edge[i] = (np.sum(mask[:,:edge_width]) > 0 and not self.allow_tblr_edges[2]) or (np.sum(mask[:,-edge_width:]) > 0 and not self.allow_tblr_edges[3]) or \
+                            (np.sum(mask[:edge_width,:]) > 0 and not self.allow_tblr_edges[0]) or (np.sum(mask[-edge_width:, :]) > 0 and not self.allow_tblr_edges[1])
         return np.delete(segmask, contains_edge, axis=0)
 
     def _process_img(self, image_bgr, plot=False, ignore_mask=None):
