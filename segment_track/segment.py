@@ -23,6 +23,7 @@ class Segment():
             camera_params.D[0], camera_params.D[1], camera_params.D[2], camera_params.D[3])
         self.pixel_std_dev = pixel_std_dev
         self.num_sightings = 1
+        self.edited = True
 
     def update(self, observation: Observation):
         if observation.mask is not None:
@@ -32,6 +33,10 @@ class Segment():
         self.num_sightings += 1
 
     def reconstruction3D(self, width_height=False):
+
+        if not self.edited and (not width_height or len(self.reconstruction) > 3):
+            return self.reconstruction
+        
         camera_poses = []
         for obs in self.observations:
             camera_poses.append(gtsam.PinholeCameraCal3DS2(gtsam.Pose3(obs.pose), self.cal3ds2))
@@ -46,6 +51,7 @@ class Segment():
                 p_c = transform(np.linalg.inv(obs.pose), reconstruction)
                 ws.append(obs.width * np.abs(p_c[0]) / np.abs(obs.pixel[0] - self.camera_params.K[0,2]))
                 hs.append(obs.height * np.abs(p_c[1]) / np.abs(obs.pixel[1] - self.camera_params.K[1,2]))
-            return np.concatenate((reconstruction, [np.mean(ws)], [np.mean(hs)]))
+            reconstruction = np.concatenate((reconstruction, [np.mean(ws)], [np.mean(hs)]))
                 
+        self.reconstruction = reconstruction
         return reconstruction
