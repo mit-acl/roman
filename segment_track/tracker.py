@@ -102,6 +102,13 @@ class Tracker():
         union = np.logical_or(segment.last_mask, observation.mask).sum()
         return intersection / union
     
+    def filter_segment_graveyard(self, rm_fun: callable):
+        """
+        Filter the segment graveyard when rm_fun returns True
+        """
+        self.segment_graveyard = [seg for seg in self.segment_graveyard if not rm_fun(seg)]
+        return
+    
     def merge(self):
         """
         Merge segments with high overlap

@@ -1,0 +1,12 @@
+bag:
+  path: /home/masonbp/data/west_point_2023/1117_04_loc_tower_loop_far_side_loop_o3_CCW/align.bag
+  pose_topic: /acl_jackal2/kimera_vio_ros/odometry
+  img_topic: /acl_jackal2/forward/color/image_raw/compressed
+  cam_info_topic: /acl_jackal2/forward/color/camera_info
+  pose_time_tol: 0.5
+  t0: 585
+  tf: 615
+
+fastsam:
+  weights: "/home/masonbp/tools/fastsam/weights/FastSAM-x.pt"
+  imgsz: 512
