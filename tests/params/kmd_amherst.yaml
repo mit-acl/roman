@@ -1,0 +1,20 @@
+bag:
+  path: /home/masonbp/data/kimera_multi/outdoor/bags/sparkal1.bag
+  pose_topic: /sparkal1/kimera_vio_ros/odometry
+  img_topic: /sparkal1/forward/color/image_raw/compressed
+  cam_info_topic: /sparkal1/forward/color/camera_info
+  pose_time_tol: 0.5
+  t0: 1665777935
+  tf: 1665778015
+  pose_path: /home/masonbp/results/kmd_motlee/kimera_vio/sparkal1.bag
+  relative_time: False
+
+fastsam:
+  weights: "/home/masonbp/tools/fastsam/weights/FastSAM-x.pt"
+  imgsz: 512
+
+segment_tracking:
+  min_sightings: 10
+  pixel_std_dev: 20.0
+  min_iou: 0.25
+  max_t_no_sightings: 0.25
