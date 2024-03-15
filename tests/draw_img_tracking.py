@@ -83,34 +83,56 @@ if __name__ == '__main__':
 
     assert params['fastsam']['weights'] is not None, "weights must be specified in params"
     assert params['fastsam']['imgsz'] is not None, "imgsz must be specified in params"
+    
+    assert params['segment_tracking']['min_iou'] is not None, "min_iou must be specified in params"
+    assert params['segment_tracking']['min_sightings'] is not None, "min_sightings must be specified in params"
+    assert params['segment_tracking']['pixel_std_dev'] is not None, "max_t_no_sightings must be specified in params"
+    assert params['segment_tracking']['max_t_no_sightings'] is not None, "max_t_no_sightings must be specified in params"
 
     print("Loading image data...")
+    if 'relative_time' in params['bag'] and not params['bag']['relative_time']\
+        and 't0' in params['bag'] and 'tf' in params['bag']:
+        time_range = [params['bag']['t0'], params['bag']['tf']]
+    else:
+        time_range = None
     img_data = ImgData(
         data_file=params["bag"]["path"],
         file_type='bag',
         topic=params["bag"]["img_topic"],
         time_tol=.02,
+        time_range=time_range
     )
     img_data.extract_params(params['bag']['cam_info_topic'])
 
-    if 't0' in params['bag']:
+    if 't0' in params['bag'] and params['bag']['relative_time']:
         t0 = img_data.t0 + params['bag']['t0']
+    elif 't0' in params['bag']:
+        t0 = params['bag']['t0']
     else:
         t0 = img_data.t0
 
-    if 'tf' in params['bag']:
+    if 'tf' in params['bag'] and params['bag']['relative_time']:
         tf = img_data.t0 + params['bag']['tf']
+    elif 'tf' in params['bag']:
+        tf = params['bag']['tf']
     else:
         tf = img_data.tf
 
     print("Loading pose data...")
+    T_postmultiply = np.eye(4)
+    # if 'T_body_odom' in params['bag']:
+    #     T_postmultiply = np.linalg.inv(np.array(params['bag']['T_body_odom']).reshape((4, 4)))
+    if 'T_body_cam' in params['bag']:
+        T_postmultiply = T_postmultiply @ np.array(params['bag']['T_body_cam']).reshape((4, 4))
     pose_data = PoseData(
-        data_file=params["bag"]["path"],
+        data_file=params['bag']['pose_path'] if 'pose_path' in params["bag"] else params["bag"]["path"],
         file_type='bag',
         topic=params["bag"]["pose_topic"],
         time_tol=params["bag"]["pose_time_tol"],
-        interp=True
+        interp=True,
+        T_postmultiply=T_postmultiply
     )
+    
 
     print("Setting up FastSAM...")
     fastsam = FastSAMWrapper(
@@ -129,10 +151,10 @@ if __name__ == '__main__':
     print("Setting up segment tracker...")
     tracker = Tracker(
         camera_params=img_data.camera_params,
-        pixel_std_dev=10.0,
-        min_iou=0.25,
-        min_sightings=10,
-        max_t_no_sightings=0.25
+        pixel_std_dev=params['segment_tracking']['pixel_std_dev'],
+        min_iou=params['segment_tracking']['min_iou'],
+        min_sightings=params['segment_tracking']['min_sightings'],
+        max_t_no_sightings=params['segment_tracking']['max_t_no_sightings']
     )
 
     print("Running segment tracking!")
