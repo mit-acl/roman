@@ -6,6 +6,7 @@ bag:
   pose_time_tol: 0.5
   t0: 195
   tf: 225
+  relative_time: True
 
 fastsam:
   weights: "/home/masonbp/tools/fastsam/weights/FastSAM-x.pt"
@@ -16,3 +17,4 @@ segment_tracking:
   pixel_std_dev: 20.0
   min_iou: 0.25
   max_t_no_sightings: 0.25
+  dt: 0.05
