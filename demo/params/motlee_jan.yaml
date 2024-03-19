@@ -51,7 +51,7 @@ fastsam:
 
 segment_tracking:
   min_sightings: 5
-  pixel_std_dev: 40.0
+  pixel_std_dev: 20.0
   min_iou: 0.25
   max_t_no_sightings: 1.0
   dt: 0.05
