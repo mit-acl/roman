@@ -36,14 +36,19 @@ class Tracker():
         self.min_sightings = min_sightings
         self.max_t_no_sightings = max_t_no_sightings
         self.merge_objects = merge_objects
-        self.merge_objects_iou = merge_objects_iou
+        self.merge_objects_iou_3d = merge_objects_iou
+        self.merge_objects_iou_2d = 0.8
 
         self.segment_nursery = []
         self.segments = []
         self.segment_graveyard = []
         self.id_counter = 0
+        self.last_pose = None
 
-    def update(self, t: float, observations: List[Observation]):
+    def update(self, t: float, pose: np.array, observations: List[Observation]):
+        
+        # store last pose
+        self.last_pose = pose.copy()
         
         # associate observations with segments
         associated_pairs = global_nearest_neighbor(
@@ -89,6 +94,8 @@ class Tracker():
             self.segment_nursery.append(
                 Segment(obs, self.camera_params, self.pixel_std_dev, self.id_counter))
             self.id_counter += 1
+
+        self.merge()
             
         return
 
@@ -97,10 +104,18 @@ class Tracker():
         Compute the similarity between the mask of a segment and an observation
         """
         if segment.last_mask is None:
-            return 0
+            assert False
         intersection = np.logical_and(segment.last_mask, observation.mask).sum()
         union = np.logical_or(segment.last_mask, observation.mask).sum()
-        return intersection / union
+        iou = intersection / union
+
+        # compute the similarity using the projected mask rather than last mask
+        if segment in self.segments:
+            segment_mask = segment.reconstruct_mask(observation.pose)
+            intersection = np.logical_and(segment_mask, observation.mask).sum()
+            union = np.logical_or(segment_mask, observation.mask).sum()
+
+        return np.max([iou, intersection / union])
     
     def filter_segment_graveyard(self, rm_fun: callable):
         """
@@ -109,44 +124,86 @@ class Tracker():
         self.segment_graveyard = [seg for seg in self.segment_graveyard if not rm_fun(seg)]
         return
     
+    def remove_bad_segments(self, segments: List[Segment], max_cov_axis: float=None):
+        """
+        Remove segments that GTSAM cannot triangulate or that have a large covariance
+
+        Args:
+            segments (List[Segment]): List of segments
+            max_cov_axis (float, optional): Maximum value for the principal covariance 
+                axis single sigma length. Defaults to None.
+
+        Returns:
+            segments (List[Segment]): Filtered list of segments
+        """
+        to_delete = []
+        for seg in segments:
+            try:
+                seg.reconstruction3D(width_height=True)
+                if max_cov_axis is not None:
+                    cov = seg.covariance
+                    max_axis = np.sqrt(np.max(np.linalg.eigh(cov)[0]))
+                    if max_axis > max_cov_axis:
+                        to_delete.append(seg)
+                    # print(f"{seg.id}: {max_axis}")
+            except:
+                to_delete.append(seg)
+        for seg in to_delete:
+            segments.remove(seg)
+        return segments
+    
     def merge(self):
         """
         Merge segments with high overlap
         """
+
+        # Right now existing segments are merged with other existing segments or 
+        # segments inthe graveyard. Heuristic for merging involves either projected IOU or 
+        # 3D IOU. Should look into more.
+
         max_iter = 100
         n = 0
         edited = True
 
-        to_delete = []
-        for seg in self.segment_graveyard:
-            try:
-                seg.reconstruction3D(width_height=True)
-            except:
-                to_delete.append(seg)
-        for seg in to_delete:
-            self.segment_graveyard.remove(seg)
+        self.segment_graveyard = self.remove_bad_segments(self.segment_graveyard, max_cov_axis=0.5)
+        self.segments = self.remove_bad_segments(self.segments)
 
         # repeatedly try to merge until no further merges are possible
         while n < max_iter and edited:
             edited = False
             n += 1
 
-            for i, seg1 in enumerate(self.segment_graveyard):
-                for j, seg2 in enumerate(self.segment_graveyard):
+            for i, seg1 in enumerate(self.segments):
+                for j, seg2 in enumerate(self.segments + self.segment_graveyard):
                     if i >= j:
                         continue
                     reconstruction = seg1.reconstruction3D(width_height=True)
                     c1 = Cylinder(reconstruction[:3], 0.5*reconstruction[3], reconstruction[4])
                     reconstruction = seg2.reconstruction3D(width_height=True)
                     c2 = Cylinder(reconstruction[:3], 0.5*reconstruction[3], reconstruction[4])
-                    intersection = self.cylinder_intersection(c1, c2)
+                    intersection3d = self.cylinder_intersection(c1, c2)
                     combined_vol = c1.height * np.pi * c1.radius**2 + \
                         c2.height * np.pi * c2.radius**2
-                    iou = intersection / (combined_vol - intersection)
-                    if iou > self.merge_objects_iou:
+                    iou3d = intersection3d / (combined_vol - intersection3d)
+
+                    maks1 = seg1.reconstruct_mask(self.last_pose)
+                    maks2 = seg2.reconstruct_mask(self.last_pose)
+                    intersection2d = np.logical_and(maks1, maks2).sum()
+                    union2d = np.logical_or(maks1, maks2).sum()
+                    iou2d = intersection2d / union2d
+
+                    if iou3d > self.merge_objects_iou_3d or iou2d > self.merge_objects_iou_2d:
                         for obs in seg2.observations:
                             seg1.update(obs)
-                        self.segment_graveyard.pop(j)
+                        try:
+                            seg1.reconstruction3D(width_height=True)
+                            if j < len(self.segments):
+                                self.segments.pop(j)
+                            else:
+                                self.segment_graveyard.pop(j - len(self.segments))
+                            self.segment_graveyard.pop(j)
+                        except: # merging failed
+                            self.segments.pop(i)
                         edited = True
                         break
                 if edited:

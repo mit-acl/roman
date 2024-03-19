@@ -5,6 +5,8 @@ import argparse
 import pickle
 import tqdm
 import yaml
+import time
+import cv2 as cv
 
 from robot_utils.robot_data.img_data import ImgData
 from robot_utils.robot_data.pose_data import PoseData
@@ -20,12 +22,15 @@ from segment_track.segment import Segment
 from segment_track.tracker import Tracker
 from segment_track.fastsam_wrapper import FastSAMWrapper
 
-def draw(img, pose, tracker, K):
-    ax = plt.gca()
-    ax.clear()
-    remove_ticks(ax)
+def draw(t, img, pose, tracker, ax):
+    for axi in ax:
+        axi.clear()
+        remove_ticks(axi)
 
-    for segment in tracker.segments + tracker.segment_graveyard:
+    img_fastsam = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    img_fastsam = np.concatenate([img_fastsam[...,None]]*3, axis=2)
+
+    for i, segment in enumerate(tracker.segments + tracker.segment_graveyard):
         try:
             reconstruction = segment.reconstruction3D(width_height=True)
         except:
@@ -34,13 +39,33 @@ def draw(img, pose, tracker, K):
         centroid_c = transform(np.linalg.inv(pose), centroid_w)
         if centroid_c[2] < 0: # behind camera
             continue
-        img = draw_cylinder(img, K, centroid_c, width, height, color=(0, 255, 0), id=segment.id)
+        if i < len(tracker.segments):
+            color = (0, 255, 0)
+        else:
+            color = (255, 0, 0)
+        img = draw_cylinder(img, tracker.camera_params.K, centroid_c, width, height, color=color, id=segment.id)
 
-    ax.imshow(img[...,::-1])
+    for segment in tracker.segments:
+        if segment.last_seen == t:
+            colored_mask = np.zeros_like(img)
+            rand_color = np.random.randint(0, 255, 3)
+            # print(rand_color)
+            colored_mask = segment.last_mask.astype(np.int32)[..., np.newaxis]*rand_color
+            colored_mask = colored_mask.astype(np.uint8)
+            img_fastsam = cv.addWeighted(img_fastsam, 1.0, colored_mask, 0.5, 0)
+            for obs in segment.observations[::-1]:
+                if obs.time == t:
+                    img_fastsam = cv.putText(img_fastsam, str(segment.id), obs.pixel.astype(np.int32), 
+                         cv.FONT_HERSHEY_SIMPLEX, 0.5, rand_color.tolist(), 2)
+                    break
+            
+
+    ax[0].imshow(img[...,::-1])
+    ax[1].imshow(img_fastsam)
     return
 
 
-def update(t, img_data, pose_data, fastsam, tracker):
+def update(t, img_data, pose_data, fastsam, tracker, ax):
 
     try:
         img = img_data.img(t)
@@ -56,22 +81,17 @@ def update(t, img_data, pose_data, fastsam, tracker):
     print(f"observations: {len(observations)}")
 
     if len(observations) > 0:
-        tracker.update(t, observations)
+        tracker.update(t, pose, observations)
 
     print(f"segments: {len(tracker.segments)}")
 
-    draw(img, pose, tracker, img_data.camera_params.K)
+    draw(t, img, pose, tracker, ax)
 
     return
 
     
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--params', type=str, help='Path to params file', required=True)
-    parser.add_argument('-o', '--output', type=str, help='Path to output file', required=False, default=None)
-    args = parser.parse_args()
-
+def main(args):
     with open(args.params, 'r') as f:
         params = yaml.safe_load(f)
 
@@ -158,25 +178,36 @@ if __name__ == '__main__':
     )
 
     print("Running segment tracking!")
-    fig, ax = plt.subplots()
-    def update_wrapper(t): update(t, img_data, pose_data, fastsam, tracker); print(f"t: {t - t0:.2f}")
-    ani = FuncAnimation(fig, update_wrapper, frames=tqdm.tqdm(np.arange(t0, tf, .05)), interval=10, repeat=False)
+    wc_t0 = time.time()
+    fig, ax = plt.subplots(1, 2, dpi=400)
+    def update_wrapper(t): update(t, img_data, pose_data, fastsam, tracker, ax); print(f"t: {t - t0:.2f}")
 
-    if not args.output:
-        plt.show()
+    if not args.no_vid:
+        ani = FuncAnimation(fig, update_wrapper, frames=tqdm.tqdm(np.arange(t0, tf, params['segment_tracking']['dt'])), interval=10, repeat=False)
+        if not args.output:
+            plt.show()
+        else:
+            video_file = args.output + ".mp4"
+            writervideo = FFMpegWriter(fps=30)
+            ani.save(video_file, writer=writervideo)
+
+            pkl_path = args.output + ".pkl"
+            pkl_file = open(pkl_path, 'wb')
+            pickle.dump(tracker, pkl_file, -1)
+            pkl_file.close()
     else:
-        video_file = args.output + ".mp4"
-        writervideo = FFMpegWriter(fps=30)
-        ani.save(video_file, writer=writervideo)
+        for t in np.arange(t0, tf, params['segment_tracking']['dt']):
+            update_wrapper(t)
 
-        pkl_path = args.output + ".pkl"
-        pkl_file = open(pkl_path, 'wb')
-        pickle.dump(tracker, pkl_file, -1)
-        pkl_file.close()
+    print(f"Segment tracking took {time.time() - wc_t0:.2f} seconds")
+    print(f"Run duration was {tf - t0:.2f} seconds")
+    print(f"Compute per second: {(time.time() - wc_t0) / (tf - t0):.2f}")
 
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', '--params', type=str, help='Path to params file', required=True)
+    parser.add_argument('-o', '--output', type=str, help='Path to output file', required=False, default=None)
+    parser.add_argument('--no-vid', action='store_true', help='Do not show or save video')
+    args = parser.parse_args()
 
-
-
-    # import ipdb; ipdb.set_trace()
-
-    # update(t0, tf, img_data, pose_data, fastsam, tracker)
+    main(args)

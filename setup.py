@@ -1,7 +1,5 @@
 from setuptools import setup, find_packages
 
-# TODO: Don't forget to add an __init__.py in directory!
-
 setup(
     name='segment_track',
     version='0.1.0',    
@@ -14,7 +12,8 @@ setup(
     install_requires=[
         'numpy',
         'scipy',
-        'matplotlib'
+        'matplotlib', 
+        'gtsam',
     ],
 )
 
