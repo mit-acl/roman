@@ -1,6 +1,7 @@
 import numpy as np
 from typing import List
 from dataclasses import dataclass
+import cv2 as cv
 
 from robot_utils.robot_data.img_data import CameraParams
 
@@ -28,16 +29,19 @@ class Tracker():
             min_sightings: int,
             max_t_no_sightings: int,
             merge_objects: bool = False,
-            merge_objects_iou: float = 0.25
+            merge_objects_iou: float = 0.25,
     ):
         self.camera_params = camera_params
         self.pixel_std_dev = pixel_std_dev
         self.min_iou = min_iou
         self.min_sightings = min_sightings
         self.max_t_no_sightings = max_t_no_sightings
+        self.min_orb_matches = 5
+        self.num_orb_features = 10
         self.merge_objects = merge_objects
         self.merge_objects_iou_3d = merge_objects_iou
         self.merge_objects_iou_2d = 0.8
+        self.max_cov_axis = 1.0
 
         self.segment_nursery = []
         self.segments = []
@@ -54,6 +58,10 @@ class Tracker():
         associated_pairs = global_nearest_neighbor(
             self.segments + self.segment_nursery, observations, self.mask_similarity, self.min_iou
         )
+        # associated_pairs = global_nearest_neighbor(
+        #     self.segments + self.segment_nursery, observations, 
+        #     self.orb_similarity, self.min_orb_matches / self.num_orb_features
+        # )
 
         # separate segments associated with nursery and normal segments
         pairs_existing = [[seg_idx, obs_idx] for seg_idx, obs_idx \
@@ -65,7 +73,8 @@ class Tracker():
         for seg_idx, obs_idx in pairs_existing:
             self.segments[seg_idx].update(observations[obs_idx])
         for seg_idx, obs_idx in pairs_nursery:
-            self.segment_nursery[seg_idx].update(observations[obs_idx])
+            # forcing add does not try to reconstruct the segment
+            self.segment_nursery[seg_idx].update(observations[obs_idx], force=True)
 
         # handle moving existing segments to graveyard
         to_rm = [seg for seg in self.segments \
@@ -117,6 +126,25 @@ class Tracker():
 
         return np.max([iou, intersection / union])
     
+    def orb_similarity(self, segment: Segment, observation: Observation):
+        """
+        Compute the similarity between the ORB descriptors of a segment and an observation
+        """
+        matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=False)
+
+        # find 2 best matches for each observation descriptor 
+        # (will use to throw away ambiguous matches)
+        matches = matcher.knnMatch(segment.last_observation.descriptors, 
+                                   observation.descriptors, k=2)
+
+        good_matches = []
+        for m, n in matches:
+            if m.distance < .75*n.distance:
+                good_matches.append(m)
+
+        return len(good_matches) / self.num_orb_features
+
+    
     def filter_segment_graveyard(self, rm_fun: callable):
         """
         Filter the segment graveyard when rm_fun returns True
@@ -137,6 +165,7 @@ class Tracker():
             segments (List[Segment]): Filtered list of segments
         """
         to_delete = []
+        # reason = []
         for seg in segments:
             try:
                 seg.reconstruction3D(width_height=True)
@@ -145,11 +174,15 @@ class Tracker():
                     max_axis = np.sqrt(np.max(np.linalg.eigh(cov)[0]))
                     if max_axis > max_cov_axis:
                         to_delete.append(seg)
+                        # reason.append(f"Deleting {seg.id}: since max_axis = {max_axis}")
                     # print(f"{seg.id}: {max_axis}")
             except:
                 to_delete.append(seg)
+                # reason.append(f"Deleting {seg.id}: since reconstruction failed")
         for seg in to_delete:
             segments.remove(seg)
+            # for r in reason:
+            #     print(r)
         return segments
     
     def merge(self):
@@ -165,7 +198,7 @@ class Tracker():
         n = 0
         edited = True
 
-        self.segment_graveyard = self.remove_bad_segments(self.segment_graveyard, max_cov_axis=0.5)
+        self.segment_graveyard = self.remove_bad_segments(self.segment_graveyard, max_cov_axis=self.max_cov_axis)
         self.segments = self.remove_bad_segments(self.segments)
 
         # repeatedly try to merge until no further merges are possible
@@ -197,12 +230,13 @@ class Tracker():
                             seg1.update(obs)
                         try:
                             seg1.reconstruction3D(width_height=True)
+                            # print(f"Merging {seg2.id} into {seg1.id}")
                             if j < len(self.segments):
                                 self.segments.pop(j)
                             else:
                                 self.segment_graveyard.pop(j - len(self.segments))
-                            self.segment_graveyard.pop(j)
                         except: # merging failed
+                            # print(f"Merging failed, instead removing {seg1.id}")
                             self.segments.pop(i)
                         edited = True
                         break
