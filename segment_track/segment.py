@@ -1,5 +1,6 @@
 import numpy as np
 import gtsam
+from typing import List
 
 from robot_utils.robot_data.img_data import CameraParams
 from robot_utils.transform import transform
@@ -25,13 +26,24 @@ class Segment():
         self.pixel_std_dev = pixel_std_dev
         self.num_sightings = 1
         self.edited = True
+        self.last_observation = observation
 
-    def update(self, observation: Observation):
-        if observation.mask is not None:
-            self.last_mask = observation.mask.copy()
+    def update(self, observation: Observation, force=False):
+
+        # See if this will break the reconstruction
+        if not force:
+            try: 
+                self.reconstruction_from_observations(self.observations + [observation], width_height=False)
+            except:
+                return
+
         self.observations.append(observation.copy(include_mask=False))
-        self.last_seen = observation.time
         self.num_sightings += 1
+        if observation.time > self.last_seen:
+            if observation.mask is not None:
+                self.last_mask = observation.mask.copy()
+            self.last_seen = observation.time
+            self.last_observation = observation
 
     def reconstruction3D(self, width_height=False):
 
@@ -40,17 +52,21 @@ class Segment():
                 return self.reconstruction[:3]
             return self.reconstruction
         
+        self.reconstruction = self.reconstruction_from_observations(self.observations, width_height)
+        return self.reconstruction
+    
+    def reconstruction_from_observations(self, observations: List[Observation], width_height=False):
         camera_poses = []
-        for obs in self.observations:
+        for obs in observations:
             camera_poses.append(gtsam.PinholeCameraCal3DS2(gtsam.Pose3(obs.pose), self.cal3ds2))
         camera_set = gtsam.gtsam.CameraSetCal3DS2(camera_poses)
-        pixels_point_vec = gtsam.Point2Vector([gtsam.Point2(obs.pixel) for obs in self.observations])
+        pixels_point_vec = gtsam.Point2Vector([gtsam.Point2(obs.pixel) for obs in observations])
         measurement_noise = gtsam.noiseModel.Isotropic.Sigma(2, self.pixel_std_dev)
         reconstruction = gtsam.triangulatePoint3(camera_set, pixels_point_vec, rank_tol=1e-9, optimize=True, model=measurement_noise)
 
         if width_height:
             ws, hs = [], []
-            for obs in self.observations:
+            for obs in observations:
                 p_c = transform(np.linalg.inv(obs.pose), reconstruction)
                 ws.append(obs.width * np.abs(p_c[0]) / np.abs(obs.pixel[0] - self.camera_params.K[0,2]))
                 hs.append(obs.height * np.abs(p_c[1]) / np.abs(obs.pixel[1] - self.camera_params.K[1,2]))
