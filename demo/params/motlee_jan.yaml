@@ -46,12 +46,11 @@ bag:
 
 fastsam:
   weights: "/home/masonbp/tools/fastsam/weights/FastSAM-x.pt"
-  # imgsz: 512
   imgsz: 256
 
 segment_tracking:
   min_sightings: 5
-  pixel_std_dev: 20.0
+  pixel_std_dev: 10.0
   min_iou: 0.25
   max_t_no_sightings: 1.0
-  dt: 0.05
+  dt: 0.066667
