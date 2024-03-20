@@ -7,6 +7,8 @@ import tqdm
 import yaml
 import time
 import cv2 as cv
+import signal
+import sys
 
 from robot_utils.robot_data.img_data import ImgData
 from robot_utils.robot_data.pose_data import PoseData
@@ -22,7 +24,7 @@ from segment_track.segment import Segment
 from segment_track.tracker import Tracker
 from segment_track.fastsam_wrapper import FastSAMWrapper
 
-def draw(t, img, pose, tracker, ax):
+def draw(t, img, pose, tracker, observations, ax):
     for axi in ax:
         axi.clear()
         remove_ticks(axi)
@@ -45,11 +47,14 @@ def draw(t, img, pose, tracker, ax):
             color = (255, 0, 0)
         img = draw_cylinder(img, tracker.camera_params.K, centroid_c, width, height, color=color, id=segment.id)
 
+    matched_masks = []
     for segment in tracker.segments:
         if segment.last_seen == t:
             colored_mask = np.zeros_like(img)
+            np.random.seed(segment.id)
             rand_color = np.random.randint(0, 255, 3)
             # print(rand_color)
+            matched_masks.append(segment.last_mask)
             colored_mask = segment.last_mask.astype(np.int32)[..., np.newaxis]*rand_color
             colored_mask = colored_mask.astype(np.uint8)
             img_fastsam = cv.addWeighted(img_fastsam, 1.0, colored_mask, 0.5, 0)
@@ -58,6 +63,18 @@ def draw(t, img, pose, tracker, ax):
                     img_fastsam = cv.putText(img_fastsam, str(segment.id), obs.pixel.astype(np.int32), 
                          cv.FONT_HERSHEY_SIMPLEX, 0.5, rand_color.tolist(), 2)
                     break
+    
+    for obs in observations:
+        alread_shown = False
+        for mask in matched_masks:
+            if np.all(mask == obs.mask):
+                alread_shown = True
+                break
+        if alread_shown:
+            continue
+        white_mask = obs.mask.astype(np.int32)[..., np.newaxis]*np.ones(3)*255
+        white_mask = white_mask.astype(np.uint8)
+        img_fastsam = cv.addWeighted(img_fastsam, 1.0, white_mask, 0.5, 0)
             
 
     ax[0].imshow(img[...,::-1])
@@ -75,8 +92,6 @@ def update(t, img_data, pose_data, fastsam, tracker, ax):
         return
     observations = fastsam.run(t, pose, img)
 
-    if np.round(t, 1) % 1 < 1e-3:
-        tracker.merge()
 
     print(f"observations: {len(observations)}")
 
@@ -85,10 +100,9 @@ def update(t, img_data, pose_data, fastsam, tracker, ax):
 
     print(f"segments: {len(tracker.segments)}")
 
-    draw(t, img, pose, tracker, ax)
+    draw(t, img, pose, tracker, observations, ax)
 
     return
-
     
 
 def main(args):
@@ -179,7 +193,7 @@ def main(args):
 
     print("Running segment tracking!")
     wc_t0 = time.time()
-    fig, ax = plt.subplots(1, 2, dpi=400)
+    fig, ax = plt.subplots(1, 2, dpi=400, layout='tight')
     def update_wrapper(t): update(t, img_data, pose_data, fastsam, tracker, ax); print(f"t: {t - t0:.2f}")
 
     if not args.no_vid:
@@ -188,11 +202,14 @@ def main(args):
             plt.show()
         else:
             video_file = args.output + ".mp4"
-            writervideo = FFMpegWriter(fps=30)
+            writervideo = FFMpegWriter(fps=int(.5*1/params['segment_tracking']['dt']))
             ani.save(video_file, writer=writervideo)
 
             pkl_path = args.output + ".pkl"
             pkl_file = open(pkl_path, 'wb')
+            # for seg in tracker.segments + tracker.segment_graveyard + tracker.segment_nursery:
+            #     for obs in seg.observations:
+            #         obs.keypoints = None
             pickle.dump(tracker, pkl_file, -1)
             pkl_file.close()
     else:
