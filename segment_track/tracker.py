@@ -55,8 +55,10 @@ class Tracker():
         self.last_pose = pose.copy()
         
         # associate observations with segments
+        mask_similarity = lambda seg, obs: max(self.mask_similarity(seg, obs, projected=False), 
+                                               self.mask_similarity(seg, obs, projected=True))
         associated_pairs = global_nearest_neighbor(
-            self.segments + self.segment_nursery, observations, self.mask_similarity, self.min_iou
+            self.segments + self.segment_nursery, observations, mask_similarity, self.min_iou
         )
         # associated_pairs = global_nearest_neighbor(
         #     self.segments + self.segment_nursery, observations, 
@@ -75,6 +77,11 @@ class Tracker():
         for seg_idx, obs_idx in pairs_nursery:
             # forcing add does not try to reconstruct the segment
             self.segment_nursery[seg_idx].update(observations[obs_idx], force=True)
+
+        # delete masks for segments that were not seen recently
+        for seg in self.segments:
+            if not np.allclose(t, seg.last_seen, rtol=0.0):
+                seg.last_observation.mask = None
 
         # handle moving existing segments to graveyard
         to_rm = [seg for seg in self.segments \
@@ -108,23 +115,26 @@ class Tracker():
             
         return
 
-    def mask_similarity(self, segment: Segment, observation: Observation):
+    def mask_similarity(self, segment: Segment, observation: Observation, projected: bool = False):
         """
         Compute the similarity between the mask of a segment and an observation
         """
-        if segment.last_mask is None:
-            assert False
-        intersection = np.logical_and(segment.last_mask, observation.mask).sum()
-        union = np.logical_or(segment.last_mask, observation.mask).sum()
-        iou = intersection / union
+        if not projected or segment in self.segment_nursery:
+            if segment.last_mask is None:
+                iou = 0.0
+            else:
+                intersection = np.logical_and(segment.last_mask, observation.mask).sum()
+                union = np.logical_or(segment.last_mask, observation.mask).sum()
+                iou = intersection / union
 
         # compute the similarity using the projected mask rather than last mask
-        if segment in self.segments:
+        else:
             segment_mask = segment.reconstruct_mask(observation.pose)
             intersection = np.logical_and(segment_mask, observation.mask).sum()
             union = np.logical_or(segment_mask, observation.mask).sum()
-
-        return np.max([iou, intersection / union])
+            iou  = intersection / union
+        
+        return iou
     
     def orb_similarity(self, segment: Segment, observation: Observation):
         """

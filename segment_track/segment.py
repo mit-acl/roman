@@ -13,10 +13,6 @@ class Segment():
     def __init__(self, observation: Observation, camera_params: CameraParams, 
                  pixel_std_dev: float, id: int = 0):
         self.id = id
-        if observation.mask is not None:
-            self.last_mask = observation.mask.copy()
-        else:
-            self.last_mask = None
         self.observations = [observation.copy(include_mask=False)]
         self.last_seen = observation.time
         self.camera_params = camera_params
@@ -37,13 +33,21 @@ class Segment():
             except:
                 return
 
-        self.observations.append(observation.copy(include_mask=False))
         self.num_sightings += 1
         if observation.time > self.last_seen:
-            if observation.mask is not None:
-                self.last_mask = observation.mask.copy()
+            self.observations.append(observation.copy(include_mask=True))
             self.last_seen = observation.time
+            self.last_observation.mask = None
             self.last_observation = observation
+        else:
+            self.observations.append(observation.copy(include_mask=False))
+
+    @property
+    def last_mask(self):
+        if self.last_observation.mask is not None:
+            return self.last_observation.mask.copy()
+        else:
+            return None
 
     def reconstruction3D(self, width_height=False):
 

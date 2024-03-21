@@ -194,7 +194,10 @@ def main(args):
     print("Running segment tracking!")
     wc_t0 = time.time()
     fig, ax = plt.subplots(1, 2, dpi=400, layout='tight')
-    def update_wrapper(t): update(t, img_data, pose_data, fastsam, tracker, ax); print(f"t: {t - t0:.2f}")
+    def update_wrapper(t): 
+        update(t, img_data, pose_data, fastsam, tracker, ax)
+        print(f"t: {t - t0:.2f} = {t}")
+        fig.suptitle(f"t: {t - t0:.2f}")
 
     if not args.no_vid:
         ani = FuncAnimation(fig, update_wrapper, frames=tqdm.tqdm(np.arange(t0, tf, params['segment_tracking']['dt'])), interval=10, repeat=False)
