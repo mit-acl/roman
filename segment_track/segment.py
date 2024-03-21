@@ -68,6 +68,26 @@ class Segment():
         measurement_noise = gtsam.noiseModel.Isotropic.Sigma(2, self.pixel_std_dev)
         reconstruction = gtsam.triangulatePoint3(camera_set, pixels_point_vec, rank_tol=1e-9, optimize=True, model=measurement_noise)
 
+        # Reconstruct point cloud in global frame
+        points_world = None
+        for obs in observations:
+            if obs.point_cloud is None: 
+                continue
+            Twb = obs.pose
+            Rwb = Twb[:3,:3]
+            twb = Twb[:3,3].reshape((3,1))
+            points_obs_body = obs.point_cloud.T
+            num_points_obs = points_obs_body.shape[1]
+            points_obs_world = Rwb @ points_obs_body + np.repeat(twb, num_points_obs, axis=1)
+            if points_world is None:
+                points_world = points_obs_world
+            else:
+                points_world = np.concatenate((points_world, points_obs_world), axis=1)
+        if points_world is not None:
+            self.points_world = points_world.T  # Back to n-by-3 matrix
+        else:
+            self.points_world = None
+
         if width_height:
             ws, hs = [], []
             for obs in observations:

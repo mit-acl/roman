@@ -116,19 +116,18 @@ class FastSAMWrapper():
             if img_depth is not None:
                 depth_obj = copy.deepcopy(img_depth)
                 depth_obj[mask==0] = 0
-                rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
-                    o3d.geometry.Image(np.ascontiguousarray(img)),
+                pcd = o3d.geometry.PointCloud.create_from_depth_image(
                     o3d.geometry.Image(np.ascontiguousarray(depth_obj)),
+                    self.depth_cam_intrinsics,
                     depth_scale=self.depth_scale,
                     depth_trunc=self.max_depth,
-                    convert_rgb_to_intensity=False,
-                )
-                pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
-                    rgbd, self.depth_cam_intrinsics, project_valid_depth_only=False
+                    stride=1,
+                    project_valid_depth_only=True
                 )
                 pcd.remove_non_finite_points()
                 pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
-                ptcld = np.asarray(pcd_sampled.points)
+                if not pcd_sampled.is_empty():
+                    ptcld = np.asarray(pcd_sampled.points)
 
             self.observations.append(Observation(t, pose, np.array(mean), w, h, mask, ptcld))
 
