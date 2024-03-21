@@ -6,7 +6,6 @@ bag:
   cam_info_topic: /RR08/l515/color/camera_info
   pose_time_tol: 0.5
   t0: 100
-  # tf: 130
   tf: 130
   relative_time: True
   T_body_odom: 
@@ -50,7 +49,7 @@ fastsam:
 
 segment_tracking:
   min_sightings: 5
-  pixel_std_dev: 10.0
+  pixel_std_dev: 15.0
   min_iou: 0.25
   max_t_no_sightings: 1.0
   dt: 0.066667
