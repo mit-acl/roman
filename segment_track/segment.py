@@ -72,8 +72,8 @@ class Segment():
             ws, hs = [], []
             for obs in observations:
                 p_c = transform(np.linalg.inv(obs.pose), reconstruction)
-                ws.append(obs.width * np.abs(p_c[0]) / np.abs(obs.pixel[0] - self.camera_params.K[0,2]))
-                hs.append(obs.height * np.abs(p_c[1]) / np.abs(obs.pixel[1] - self.camera_params.K[1,2]))
+                ws.append(obs.width * np.abs(p_c[2]) / self.camera_params.K[0,0])
+                hs.append(obs.height * np.abs(p_c[2]) / self.camera_params.K[1,1])
             reconstruction = np.concatenate((reconstruction, [np.mean(ws)], [np.mean(hs)]))
                 
         self.reconstruction = reconstruction
