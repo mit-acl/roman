@@ -30,6 +30,7 @@ class Tracker():
             max_t_no_sightings: int,
             merge_objects: bool = False,
             merge_objects_iou: float = 0.25,
+            max_cov_axis: float = 2.0
     ):
         self.camera_params = camera_params
         self.pixel_std_dev = pixel_std_dev
@@ -41,7 +42,7 @@ class Tracker():
         self.merge_objects = merge_objects
         self.merge_objects_iou_3d = merge_objects_iou
         self.merge_objects_iou_2d = 0.8
-        self.max_cov_axis = 1.0
+        self.max_cov_axis = max_cov_axis
 
         self.segment_nursery = []
         self.segments = []
@@ -241,6 +242,7 @@ class Tracker():
                         try:
                             seg1.reconstruction3D(width_height=True)
                             # print(f"Merging {seg2.id} into {seg1.id}")
+                            seg1.id = min(seg1.id, seg2.id)
                             if j < len(self.segments):
                                 self.segments.pop(j)
                             else:
