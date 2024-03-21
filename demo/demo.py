@@ -117,6 +117,8 @@ def main(args):
 
     assert params['fastsam']['weights'] is not None, "weights must be specified in params"
     assert params['fastsam']['imgsz'] is not None, "imgsz must be specified in params"
+    if 'device' not in params['fastsam']:
+        params['fastsam']['device'] = 'cuda'
     
     assert params['segment_tracking']['min_iou'] is not None, "min_iou must be specified in params"
     assert params['segment_tracking']['min_sightings'] is not None, "min_sightings must be specified in params"
@@ -172,7 +174,7 @@ def main(args):
     fastsam = FastSAMWrapper(
         weights=params['fastsam']['weights'],
         imgsz=params['fastsam']['imgsz'],
-        device='cuda'
+        device=params['fastsam']['device']
     )
     img_area = img_data.camera_params.width * img_data.camera_params.height
     fastsam.setup_filtering(
