@@ -74,10 +74,10 @@ class Tracker():
 
         # update segments with associated observations
         for seg_idx, obs_idx in pairs_existing:
-            self.segments[seg_idx].update(observations[obs_idx])
+            self.segments[seg_idx].update(observations[obs_idx], integrate_points=True)
         for seg_idx, obs_idx in pairs_nursery:
             # forcing add does not try to reconstruct the segment
-            self.segment_nursery[seg_idx].update(observations[obs_idx], force=True)
+            self.segment_nursery[seg_idx].update(observations[obs_idx], force=True, integrate_points=False)
 
         # delete masks for segments that were not seen recently
         for seg in self.segments:
@@ -238,7 +238,7 @@ class Tracker():
 
                     if iou3d > self.merge_objects_iou_3d or iou2d > self.merge_objects_iou_2d:
                         for obs in seg2.observations:
-                            seg1.update(obs)
+                            seg1.update(obs, integrate_points=False)
                         try:
                             seg1.reconstruction3D(width_height=True)
                             # print(f"Merging {seg2.id} into {seg1.id}")
