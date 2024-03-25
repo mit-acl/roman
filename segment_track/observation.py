@@ -13,9 +13,9 @@ class Observation():
     width: int
     height: int
     mask: np.ndarray = None
-    point_cloud: np.ndarray = None
+    point_cloud: np.ndarray = None  # n-by-3 matrix. Each row is a 3D point.
 
-    def copy(self, include_mask: bool = True, include_ptcld = True):
+    def copy(self, include_mask: bool = True, include_ptcld = False):
         ptcld_copy = None
         if self.point_cloud is not None and include_ptcld:
             ptcld_copy = self.point_cloud.copy()

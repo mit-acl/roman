@@ -6,12 +6,13 @@ from robot_utils.robot_data.img_data import CameraParams
 from robot_utils.transform import transform
 from robot_utils.camera import xyz_2_pixel
 
+import open3d as o3d
 from segment_track.observation import Observation
 
 class Segment():
 
     def __init__(self, observation: Observation, camera_params: CameraParams, 
-                 pixel_std_dev: float, id: int = 0):
+                 pixel_std_dev: float, id: int = 0, voxel_size: float = 0.05):
         self.id = id
         self.observations = [observation.copy(include_mask=False)]
         self.last_seen = observation.time
@@ -23,8 +24,17 @@ class Segment():
         self.num_sightings = 1
         self.edited = True
         self.last_observation = observation
+        self.pcd = o3d.geometry.PointCloud()  # pcd object stores points in global (world) frame
+        self.voxel_size = voxel_size  # voxel size used for maintaining point clouds
 
-    def update(self, observation: Observation, force=False):
+    def update(self, observation: Observation, force=False, integrate_points=True):
+        """Update a 3D segment with a new observation
+
+        Args:
+            observation (Observation): Input observation object
+            force (bool, optional): If true, do not attempt 3D reconstruction. Defaults to False.
+            integrate_points (bool, optional): If true, integrate point cloud contained in observation. Defaults to True.
+        """
 
         # See if this will break the reconstruction
         if not force:
@@ -32,6 +42,10 @@ class Segment():
                 self.reconstruction_from_observations(self.observations + [observation], width_height=False)
             except:
                 return
+            
+        # Integrate point measurements
+        if integrate_points:
+            self.integrate_points(observation)
 
         self.num_sightings += 1
         if observation.time > self.last_seen:
@@ -41,6 +55,37 @@ class Segment():
             self.last_observation = observation
         else:
             self.observations.append(observation.copy(include_mask=False))
+    
+    def integrate_points(self, observation: Observation):
+        """Integrate point cloud in the input observation object
+
+        Args:
+            observation (Observation): input observation object
+        """
+        if observation.point_cloud is None:
+            return
+        # Convert observed points to global frame
+        Twb = observation.pose
+        Rwb = Twb[:3,:3]
+        twb = Twb[:3,3].reshape((3,1))
+        points_obs_body = observation.point_cloud.T
+        num_points_obs = points_obs_body.shape[1]
+        points_obs_world = Rwb @ points_obs_body + np.repeat(twb, num_points_obs, axis=1)
+        self.pcd.points.extend(points_obs_world.T)
+        self.pcd = self.pcd.voxel_down_sample(voxel_size=self.voxel_size)
+        self.pcd, _ = self.pcd.remove_statistical_outlier(10, 0.1)
+
+    def points(self):
+        """Get points in world frame as n-by-3 numpy array.
+        If no points, None is returned.
+        """
+        if self.pcd.is_empty():
+            return None
+        return np.asarray(self.pcd.points)     
+
+    @property
+    def num_points(self):
+        return len(self.pcd.points)
 
     @property
     def last_mask(self):
@@ -67,26 +112,6 @@ class Segment():
         pixels_point_vec = gtsam.Point2Vector([gtsam.Point2(obs.pixel) for obs in observations])
         measurement_noise = gtsam.noiseModel.Isotropic.Sigma(2, self.pixel_std_dev)
         reconstruction = gtsam.triangulatePoint3(camera_set, pixels_point_vec, rank_tol=1e-9, optimize=True, model=measurement_noise)
-
-        # Reconstruct point cloud in global frame
-        points_world = None
-        for obs in observations:
-            if obs.point_cloud is None: 
-                continue
-            Twb = obs.pose
-            Rwb = Twb[:3,:3]
-            twb = Twb[:3,3].reshape((3,1))
-            points_obs_body = obs.point_cloud.T
-            num_points_obs = points_obs_body.shape[1]
-            points_obs_world = Rwb @ points_obs_body + np.repeat(twb, num_points_obs, axis=1)
-            if points_world is None:
-                points_world = points_obs_world
-            else:
-                points_world = np.concatenate((points_world, points_obs_world), axis=1)
-        if points_world is not None:
-            self.points_world = points_world.T  # Back to n-by-3 matrix
-        else:
-            self.points_world = None
 
         if width_height:
             ws, hs = [], []
