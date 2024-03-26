@@ -239,6 +239,7 @@ class Tracker():
                     if iou3d > self.merge_objects_iou_3d or iou2d > self.merge_objects_iou_2d:
                         for obs in seg2.observations:
                             seg1.update(obs, integrate_points=False)
+                        seg1.integrate_points_from_segment(seg2)
                         try:
                             seg1.reconstruction3D(width_height=True)
                             # print(f"Merging {seg2.id} into {seg1.id}")
