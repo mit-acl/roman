@@ -45,7 +45,7 @@ class Segment():
             
         # Integrate point measurements
         if integrate_points:
-            self.integrate_points(observation)
+            self.integrate_points_from_observation(observation)
 
         self.num_sightings += 1
         if observation.time > self.last_seen:
@@ -56,7 +56,7 @@ class Segment():
         else:
             self.observations.append(observation.copy(include_mask=False))
     
-    def integrate_points(self, observation: Observation):
+    def integrate_points_from_observation(self, observation: Observation):
         """Integrate point cloud in the input observation object
 
         Args:
@@ -74,6 +74,18 @@ class Segment():
         self.pcd.points.extend(points_obs_world.T)
         self.pcd = self.pcd.voxel_down_sample(voxel_size=self.voxel_size)
         self.pcd, _ = self.pcd.remove_statistical_outlier(10, 0.1)
+
+    def integrate_points_from_segment(self, segment):
+        """Integrate the points from another segment into this segment.
+        Both segments are assumed to be in the same reference frame
+
+        Args:
+            segment (Segment): _description_
+        """
+        if segment.num_points > 0:
+            self.pcd.points.extend(segment.points())
+            self.pcd = self.pcd.voxel_down_sample(voxel_size=self.voxel_size)
+            self.pcd, _ = self.pcd.remove_statistical_outlier(10, 0.1)
 
     def points(self):
         """Get points in world frame as n-by-3 numpy array.

@@ -17,6 +17,9 @@ from fastsam3D.utils import compute_blob_mean_and_covariance, plotErrorEllipse
 import fastsam3D.segment_qualification as seg_qual
 
 from segment_track.observation import Observation
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 def ssc(keypoints, num_ret_points, tolerance, cols, rows):
     exp1 = rows + cols + 2 * num_ret_points
@@ -220,8 +223,9 @@ class FastSAMWrapper():
             if img_depth is not None:
                 depth_obj = copy.deepcopy(img_depth)
                 depth_obj[mask==0] = 0
+                logger.debug(f"img_depth type {img_depth.dtype}, shape={img_depth.shape}")
                 pcd = o3d.geometry.PointCloud.create_from_depth_image(
-                    o3d.geometry.Image(np.ascontiguousarray(depth_obj)),
+                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
                     self.depth_cam_intrinsics,
                     depth_scale=self.depth_scale,
                     depth_trunc=self.max_depth,
