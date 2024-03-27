@@ -24,7 +24,7 @@ class Segment():
         self.num_sightings = 1
         self.edited = True
         self.last_observation = observation
-        self.pcd = o3d.geometry.PointCloud()  # pcd object stores points in global (world) frame
+        self.points = None
         self.voxel_size = voxel_size  # voxel size used for maintaining point clouds
 
     def update(self, observation: Observation, force=False, integrate_points=True):
@@ -71,9 +71,7 @@ class Segment():
         points_obs_body = observation.point_cloud.T
         num_points_obs = points_obs_body.shape[1]
         points_obs_world = Rwb @ points_obs_body + np.repeat(twb, num_points_obs, axis=1)
-        self.pcd.points.extend(points_obs_world.T)
-        self.pcd = self.pcd.voxel_down_sample(voxel_size=self.voxel_size)
-        self.pcd, _ = self.pcd.remove_statistical_outlier(10, 0.1)
+        self._add_points(points_obs_world.T)
 
     def integrate_points_from_segment(self, segment):
         """Integrate the points from another segment into this segment.
@@ -83,21 +81,45 @@ class Segment():
             segment (Segment): _description_
         """
         if segment.num_points > 0:
-            self.pcd.points.extend(segment.points())
-            self.pcd = self.pcd.voxel_down_sample(voxel_size=self.voxel_size)
-            self.pcd, _ = self.pcd.remove_statistical_outlier(10, 0.1)
+            self._add_points(segment.points)
 
-    def points(self):
-        """Get points in world frame as n-by-3 numpy array.
-        If no points, None is returned.
-        """
-        if self.pcd.is_empty():
-            return None
-        return np.asarray(self.pcd.points)     
+    def _add_points(self, points):
+        assert points.shape[1] == 3
+        if points.shape[0] == 0:
+            return
+        if self.points is None:
+            self.points = points
+        else:
+            self.points = np.concatenate((self.points, points), axis=0)
+        self._cleanup_points()
+    
+    def _cleanup_points(self):
+        if self.points is not None:
+            pcd = o3d.geometry.PointCloud()
+            pcd.points.extend(self.points)
+            pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
+            pcd_pruned, _ = pcd_sampled.remove_statistical_outlier(10, 0.1)
+            if pcd_pruned.is_empty():
+                self.points = None
+            else:
+                self.points = np.asarray(pcd_pruned.points)    
 
     @property
     def num_points(self):
-        return len(self.pcd.points)
+        if self.points is None:
+            return 0
+        else:
+            return self.points.shape[0]
+        
+    def aabb_volume(self):
+        """Return the volume of the 3D axis-aligned bounding box
+        """
+        if self.num_points > 0:
+            aabb = o3d.geometry.AxisAlignedBoundingBox.create_from_points(
+                o3d.utility.Vector3dVector(self.points)
+            )
+            return aabb.volume()
+        return 0.0
 
     @property
     def last_mask(self):

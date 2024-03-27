@@ -232,7 +232,7 @@ def main(args):
         max_t_no_sightings=params['segment_tracking']['max_t_no_sightings']
     )
 
-    print("Running segment tracking!")
+    print("Running segment tracking! Start time {:.1f}, end time {:.1f}".format(t0, tf))
     wc_t0 = time.time()
     fig, ax = plt.subplots(1, 2, dpi=400, layout='tight')
     poses_history = []
@@ -243,20 +243,7 @@ def main(args):
 
     if not args.no_vid:
         ani = FuncAnimation(fig, update_wrapper, frames=tqdm.tqdm(np.arange(t0, tf, params['segment_tracking']['dt'])), interval=10, repeat=False)
-        if not args.output:
-            plt.show()
-        else:
-            video_file = args.output + ".mp4"
-            writervideo = FFMpegWriter(fps=int(.5*1/params['segment_tracking']['dt']))
-            ani.save(video_file, writer=writervideo)
-
-            pkl_path = args.output + ".pkl"
-            pkl_file = open(pkl_path, 'wb')
-            # for seg in tracker.segments + tracker.segment_graveyard + tracker.segment_nursery:
-            #     for obs in seg.observations:
-            #         obs.keypoints = None
-            pickle.dump(tracker, pkl_file, -1)
-            pkl_file.close()
+        plt.show()            
     else:
         for t in np.arange(t0, tf, params['segment_tracking']['dt']):
             update_wrapper(t)
@@ -266,6 +253,17 @@ def main(args):
     print(f"Compute per second: {(time.time() - wc_t0) / (tf - t0):.2f}")
 
     print(f"Number of poses: {len(poses_history)}.")
+
+    if args.output:
+        pkl_path = args.output + ".pkl"
+        pkl_file = open(pkl_path, 'wb')
+        # for seg in tracker.segments + tracker.segment_graveyard + tracker.segment_nursery:
+        #     for obs in seg.observations:
+        #         obs.keypoints = None
+        pickle.dump([tracker, poses_history], pkl_file, -1)
+        logging.info(f"Saved tracker, poses_history to file: {pkl_path}.")
+        pkl_file.close()
+
     poses_list = []
     pcd_list = []
     for Twb in poses_history:
@@ -273,7 +271,7 @@ def main(args):
         pose_obj.transform(Twb)
         poses_list.append(pose_obj)
     for seg in tracker.segments + tracker.segment_graveyard:
-        seg_points = seg.points()
+        seg_points = seg.points
         if seg_points is not None:
             num_pts = seg_points.shape[0]
             pcd = o3d.geometry.PointCloud()
