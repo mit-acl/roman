@@ -234,7 +234,11 @@ def main(args):
 
     print("Running segment tracking! Start time {:.1f}, end time {:.1f}".format(t0, tf))
     wc_t0 = time.time()
-    fig, ax = plt.subplots(1, 2, dpi=400, layout='tight')
+    if not args.no_vid:
+        fig, ax = plt.subplots(1, 2, dpi=400, layout='tight')
+    else:
+        fig = None
+        ax = None
     poses_history = []
     def update_wrapper(t): 
         update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history)
