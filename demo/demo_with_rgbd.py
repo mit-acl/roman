@@ -136,6 +136,7 @@ def main(args):
     assert params['segment_tracking']['min_sightings'] is not None, "min_sightings must be specified in params"
     assert params['segment_tracking']['pixel_std_dev'] is not None, "max_t_no_sightings must be specified in params"
     assert params['segment_tracking']['max_t_no_sightings'] is not None, "max_t_no_sightings must be specified in params"
+    assert params['segment_tracking']['mask_downsample_factor'] is not None, "Mask downsample factor cannot be none!"
 
     # Setup logging
     # TODO: add support for logfile
@@ -207,7 +208,8 @@ def main(args):
     fastsam = FastSAMWrapper(
         weights=params['fastsam']['weights'],
         imgsz=params['fastsam']['imgsz'],
-        device=params['fastsam']['device']
+        device=params['fastsam']['device'],
+        mask_downsample_factor=params['segment_tracking']['mask_downsample_factor']
     )
     fastsam.setup_rgbd_params(
         depth_cam_params=depth_data.camera_params, 
@@ -229,7 +231,8 @@ def main(args):
         pixel_std_dev=params['segment_tracking']['pixel_std_dev'],
         min_iou=params['segment_tracking']['min_iou'],
         min_sightings=params['segment_tracking']['min_sightings'],
-        max_t_no_sightings=params['segment_tracking']['max_t_no_sightings']
+        max_t_no_sightings=params['segment_tracking']['max_t_no_sightings'],
+        mask_downsample_factor=params['segment_tracking']['mask_downsample_factor']
     )
 
     print("Running segment tracking! Start time {:.1f}, end time {:.1f}".format(t0, tf))

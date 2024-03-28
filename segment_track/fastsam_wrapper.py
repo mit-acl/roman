@@ -123,7 +123,8 @@ class FastSAMWrapper():
         conf=.5, 
         iou=.9,
         imgsz=1024,
-        device='cuda'
+        device='cuda',
+        mask_downsample_factor=1
     ):
         # parameters
         self.weights = weights
@@ -131,6 +132,7 @@ class FastSAMWrapper():
         self.iou = iou
         self.device = device
         self.imgsz = imgsz
+        self.mask_downsample_factor = mask_downsample_factor
 
         # member variables
         self.observations = []
@@ -237,7 +239,15 @@ class FastSAMWrapper():
                 if not pcd_sampled.is_empty():
                     ptcld = np.asarray(pcd_sampled.points)
 
-            self.observations.append(Observation(t, pose, np.array(mean), w, h, mask, ptcld))
+            # Generate downsampled mask
+            # TODO: make downsample factor into a param
+            mask_downsampled = np.array(cv.resize(
+                mask,
+                (mask.shape[1]//self.mask_downsample_factor, mask.shape[0]//self.mask_downsample_factor), 
+                interpolation=cv.INTER_NEAREST
+            )).astype('uint8')
+
+            self.observations.append(Observation(t, pose, np.array(mean), w, h, mask, mask_downsampled, ptcld))
 
         # TODO: fix plotting
         # if plot_dir is not None:
