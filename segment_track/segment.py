@@ -1,5 +1,6 @@
 import numpy as np
 import gtsam
+import cv2 as cv
 from typing import List
 
 from robot_utils.robot_data.img_data import CameraParams
@@ -158,7 +159,7 @@ class Segment():
         self.reconstruction = reconstruction
         return reconstruction
     
-    def reconstruct_mask(self, pose):
+    def reconstruct_mask(self, pose, downsample_factor=1):
         mask = np.zeros((self.camera_params.height, self.camera_params.width), dtype=np.uint8)
         reconstruction = self.reconstruction3D(width_height=True)
         p_c = transform(np.linalg.inv(pose), reconstruction[:3])
@@ -178,6 +179,15 @@ class Segment():
         upper_right_uv = np.minimum(upper_right_uv, [self.camera_params.width, self.camera_params.height])
         mask[lower_left_uv[1]:upper_right_uv[1], lower_left_uv[0]:upper_right_uv[0]] = 1
 
+        if downsample_factor == 1:
+            return mask.astype('uint8')
+        
+        # Additional downsampling
+        mask = np.array(cv.resize(
+                    mask,
+                    (mask.shape[1]//downsample_factor, mask.shape[0]//downsample_factor), 
+                    interpolation=cv.INTER_NEAREST
+                )).astype('uint8')
         return mask
     
     @property
