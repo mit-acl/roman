@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 import numpy as np
+import cv2 as cv
+from typing import List
 
 @dataclass
 class Observation():
@@ -13,6 +15,8 @@ class Observation():
     width: int
     height: int
     mask: np.ndarray = None
+    keypoints: List[cv.KeyPoint] = None
+    descriptors: np.ndarray = None
 
     def copy(self, include_mask: bool = True):
         if include_mask:

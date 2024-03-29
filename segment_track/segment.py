@@ -35,10 +35,9 @@ class Segment():
 
         self.num_sightings += 1
         if observation.time > self.last_seen:
-            self.observations.append(observation.copy(include_mask=True))
+            self.observations.append(observation.copy(include_mask=False))
             self.last_seen = observation.time
-            self.last_observation.mask = None
-            self.last_observation = observation
+            self.last_observation = observation.copy(include_mask=True)
         else:
             self.observations.append(observation.copy(include_mask=False))
 
