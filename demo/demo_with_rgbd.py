@@ -221,7 +221,7 @@ def main(args):
     fastsam.setup_filtering(
         ignore_people=True,
         yolo_det_img_size=(128, 128),
-        allow_tblr_edges=[False, False, False, False],
+        allow_tblr_edges=[True, True, True, True],
         area_bounds=[img_area / 20**2, img_area / 5**2]
     )
 
@@ -250,7 +250,12 @@ def main(args):
 
     if not args.no_vid:
         ani = FuncAnimation(fig, update_wrapper, frames=tqdm.tqdm(np.arange(t0, tf, params['segment_tracking']['dt'])), interval=10, repeat=False)
-        plt.show()            
+        if not args.output:
+            plt.show()
+        else:
+            video_file = args.output + ".mp4"
+            writervideo = FFMpegWriter(fps=int(.5*1/params['segment_tracking']['dt']))
+            ani.save(video_file, writer=writervideo)          
     else:
         for t in np.arange(t0, tf, params['segment_tracking']['dt']):
             update_wrapper(t)
