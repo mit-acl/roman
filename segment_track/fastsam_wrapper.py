@@ -6,6 +6,8 @@ import cv2 as cv
 import matplotlib.pyplot as plt
 import numpy as np
 import skimage
+import open3d as o3d
+import copy
 from yolov7_package import Yolov7Detector
 import math
 
@@ -15,6 +17,9 @@ from fastsam3D.utils import compute_blob_mean_and_covariance, plotErrorEllipse
 import fastsam3D.segment_qualification as seg_qual
 
 from segment_track.observation import Observation
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 def ssc(keypoints, num_ret_points, tolerance, cols, rows):
     exp1 = rows + cols + 2 * num_ret_points
@@ -112,13 +117,14 @@ def ssc(keypoints, num_ret_points, tolerance, cols, rows):
     return selected_keypoints
 
 class FastSAMWrapper():
-    
+
     def __init__(self, 
         weights, 
         conf=.5, 
         iou=.9,
         imgsz=1024,
-        device='cuda'
+        device='cuda',
+        mask_downsample_factor=1
     ):
         # parameters
         self.weights = weights
@@ -126,7 +132,8 @@ class FastSAMWrapper():
         self.iou = iou
         self.device = device
         self.imgsz = imgsz
-        
+        self.mask_downsample_factor = mask_downsample_factor
+
         # member variables
         self.observations = []
         self.model = FastSAM(weights)
@@ -151,8 +158,30 @@ class FastSAMWrapper():
         self.max_cov_axis_ratio = max_cov_axis_ratio
         self.area_bounds = area_bounds
         self.allow_tblr_edges= allow_tblr_edges
-        
-    def run(self, t, pose, img, plot=False):
+
+    def setup_rgbd_params(self, depth_cam_params, max_depth, depth_scale=1e3, voxel_size=0.05):
+        """Setup params for processing RGB-D depth measurements
+
+        Args:
+            depth_cam_params (CameraParams): parameters of depth camera
+            max_depth (float): maximum depth to be included in point cloud
+            depth_scale (float, optional): scale of depth image. Defaults to 1e3.
+            voxel_size (float, optional): Voxel size when downsampling point cloud. Defaults to 0.05.
+        """
+        self.depth_cam_params = depth_cam_params
+        self.max_depth = max_depth
+        self.depth_scale = depth_scale
+        self.depth_cam_intrinsics = o3d.camera.PinholeCameraIntrinsic(
+            width=int(depth_cam_params.width),
+            height=int(depth_cam_params.height),
+            fx=depth_cam_params.fx,
+            fy=depth_cam_params.fy,
+            cx=depth_cam_params.cx,
+            cy=depth_cam_params.cy,
+        )
+        self.voxel_size = voxel_size
+
+    def run(self, t, pose, img, img_depth=None, plot=False):
         """
         Takes and image and returns filtered FastSAM masks as Observations.
 
@@ -169,7 +198,7 @@ class FastSAMWrapper():
             ignore_mask = self._create_people_mask(img)
         else:
             ignore_mask = None
-            
+
         # run fastsam
         masks, means, covs, (fig, ax) = self._process_img(
             img, plot=plot, ignore_mask=ignore_mask)
@@ -191,12 +220,39 @@ class FastSAMWrapper():
             x0, y0, x1, y1 = bbox
             # kp, des = self.compute_orb(img[y0:y1, x0:x1], 
             #     num_final=self.orb_num_final, num_initial=self.orb_num_initial)
-            self.observations.append(Observation(t, pose, np.array(mean), w, h, mask))
-        
+            # Extract point cloud of object from RGBD
+            ptcld = None
+            if img_depth is not None:
+                depth_obj = copy.deepcopy(img_depth)
+                depth_obj[mask==0] = 0
+                logger.debug(f"img_depth type {img_depth.dtype}, shape={img_depth.shape}")
+                pcd = o3d.geometry.PointCloud.create_from_depth_image(
+                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
+                    self.depth_cam_intrinsics,
+                    depth_scale=self.depth_scale,
+                    depth_trunc=self.max_depth,
+                    stride=1,
+                    project_valid_depth_only=True
+                )
+                pcd.remove_non_finite_points()
+                pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
+                if not pcd_sampled.is_empty():
+                    ptcld = np.asarray(pcd_sampled.points)
+
+            # Generate downsampled mask
+            # TODO: make downsample factor into a param
+            mask_downsampled = np.array(cv.resize(
+                mask,
+                (mask.shape[1]//self.mask_downsample_factor, mask.shape[0]//self.mask_downsample_factor), 
+                interpolation=cv.INTER_NEAREST
+            )).astype('uint8')
+
+            self.observations.append(Observation(t, pose, np.array(mean), w, h, mask, mask_downsampled, ptcld))
+
         # TODO: fix plotting
         # if plot_dir is not None:
         #     self._plot_3d_pos(centroids, means, plot_dir, i, fig, ax)
-            
+
         return self.observations
     
     def compute_orb(self, img, num_final=10, num_initial=100):
@@ -271,7 +327,7 @@ class FastSAMWrapper():
             blob_covs ((n, (2, 2) np.array) list): list of covariances (ellipses describing segmasks)
             (fig, ax) (Matplotlib fig, ax): fig and ax with visualization
         """
-        
+
         # Create a matplotlib figure to plot image and ellipsoids on.
         if plot:
             fig = plt.figure(frameon=False)
@@ -306,10 +362,9 @@ class FastSAMWrapper():
             segmask = segmask.cpu().numpy()
         else:
             segmask = None
-            
+
         if (segmask is not None):
 
-            
             # FastSAM provides a numMask-channel image in shape C, H, W where each channel in the image is a binary mask
             # of the detected segment
             [numMasks, h, w] = segmask.shape
@@ -319,7 +374,7 @@ class FastSAMWrapper():
             if not np.all(self.allow_tblr_edges):
                 segmask = self._delete_edge_masks(segmask)
                 [numMasks, h, w] = segmask.shape
-                
+
             # Prepare a mask of IDs where each pixel value corresponds to the mask ID
             if plot:
                 segmasks_flat = np.zeros((h,w),dtype=int)
@@ -331,13 +386,13 @@ class FastSAMWrapper():
 
                 # From the pixel coordinates of the mask, compute centroid and a covariance matrix
                 blob_mean, blob_cov = compute_blob_mean_and_covariance(mask_this_id)
-                
+
                 # filter out ignore mask
                 if ignore_mask is not None and \
                     np.any(np.bitwise_and(segmask[maskId,:,:].astype(np.int8), ignore_mask)):
                     to_delete.append(maskId)
                     continue
-                
+
                 # qualify covariance
                 # filter out segments based on covariance size and shape
                 if self.max_cov_axis_ratio is not None:
@@ -348,13 +403,13 @@ class FastSAMWrapper():
                 #     if seg_qual.is_out_of_bounds_area([blob_cov], bounds_area=area_bounds):
                 #         to_delete.append(maskId)
                 #         continue
-                    
+
                 if self.area_bounds is not None:
                     area = np.sum(segmask[maskId,:,:])
                     if area < self.area_bounds[0] or area > self.area_bounds[1]:
                         to_delete.append(maskId)
                         continue
-                
+
                 # Store centroids and covariances in lists
                 blob_means.append(blob_mean)
                 blob_covs.append(blob_cov)
@@ -382,19 +437,19 @@ class FastSAMWrapper():
             ax.set_xlim([0,w])
             ax.set_ylim([h,0])        
             return segmask, blob_means, blob_covs, (fig, ax)
-            
+
         return segmask, blob_means, blob_covs, (None, None)
-    
+
     def _plot_3d_pos(self, centroids, means, plot_dir, idx, fig, ax):
         for j in range(len(centroids)):
             centroids[j] = self.T_FLURDF @ centroids[j]
-        
+
         for j, mn in enumerate(means):
             ax.text(mn[0]+5, mn[1]+5, f"{np.round(centroids[j].reshape(-1), 1).tolist()}", fontsize=8)
-        
+
         fig.savefig(f'{plot_dir}/image_{idx}.png')
         plt.close(fig)
-        
+
         fig, ax = plt.subplots()
         for c in centroids:
             ax.plot(c.item(0), c.item(1), 'o', color='green')
@@ -403,4 +458,3 @@ class FastSAMWrapper():
         ax.set_xlim([-10, 10])
         ax.set_ylim([-10, 10])
         plt.savefig(f'{plot_dir}/measurements_{idx}.png')
-        

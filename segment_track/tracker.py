@@ -9,6 +9,10 @@ from segment_track.segment import Segment
 from segment_track.observation import Observation
 from segment_track.global_nearest_neighbor import global_nearest_neighbor
 
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
 @dataclass
 class Cylinder():
     """
@@ -30,7 +34,8 @@ class Tracker():
             max_t_no_sightings: int,
             merge_objects: bool = False,
             merge_objects_iou: float = 0.25,
-            max_cov_axis: float = 2.0
+            max_cov_axis: float = 2.0,
+            mask_downsample_factor: int = 1
     ):
         self.camera_params = camera_params
         self.pixel_std_dev = pixel_std_dev
@@ -43,6 +48,7 @@ class Tracker():
         self.merge_objects_iou_3d = merge_objects_iou
         self.merge_objects_iou_2d = 0.8
         self.max_cov_axis = max_cov_axis
+        self.mask_downsample_factor = mask_downsample_factor
 
         self.segment_nursery = []
         self.segments = []
@@ -74,10 +80,10 @@ class Tracker():
 
         # update segments with associated observations
         for seg_idx, obs_idx in pairs_existing:
-            self.segments[seg_idx].update(observations[obs_idx])
+            self.segments[seg_idx].update(observations[obs_idx], integrate_points=True)
         for seg_idx, obs_idx in pairs_nursery:
             # forcing add does not try to reconstruct the segment
-            self.segment_nursery[seg_idx].update(observations[obs_idx], force=True)
+            self.segment_nursery[seg_idx].update(observations[obs_idx], force=True, integrate_points=False)
 
         # delete masks for segments that were not seen recently
         for seg in self.segments:
@@ -121,21 +127,32 @@ class Tracker():
         Compute the similarity between the mask of a segment and an observation
         """
         if not projected or segment in self.segment_nursery:
-            if segment.last_mask is None:
+            segment_last_mask = segment.last_observation.mask_downsampled
+            if segment_last_mask is None:
                 iou = 0.0
             else:
-                intersection = np.logical_and(segment.last_mask, observation.mask).sum()
-                union = np.logical_or(segment.last_mask, observation.mask).sum()
-                iou = intersection / union
+                iou = Tracker.compute_iou(segment_last_mask, observation.mask_downsampled)
 
         # compute the similarity using the projected mask rather than last mask
         else:
-            segment_mask = segment.reconstruct_mask(observation.pose)
-            intersection = np.logical_and(segment_mask, observation.mask).sum()
-            union = np.logical_or(segment_mask, observation.mask).sum()
-            iou  = intersection / union
-        
+            segment_mask = segment.reconstruct_mask(observation.pose, downsample_factor=self.mask_downsample_factor)
+            iou = Tracker.compute_iou(segment_mask, observation.mask_downsampled)
         return iou
+    
+    @staticmethod
+    def compute_iou(mask1, mask2):
+        """Compute the intersection over union (IoU) of two masks.
+
+        Args:
+            mask1 (_type_): _description_
+            mask2 (_type_): _description_
+        """
+
+        assert mask1.shape == mask2.shape
+        logger.debug(f"Compute IoU for shape {mask1.shape}")
+        intersection = np.logical_and(mask1, mask2).sum()
+        union = np.logical_or(mask1, mask2).sum()
+        return float(intersection) / float(union)
     
     def orb_similarity(self, segment: Segment, observation: Observation):
         """
@@ -238,7 +255,8 @@ class Tracker():
 
                     if iou3d > self.merge_objects_iou_3d or iou2d > self.merge_objects_iou_2d:
                         for obs in seg2.observations:
-                            seg1.update(obs)
+                            seg1.update(obs, integrate_points=False)
+                        seg1.integrate_points_from_segment(seg2)
                         try:
                             seg1.reconstruction3D(width_height=True)
                             # print(f"Merging {seg2.id} into {seg1.id}")
