@@ -9,6 +9,8 @@ import time
 import cv2 as cv
 import signal
 import sys
+import open3d as o3d
+import logging
 
 from robot_utils.robot_data.img_data import ImgData
 from robot_utils.robot_data.pose_data import PoseData
@@ -82,25 +84,33 @@ def draw(t, img, pose, tracker, observations, ax):
     return
 
 
-def update(t, img_data, pose_data, fastsam, tracker, ax):
+def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history):
 
     try:
         img = img_data.img(t)
+        img_depth = depth_data.img(t)
         img_t = img_data.nearest_time(t)
         pose = pose_data.T_WB(img_t)
     except:
         return
-    observations = fastsam.run(t, pose, img)
+      
 
-
-    print(f"observations: {len(observations)}")
+    observations = fastsam.run(t, pose, img, img_depth=img_depth)
 
     if len(observations) > 0:
         tracker.update(t, pose, observations)
 
-    print(f"segments: {len(tracker.segments)}")
+    print("t={}, num_obs={}, num_seg={}, num_nurse={}".format(
+        t, len(observations), len(tracker.segments), len(tracker.segment_nursery))
+    )
+    if len(tracker.segments) > 0:
+        for seg in tracker.segments:
+            print("seg id={}, num_points={}".format(seg.id, seg.num_points))
 
-    draw(t, img, pose, tracker, observations, ax)
+    if ax is not None:
+        draw(t, img, pose, tracker, observations, ax)
+
+    poses_history.append(pose)
 
     return
     
@@ -114,6 +124,8 @@ def main(args):
     assert params['bag']['cam_info_topic'] is not None, "cam_info_topic must be specified in params"
     assert params['bag']['pose_topic'] is not None, "pose_topic must be specified in params"
     assert params['bag']['pose_time_tol'] is not None, "pose_time_tol must be specified in params"
+    if 'depth_compressed_rvl' not in params['bag']:
+        params['bag']['depth_compressed_rvl'] = False
 
     assert params['fastsam']['weights'] is not None, "weights must be specified in params"
     assert params['fastsam']['imgsz'] is not None, "imgsz must be specified in params"
@@ -124,7 +136,17 @@ def main(args):
     assert params['segment_tracking']['min_sightings'] is not None, "min_sightings must be specified in params"
     assert params['segment_tracking']['pixel_std_dev'] is not None, "max_t_no_sightings must be specified in params"
     assert params['segment_tracking']['max_t_no_sightings'] is not None, "max_t_no_sightings must be specified in params"
+    assert params['segment_tracking']['mask_downsample_factor'] is not None, "Mask downsample factor cannot be none!"
 
+    # Setup logging
+    # TODO: add support for logfile
+    logging.basicConfig(
+        level=logging.INFO, 
+        format='%(asctime)s %(message)s', 
+        datefmt='%m-%d %H:%M:%S', 
+        # handlers=logging.StreamHandler()
+    )
+    
     print("Loading image data...")
     if 'relative_time' in params['bag'] and not params['bag']['relative_time']\
         and 't0' in params['bag'] and 'tf' in params['bag']:
@@ -154,6 +176,18 @@ def main(args):
     else:
         tf = img_data.tf
 
+    print("Loading depth data for time range {}...".format(time_range))
+    depth_data = ImgData(
+        data_file=params["bag"]["path"],
+        file_type='bag',
+        topic=params['bag']['depth_img_topic'],
+        time_tol=.02,
+        time_range=time_range,
+        compressed=params['bag']['depth_compressed'],
+        compressed_rvl=params['bag']['depth_compressed_rvl'],
+    )
+    depth_data.extract_params(params['bag']['depth_cam_info_topic'])
+
     print("Loading pose data...")
     T_postmultiply = np.eye(4)
     # if 'T_body_odom' in params['bag']:
@@ -174,13 +208,20 @@ def main(args):
     fastsam = FastSAMWrapper(
         weights=params['fastsam']['weights'],
         imgsz=params['fastsam']['imgsz'],
-        device=params['fastsam']['device']
+        device=params['fastsam']['device'],
+        mask_downsample_factor=params['segment_tracking']['mask_downsample_factor']
+    )
+    fastsam.setup_rgbd_params(
+        depth_cam_params=depth_data.camera_params, 
+        max_depth=8,
+        depth_scale=1e3,
+        voxel_size=0.05
     )
     img_area = img_data.camera_params.width * img_data.camera_params.height
     fastsam.setup_filtering(
         ignore_people=True,
         yolo_det_img_size=(128, 128),
-        allow_tblr_edges=[False, False, False, False],
+        allow_tblr_edges=[True, True, True, True],
         area_bounds=[img_area / 20**2, img_area / 5**2]
     )
 
@@ -190,16 +231,22 @@ def main(args):
         pixel_std_dev=params['segment_tracking']['pixel_std_dev'],
         min_iou=params['segment_tracking']['min_iou'],
         min_sightings=params['segment_tracking']['min_sightings'],
-        max_t_no_sightings=params['segment_tracking']['max_t_no_sightings']
+        max_t_no_sightings=params['segment_tracking']['max_t_no_sightings'],
+        mask_downsample_factor=params['segment_tracking']['mask_downsample_factor']
     )
 
-    print("Running segment tracking!")
+    print("Running segment tracking! Start time {:.1f}, end time {:.1f}".format(t0, tf))
     wc_t0 = time.time()
-    fig, ax = plt.subplots(1, 2, dpi=400, layout='tight')
+    if not args.no_vid:
+        fig, ax = plt.subplots(1, 2, dpi=400, layout='tight')
+    else:
+        fig = None
+        ax = None
+    poses_history = []
     def update_wrapper(t): 
-        update(t, img_data, pose_data, fastsam, tracker, ax)
+        update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history)
         print(f"t: {t - t0:.2f} = {t}")
-        fig.suptitle(f"t: {t - t0:.2f}")
+        # fig.suptitle(f"t: {t - t0:.2f}")
 
     if not args.no_vid:
         ani = FuncAnimation(fig, update_wrapper, frames=tqdm.tqdm(np.arange(t0, tf, params['segment_tracking']['dt'])), interval=10, repeat=False)
@@ -208,15 +255,7 @@ def main(args):
         else:
             video_file = args.output + ".mp4"
             writervideo = FFMpegWriter(fps=int(.5*1/params['segment_tracking']['dt']))
-            ani.save(video_file, writer=writervideo)
-
-            pkl_path = args.output + ".pkl"
-            pkl_file = open(pkl_path, 'wb')
-            # for seg in tracker.segments + tracker.segment_graveyard + tracker.segment_nursery:
-            #     for obs in seg.observations:
-            #         obs.keypoints = None
-            pickle.dump(tracker, pkl_file, -1)
-            pkl_file.close()
+            ani.save(video_file, writer=writervideo)          
     else:
         for t in np.arange(t0, tf, params['segment_tracking']['dt']):
             update_wrapper(t)
@@ -224,6 +263,39 @@ def main(args):
     print(f"Segment tracking took {time.time() - wc_t0:.2f} seconds")
     print(f"Run duration was {tf - t0:.2f} seconds")
     print(f"Compute per second: {(time.time() - wc_t0) / (tf - t0):.2f}")
+
+    print(f"Number of poses: {len(poses_history)}.")
+
+    if args.output:
+        pkl_path = args.output + ".pkl"
+        pkl_file = open(pkl_path, 'wb')
+        # for seg in tracker.segments + tracker.segment_graveyard + tracker.segment_nursery:
+        #     for obs in seg.observations:
+        #         obs.keypoints = None
+        pickle.dump([tracker, poses_history], pkl_file, -1)
+        logging.info(f"Saved tracker, poses_history to file: {pkl_path}.")
+        pkl_file.close()
+
+    poses_list = []
+    pcd_list = []
+    for Twb in poses_history:
+        pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
+        pose_obj.transform(Twb)
+        poses_list.append(pose_obj)
+    for seg in tracker.segments + tracker.segment_graveyard:
+        seg_points = seg.points
+        if seg_points is not None:
+            num_pts = seg_points.shape[0]
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(seg_points)
+            rand_color = np.random.uniform(0, 1, size=(1,3))
+            rand_color = np.repeat(rand_color, num_pts, axis=0)
+            pcd.colors = o3d.utility.Vector3dVector(rand_color)
+            pcd_list.append(pcd)
+    
+    o3d.visualization.draw_geometries(poses_list + pcd_list)
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
