@@ -163,21 +163,19 @@ class Segment():
         mask = np.zeros((self.camera_params.height, self.camera_params.width), dtype=np.uint8)
         reconstruction = self.reconstruction3D(width_height=True)
         p_c = transform(np.linalg.inv(pose), reconstruction[:3])
-        if p_c[2] < 0:
-            return mask
-        
-        w, h = reconstruction[3], reconstruction[4]
-        lower_left_c = p_c - np.array([w/2, h/2, 0])
-        upper_right_c = p_c + np.array([w/2, h/2, 0])
-        lower_left_uv = xyz_2_pixel(lower_left_c, self.camera_params.K)
-        upper_right_uv = xyz_2_pixel(upper_right_c, self.camera_params.K)
+        if p_c[2] >= 0:
+            w, h = reconstruction[3], reconstruction[4]
+            lower_left_c = p_c - np.array([w/2, h/2, 0])
+            upper_right_c = p_c + np.array([w/2, h/2, 0])
+            lower_left_uv = xyz_2_pixel(lower_left_c, self.camera_params.K)
+            upper_right_uv = xyz_2_pixel(upper_right_c, self.camera_params.K)
 
-        lower_left_uv = np.round(lower_left_uv).astype(int).reshape(-1)
-        upper_right_uv = np.round(upper_right_uv).astype(int).reshape(-1)
+            lower_left_uv = np.round(lower_left_uv).astype(int).reshape(-1)
+            upper_right_uv = np.round(upper_right_uv).astype(int).reshape(-1)
 
-        lower_left_uv = np.maximum(lower_left_uv, 0)
-        upper_right_uv = np.minimum(upper_right_uv, [self.camera_params.width, self.camera_params.height])
-        mask[lower_left_uv[1]:upper_right_uv[1], lower_left_uv[0]:upper_right_uv[0]] = 1
+            lower_left_uv = np.maximum(lower_left_uv, 0)
+            upper_right_uv = np.minimum(upper_right_uv, [self.camera_params.width, self.camera_params.height])
+            mask[lower_left_uv[1]:upper_right_uv[1], lower_left_uv[0]:upper_right_uv[0]] = 1
 
         if downsample_factor == 1:
             return mask.astype('uint8')
