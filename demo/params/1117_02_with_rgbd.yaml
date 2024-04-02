@@ -1,5 +1,5 @@
 bag:
-  path: /media/yulun/T7/Datasets/dcist_obj_slam/1117_west_point/1117_02_map_tower_third_origin/dataset_crop.bag
+  path: $WEST_POINT_2023_PATH/1117_02_map_tower_third_origin/dataset.bag
   pose_topic: /acl_jackal2/kimera_vio_ros/odometry
   img_topic: /acl_jackal2/forward/color/image_raw/compressed
   cam_info_topic: /acl_jackal2/forward/color/camera_info
@@ -8,13 +8,13 @@ bag:
   depth_compressed: False
   depth_compressed_rvl: False
   pose_time_tol: 0.5
-  # t0: 1
-  # tf: 11
-  # relative_time: True
+  t0: 60 # 1:00
+  tf: 405 # 6:45
+  relative_time: True
 
 fastsam:
-  weights: "/home/yulun/Models/fastsam/FastSAM-x.pt"
-  imgsz: 256
+  weights: $FASTSAM_WEIGHTS_PATH
+  imgsz: 512
   device: "cuda"
 
 segment_tracking:
