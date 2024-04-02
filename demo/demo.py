@@ -9,6 +9,7 @@ import time
 import cv2 as cv
 import signal
 import sys
+import os
 
 from robot_utils.robot_data.img_data import ImgData
 from robot_utils.robot_data.pose_data import PoseData
@@ -132,7 +133,7 @@ def main(args):
     else:
         time_range = None
     img_data = ImgData(
-        data_file=params["bag"]["path"],
+        data_file=os.path.expanduser(os.path.expandvars(params["bag"]["path"])),
         file_type='bag',
         topic=params["bag"]["img_topic"],
         time_tol=.02,
@@ -161,7 +162,8 @@ def main(args):
     if 'T_body_cam' in params['bag']:
         T_postmultiply = T_postmultiply @ np.array(params['bag']['T_body_cam']).reshape((4, 4))
     pose_data = PoseData(
-        data_file=params['bag']['pose_path'] if 'pose_path' in params["bag"] else params["bag"]["path"],
+        data_file=os.path.expanduser(os.path.expandvars(params['bag']['pose_path'])) if \
+            'pose_path' in params["bag"] else params["bag"]["path"],
         file_type='bag',
         topic=params["bag"]["pose_topic"],
         time_tol=params["bag"]["pose_time_tol"],
@@ -172,7 +174,7 @@ def main(args):
 
     print("Setting up FastSAM...")
     fastsam = FastSAMWrapper(
-        weights=params['fastsam']['weights'],
+        weights=os.path.expanduser(os.path.expandvars(params['fastsam']['weights'])),
         imgsz=params['fastsam']['imgsz'],
         device=params['fastsam']['device']
     )

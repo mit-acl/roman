@@ -11,6 +11,7 @@ import signal
 import sys
 import open3d as o3d
 import logging
+import os
 
 from robot_utils.robot_data.img_data import ImgData
 from robot_utils.robot_data.pose_data import PoseData
@@ -57,7 +58,10 @@ def draw(t, img, pose, tracker, observations, ax):
             rand_color = np.random.randint(0, 255, 3)
             # print(rand_color)
             matched_masks.append(segment.last_mask)
-            colored_mask = segment.last_mask.astype(np.int32)[..., np.newaxis]*rand_color
+            try:
+                colored_mask = segment.last_mask.astype(np.int32)[..., np.newaxis]*rand_color
+            except:
+                import ipdb; ipdb.set_trace()
             colored_mask = colored_mask.astype(np.uint8)
             img_fastsam = cv.addWeighted(img_fastsam, 1.0, colored_mask, 0.5, 0)
             for obs in segment.observations[::-1]:
@@ -154,7 +158,7 @@ def main(args):
     else:
         time_range = None
     img_data = ImgData(
-        data_file=params["bag"]["path"],
+        data_file=os.path.expanduser(os.path.expandvars(params["bag"]["path"])),
         file_type='bag',
         topic=params["bag"]["img_topic"],
         time_tol=.02,
@@ -178,7 +182,7 @@ def main(args):
 
     print("Loading depth data for time range {}...".format(time_range))
     depth_data = ImgData(
-        data_file=params["bag"]["path"],
+        data_file=os.path.expanduser(os.path.expandvars(params["bag"]["path"])),
         file_type='bag',
         topic=params['bag']['depth_img_topic'],
         time_tol=.02,
@@ -195,7 +199,8 @@ def main(args):
     if 'T_body_cam' in params['bag']:
         T_postmultiply = T_postmultiply @ np.array(params['bag']['T_body_cam']).reshape((4, 4))
     pose_data = PoseData(
-        data_file=params['bag']['pose_path'] if 'pose_path' in params["bag"] else params["bag"]["path"],
+        data_file=os.path.expanduser(os.path.expandvars(params['bag']['pose_path'] 
+                                    if 'pose_path' in params["bag"] else params["bag"]["path"])),
         file_type='bag',
         topic=params["bag"]["pose_topic"],
         time_tol=params["bag"]["pose_time_tol"],
@@ -206,7 +211,7 @@ def main(args):
 
     print("Setting up FastSAM...")
     fastsam = FastSAMWrapper(
-        weights=params['fastsam']['weights'],
+        weights=os.path.expanduser(os.path.expandvars(params['fastsam']['weights'])),
         imgsz=params['fastsam']['imgsz'],
         device=params['fastsam']['device'],
         mask_downsample_factor=params['segment_tracking']['mask_downsample_factor']
@@ -253,7 +258,7 @@ def main(args):
         if not args.output:
             plt.show()
         else:
-            video_file = args.output + ".mp4"
+            video_file = os.path.expanduser(os.path.expandvars(args.output)) + ".mp4"
             writervideo = FFMpegWriter(fps=int(.5*1/params['segment_tracking']['dt']))
             ani.save(video_file, writer=writervideo)          
     else:
@@ -267,7 +272,7 @@ def main(args):
     print(f"Number of poses: {len(poses_history)}.")
 
     if args.output:
-        pkl_path = args.output + ".pkl"
+        pkl_path = os.path.expanduser(os.path.expandvars(args.output)) + ".pkl"
         pkl_file = open(pkl_path, 'wb')
         # for seg in tracker.segments + tracker.segment_graveyard + tracker.segment_nursery:
         #     for obs in seg.observations:

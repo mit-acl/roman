@@ -23,6 +23,12 @@ pip install ./robot_utils/
 
 # Demo
 
-1. Change file paths in the `./demo/params` parameter file
+1. Set the following environment variables (consider putting in `.bashrc` for running repeatedly):
+
+```
+export WEST_POINT_2023_PATH=<path>
+export FASTSAM_WEIGHTS_PATH=<path>
+```
+
 2. `cd` into `./demo` and run `python3 ./demo.py -p <params file>`
 
