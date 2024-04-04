@@ -222,6 +222,7 @@ class Tracker():
         # segments inthe graveyard. Heuristic for merging involves either projected IOU or 
         # 3D IOU. Should look into more.
 
+        max_time_passed_merge = 10.0
         max_iter = 100
         n = 0
         edited = True
@@ -237,6 +238,10 @@ class Tracker():
             for i, seg1 in enumerate(self.segments):
                 for j, seg2 in enumerate(self.segments + self.segment_graveyard):
                     if i >= j:
+                        continue
+
+                    # TODO: merging needs to be faster, this may not be the right way to do it.
+                    if np.abs(seg2.last_seen - seg1.last_seen) > max_time_passed_merge:
                         continue
                     reconstruction = seg1.reconstruction3D(width_height=True)
                     c1 = Cylinder(reconstruction[:3], 0.5*reconstruction[3], reconstruction[4])
@@ -255,6 +260,10 @@ class Tracker():
 
                     if iou3d > self.merge_objects_iou_3d or iou2d > self.merge_objects_iou_2d:
                         for obs in seg2.observations:
+                            # none of the observations will have masks, so need to update with 
+                            # the last_observation copy (which will have a mask) instead
+                            if obs.time == seg2.last_seen:
+                                obs = seg2.last_observation
                             seg1.update(obs, integrate_points=False)
                         seg1.integrate_points_from_segment(seg2)
                         try:
