@@ -15,8 +15,9 @@ import os
 
 from robot_utils.robot_data.img_data import ImgData
 from robot_utils.robot_data.pose_data import PoseData
-from robot_utils.transform import transform
+from robot_utils.transform import transform, T_RDFFLU, T_FLURDF
 from robot_utils.robot_data.general_data import GeneralData
+from robot_utils.robot_data.robot_data import NoDataNearTimeException
 
 from plot_utils import remove_ticks
 
@@ -36,6 +37,9 @@ def draw(t, img, pose, tracker, observations, ax):
     img_fastsam = np.concatenate([img_fastsam[...,None]]*3, axis=2)
 
     for i, segment in enumerate(tracker.segments + tracker.segment_graveyard):
+        # only draw segments seen in the last however many seconds
+        if segment.last_seen < t - 50:
+            continue
         try:
             reconstruction = segment.reconstruction3D(width_height=True)
         except:
@@ -95,9 +99,8 @@ def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_histo
         img_depth = depth_data.img(t)
         img_t = img_data.nearest_time(t)
         pose = pose_data.T_WB(img_t)
-    except:
+    except NoDataNearTimeException:
         return
-      
 
     observations = fastsam.run(t, pose, img, img_depth=img_depth)
 
@@ -123,18 +126,32 @@ def main(args):
     with open(args.params, 'r') as f:
         params = yaml.safe_load(f)
 
-    assert params['bag']['path'] is not None, "bag must be specified in params"
-    assert params['bag']['img_topic'] is not None, "img_topic must be specified in params"
-    assert params['bag']['cam_info_topic'] is not None, "cam_info_topic must be specified in params"
-    assert params['bag']['pose_topic'] is not None, "pose_topic must be specified in params"
-    assert params['bag']['pose_time_tol'] is not None, "pose_time_tol must be specified in params"
-    if 'depth_compressed_rvl' not in params['bag']:
-        params['bag']['depth_compressed_rvl'] = False
+    if 'time' in params:
+        assert 'relative' in params['time'], "relative must be specified in params"
+        assert 't0' in params['time'], "t0 must be specified in params"
+        assert 'tf' in params['time'], "tf must be specified in params"
+
+    assert params['img_data']['path'] is not None, "bag must be specified in params"
+    assert params['img_data']['img_topic'] is not None, "img_topic must be specified in params"
+    assert params['img_data']['cam_info_topic'] is not None, "cam_info_topic must be specified in params"
+    if 'depth_compressed_rvl' not in params['img_data']:
+        params['img_data']['depth_compressed_rvl'] = False
+    assert not (('T_body_cam' in params['pose_data'] or 'T_body_odom' in params['pose_data']) \
+        and 'T_postmultiply' in params['pose_data']), "Cannot specify both T_body_cam and T_postmultiply in pose_data"
+    assert params['pose_data']['file_type'] != 'bag' or 'topic' in params['pose_data'], \
+        "pose topic must be specified in params"
+    assert params['pose_data']['time_tol'] is not None, "pose time_tol must be specified in params"
 
     assert params['fastsam']['weights'] is not None, "weights must be specified in params"
     assert params['fastsam']['imgsz'] is not None, "imgsz must be specified in params"
     if 'device' not in params['fastsam']:
         params['fastsam']['device'] = 'cuda'
+    if 'min_mask_len_div' not in params['fastsam']:
+        params['fastsam']['min_mask_len_div'] = 30
+    if 'max_mask_len_div' not in params['fastsam']:
+        params['fastsam']['max_mask_len_div'] = 5
+    if 'ignore_people' not in params['fastsam']:
+        params['fastsam']['ignore_people'] = False
     
     assert params['segment_tracking']['min_iou'] is not None, "min_iou must be specified in params"
     assert params['segment_tracking']['min_sightings'] is not None, "min_sightings must be specified in params"
@@ -152,63 +169,76 @@ def main(args):
     )
     
     print("Loading image data...")
-    if 'relative_time' in params['bag'] and not params['bag']['relative_time']\
-        and 't0' in params['bag'] and 'tf' in params['bag']:
-        time_range = [params['bag']['t0'], params['bag']['tf']]
+
+    img_file_path = os.path.expanduser(os.path.expandvars(params["img_data"]["path"]))
+    if 't0' in params['time'] and 'tf' in params['time']:
+        if 'relative' in params['time'] and params['time']['relative']:
+            topic_t0 = ImgData.topic_t0(img_file_path, params["img_data"]["img_topic"])
+            time_range = [topic_t0 + params['time']['t0'], topic_t0 + params['time']['tf']]
+        else:
+            time_range = [params['time']['t0'], params['time']['tf']]
     else:
         time_range = None
+
+    print(f"Time range: {time_range}")
     img_data = ImgData(
-        data_file=os.path.expanduser(os.path.expandvars(params["bag"]["path"])),
+        data_file=img_file_path,
         file_type='bag',
-        topic=params["bag"]["img_topic"],
+        topic=params["img_data"]["img_topic"],
         time_tol=.02,
         time_range=time_range
     )
-    img_data.extract_params(params['bag']['cam_info_topic'])
+    img_data.extract_params(params['img_data']['cam_info_topic'])
 
-    if 't0' in params['bag'] and params['bag']['relative_time']:
-        t0 = img_data.t0 + params['bag']['t0']
-    elif 't0' in params['bag']:
-        t0 = params['bag']['t0']
-    else:
-        t0 = img_data.t0
-
-    if 'tf' in params['bag'] and params['bag']['relative_time']:
-        tf = img_data.t0 + params['bag']['tf']
-    elif 'tf' in params['bag']:
-        tf = params['bag']['tf']
-    else:
-        tf = img_data.tf
+    t0 = img_data.t0
+    tf = img_data.tf
 
     print("Loading depth data for time range {}...".format(time_range))
     depth_data = ImgData(
-        data_file=os.path.expanduser(os.path.expandvars(params["bag"]["path"])),
+        data_file=os.path.expanduser(os.path.expandvars(params["img_data"]["path"])),
         file_type='bag',
-        topic=params['bag']['depth_img_topic'],
+        topic=params['img_data']['depth_img_topic'],
         time_tol=.02,
         time_range=time_range,
-        compressed=params['bag']['depth_compressed'],
-        compressed_rvl=params['bag']['depth_compressed_rvl'],
+        compressed=params['img_data']['depth_compressed'],
+        compressed_rvl=params['img_data']['depth_compressed_rvl'],
     )
-    depth_data.extract_params(params['bag']['depth_cam_info_topic'])
+    depth_data.extract_params(params['img_data']['depth_cam_info_topic'])
 
     print("Loading pose data...")
     T_postmultiply = np.eye(4)
-    # if 'T_body_odom' in params['bag']:
-    #     T_postmultiply = np.linalg.inv(np.array(params['bag']['T_body_odom']).reshape((4, 4)))
-    if 'T_body_cam' in params['bag']:
-        T_postmultiply = T_postmultiply @ np.array(params['bag']['T_body_cam']).reshape((4, 4))
+    # if 'T_body_odom' in params['pose_data']:
+    #     T_postmultiply = np.linalg.inv(np.array(params['pose_data']['T_body_odom']).reshape((4, 4)))
+    if 'T_body_cam' in params['pose_data']:
+        T_postmultiply = T_postmultiply @ np.array(params['pose_data']['T_body_cam']).reshape((4, 4))
+    if 'T_postmultiply' in params['pose_data']:
+        if params['pose_data']['T_postmultiply'] == 'T_FLURDF':
+            T_postmultiply = T_FLURDF
+        elif params['pose_data']['T_postmultiply'] == 'T_RDFFLU':
+            T_postmultiply = T_RDFFLU
+    
+    
+
+    pose_file_path = params['pose_data']['path']
+    pose_file_type = params['pose_data']['file_type']
+    pose_time_tol = params['pose_data']['time_tol']
+    if pose_file_type == 'bag':
+        pose_topic = params['pose_data']['topic']
+        csv_options = None
+    else:
+        pose_topic = None
+        csv_options = params['pose_data']['csv_options']
+        
     pose_data = PoseData(
-        data_file=os.path.expanduser(os.path.expandvars(params['bag']['pose_path'] 
-                                    if 'pose_path' in params["bag"] else params["bag"]["path"])),
-        file_type='bag',
-        topic=params["bag"]["pose_topic"],
-        time_tol=params["bag"]["pose_time_tol"],
+        data_file=os.path.expanduser(pose_file_path),
+        file_type=pose_file_type,
+        topic=pose_topic,
+        csv_options=csv_options,
+        time_tol=pose_time_tol,
         interp=True,
         T_postmultiply=T_postmultiply
     )
     
-
     print("Setting up FastSAM...")
     fastsam = FastSAMWrapper(
         weights=os.path.expanduser(os.path.expandvars(params['fastsam']['weights'])),
@@ -224,10 +254,10 @@ def main(args):
     )
     img_area = img_data.camera_params.width * img_data.camera_params.height
     fastsam.setup_filtering(
-        ignore_people=True,
-        yolo_det_img_size=(128, 128),
+        ignore_people=params['fastsam']['ignore_people'],
+        yolo_det_img_size=(128, 128) if params['fastsam']['ignore_people'] else None,
         allow_tblr_edges=[True, True, True, True],
-        area_bounds=[img_area / 20**2, img_area / 5**2]
+        area_bounds=[img_area / (params['fastsam']['min_mask_len_div']**2), img_area / (params['fastsam']['max_mask_len_div']**2)]
     )
 
     print("Setting up segment tracker...")
