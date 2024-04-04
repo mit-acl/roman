@@ -1,16 +1,23 @@
-bag:
+time: 
+  t0: 60 # 1:00
+  tf: 405 # 6:45
+  relative: True
+
+img_data:
   path: $WEST_POINT_2023_PATH/1117_02_map_tower_third_origin/dataset.bag
-  pose_topic: /acl_jackal2/kimera_vio_ros/odometry
   img_topic: /acl_jackal2/forward/color/image_raw/compressed
   cam_info_topic: /acl_jackal2/forward/color/camera_info
   depth_img_topic: /acl_jackal2/forward/depth/image_rect_raw
   depth_cam_info_topic: /acl_jackal2/forward/depth/camera_info
   depth_compressed: False
   depth_compressed_rvl: False
-  pose_time_tol: 0.5
-  t0: 60 # 1:00
-  tf: 405 # 6:45
-  relative_time: True
+
+pose_data:
+  file_type: bag
+  path: $WEST_POINT_2023_PATH/1117_02_map_tower_third_origin/dataset.bag
+  topic: /acl_jackal2/kimera_vio_ros/odometry
+  time_tol: 0.5
+  
 
 fastsam:
   weights: $FASTSAM_WEIGHTS_PATH
