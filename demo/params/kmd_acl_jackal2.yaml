@@ -1,20 +1,20 @@
 # time:
-#   t0: 830 #13:50
-#   tf: 930 #15:30
+#   t0: 465 # 7:45
+#   tf: 555 # 9:15
 #   relative: True
 
 img_data:
-  path: "$KMD_BAGS_PATH/sparkal2.bag"
-  img_topic: /sparkal2/forward/color/image_raw/compressed
-  cam_info_topic: /sparkal2/forward/color/camera_info
-  depth_img_topic: /sparkal2/forward/depth/image_rect_raw
-  depth_cam_info_topic: /sparkal2/forward/depth/camera_info
+  path: "$KMD_BAGS_PATH/acl_jackal2.bag"
+  img_topic: /acl_jackal2/forward/color/image_raw/compressed
+  cam_info_topic: /acl_jackal2/forward/color/camera_info
+  depth_img_topic: /acl_jackal2/forward/depth/image_rect_raw
+  depth_cam_info_topic: /acl_jackal2/forward/depth/camera_info
   depth_compressed: False
   depth_compressed_rvl: False
 
 pose_data: 
   file_type: "csv"
-  path: "$KMD_GT_PATH/sparkal2.csv"
+  path: "$KMD_GT_PATH/acl_jackal2.csv"
   frame: "FLU"
   csv_options:
     cols:
@@ -33,6 +33,7 @@ fastsam:
   weights: "$FASTSAM_WEIGHTS_PATH"
   imgsz: 256
   device: "cuda"
+  ignore_people: True
 
 segment_tracking:
   min_sightings: 5 
