@@ -171,7 +171,7 @@ def main(args):
     print("Loading image data...")
 
     img_file_path = os.path.expanduser(os.path.expandvars(params["img_data"]["path"]))
-    if 't0' in params['time'] and 'tf' in params['time']:
+    if 'time' in params:
         if 'relative' in params['time'] and params['time']['relative']:
             topic_t0 = ImgData.topic_t0(img_file_path, params["img_data"]["img_topic"])
             time_range = [topic_t0 + params['time']['t0'], topic_t0 + params['time']['tf']]
