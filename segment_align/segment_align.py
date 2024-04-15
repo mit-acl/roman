@@ -24,6 +24,15 @@ from object_map_registration.register.object_registration import InsufficientAss
 from object_map_registration.utils import object_list_bounds
 
 def centroid_from_points(segment: Segment):
+    """
+    Method to get a single point representing a segment.
+
+    Args:
+        segment (Segment): segment object
+
+    Returns:
+        np.array, shape=(3,): representative point
+    """
     if segment.points is not None:
         pt = np.median(segment.points, axis=0)
         pt[2] = np.min(segment.points[:,2])
@@ -111,7 +120,7 @@ def main(args):
             poses.append(p)
             trackers.append(t)
 
-    # plot points from segments
+    # create objects from segments
     for i, tracker in enumerate(trackers):
         t0 = np.inf
         tf = -np.inf
@@ -166,12 +175,9 @@ def main(args):
         registration = DistVolGravityConstrained(sigma=args.sigma, epsilon=args.epsilon)
     else:
         assert False, "Invalid method"
-    # registration = GravityConstrainedClipperReg(sigma=args.sigma, epsilon=args.epsilon)
-    # registration = DistVolSimReg(sigma=args.sigma, epsilon=args.epsilon)
     # registration = DistVolSimReg(sigma=args.sigma, epsilon=args.epsilon, vol_score_min=0.5, dist_score_min=0.5)
 
-    # debug plot maps
-        
+    # plot maps
     if args.show_maps:
         for i in range(2):
             fig, ax = plt.subplots()
@@ -195,12 +201,14 @@ def main(args):
         plt.show()
         return
     
+    # iterate over pairs of submaps and create registration results
     for i in tqdm(range(len(submaps[0]))):
         for j in (range(len(submaps[1]))):
             
             submap_dist = np.linalg.norm(submap_centers[0][i] - submap_centers[1][j])
             robots_nearby_mat[i, j] = 1 if submap_dist < args.submap_radius*2 else 0
 
+            # if show_false_positives is not set, then skip over non overlapping submaps
             if not args.show_false_positives and robots_nearby_mat[i, j] == 0:
                 clipper_angle_mat[i, j] = np.nan
                 clipper_num_associations[i, j] = np.nan
@@ -232,10 +240,7 @@ def main(args):
             associations = registration.register(submaps[0][i], submaps[1][j])
             clipper_num_associations[i, j] = len(associations)
 
-    # if not args.show_false_positives:
-    #     clipper_angle_mat = np.where(robots_nearby_mat == 0, np.nan, clipper_angle_mat)
-    #     clipper_num_associations = np.where(robots_nearby_mat == 0, np.nan, clipper_num_associations)
-
+    # Create plots
     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
     mp = ax[0].imshow(robots_nearby_mat, vmin=0)
     fig.colorbar(mp)
