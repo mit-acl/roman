@@ -83,7 +83,7 @@ class Tracker():
             self.segments[seg_idx].update(observations[obs_idx], integrate_points=True)
         for seg_idx, obs_idx in pairs_nursery:
             # forcing add does not try to reconstruct the segment
-            self.segment_nursery[seg_idx].update(observations[obs_idx], force=True, integrate_points=False)
+            self.segment_nursery[seg_idx].update(observations[obs_idx], force=True, integrate_points=True)
 
         # delete masks for segments that were not seen recently
         for seg in self.segments:
