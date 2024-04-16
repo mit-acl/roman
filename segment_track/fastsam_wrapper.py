@@ -238,6 +238,8 @@ class FastSAMWrapper():
                 pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
                 if not pcd_sampled.is_empty():
                     ptcld = np.asarray(pcd_sampled.points)
+            if ptcld is None:
+                continue
 
             # Generate downsampled mask
             # TODO: make downsample factor into a param
