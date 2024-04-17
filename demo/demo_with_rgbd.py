@@ -114,7 +114,7 @@ def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_histo
         # only draw segments seen in the last however many seconds
         if segment.last_seen < t - 50:
             continue
-        bbox = segment.reprojected_bbox(pose_data.T_WB(t))
+        bbox = segment.reprojected_bbox(pose)
         if bbox is not None:
             reprojected_bboxs.append((segment.id, bbox))
 
