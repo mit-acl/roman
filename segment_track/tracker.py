@@ -2,6 +2,7 @@ import numpy as np
 from typing import List
 from dataclasses import dataclass
 import cv2 as cv
+import open3d as o3d
 
 from robot_utils.robot_data.img_data import CameraParams
 
@@ -49,6 +50,7 @@ class Tracker():
         self.merge_objects_iou_2d = 0.8
         self.max_cov_axis = max_cov_axis
         self.mask_downsample_factor = mask_downsample_factor
+        self.min_volume = .25**3 # 25x25x25 cm^3
 
         self.segment_nursery = []
         self.segments = []
@@ -152,6 +154,8 @@ class Tracker():
         logger.debug(f"Compute IoU for shape {mask1.shape}")
         intersection = np.logical_and(mask1, mask2).sum()
         union = np.logical_or(mask1, mask2).sum()
+        if np.isclose(union, 0):
+            return 0.0
         return float(intersection) / float(union)
     
     def orb_similarity(self, segment: Segment, observation: Observation):
@@ -180,14 +184,13 @@ class Tracker():
         self.segment_graveyard = [seg for seg in self.segment_graveyard if not rm_fun(seg)]
         return
     
-    def remove_bad_segments(self, segments: List[Segment], max_cov_axis: float=None):
+    def remove_bad_segments(self, segments: List[Segment], min_volume: float=0.0):
         """
-        Remove segments that GTSAM cannot triangulate or that have a large covariance
+        Remove segments that have small volumes or have no points
 
         Args:
             segments (List[Segment]): List of segments
-            max_cov_axis (float, optional): Maximum value for the principal covariance 
-                axis single sigma length. Defaults to None.
+            min_volume (float, optional): Minimum allowable segment volume. Defaults to 0.0.
 
         Returns:
             segments (List[Segment]): Filtered list of segments
@@ -195,18 +198,12 @@ class Tracker():
         to_delete = []
         # reason = []
         for seg in segments:
-            try:
-                seg.reconstruction3D(width_height=True)
-                if max_cov_axis is not None:
-                    cov = seg.covariance
-                    max_axis = np.sqrt(np.max(np.linalg.eigh(cov)[0]))
-                    if max_axis > max_cov_axis:
-                        to_delete.append(seg)
-                        # reason.append(f"Deleting {seg.id}: since max_axis = {max_axis}")
-                    # print(f"{seg.id}: {max_axis}")
-            except:
+            if seg.num_points == 0:
                 to_delete.append(seg)
-                # reason.append(f"Deleting {seg.id}: since reconstruction failed")
+                # reason.append(f"Segment {seg.id} has no points")
+            elif seg.volume() < min_volume:
+                to_delete.append(seg)
+                # reason.append(f"Segment {seg.id} has volume {seg.volume} < {min_volume}")
         for seg in to_delete:
             segments.remove(seg)
             # for r in reason:
@@ -227,7 +224,7 @@ class Tracker():
         n = 0
         edited = True
 
-        self.segment_graveyard = self.remove_bad_segments(self.segment_graveyard, max_cov_axis=self.max_cov_axis)
+        self.segment_graveyard = self.remove_bad_segments(self.segment_graveyard, min_volume=self.min_volume)
         self.segments = self.remove_bad_segments(self.segments)
 
         # repeatedly try to merge until no further merges are possible
@@ -243,14 +240,14 @@ class Tracker():
                     # TODO: merging needs to be faster, this may not be the right way to do it.
                     if np.abs(seg2.last_seen - seg1.last_seen) > max_time_passed_merge:
                         continue
-                    reconstruction = seg1.reconstruction3D(width_height=True)
-                    c1 = Cylinder(reconstruction[:3], 0.5*reconstruction[3], reconstruction[4])
-                    reconstruction = seg2.reconstruction3D(width_height=True)
-                    c2 = Cylinder(reconstruction[:3], 0.5*reconstruction[3], reconstruction[4])
-                    intersection3d = self.cylinder_intersection(c1, c2)
-                    combined_vol = c1.height * np.pi * c1.radius**2 + \
-                        c2.height * np.pi * c2.radius**2
-                    iou3d = intersection3d / (combined_vol - intersection3d)
+                    combined_pts = np.vstack([seg1.points, seg2.points])
+                    if combined_pts.shape[0] < 4:
+                        iou3d = 0.0
+                    else:
+                        union_obb = o3d.geometry.OrientedBoundingBox.create_from_points(
+                                    o3d.utility.Vector3dVector(combined_pts))
+                        intersection3d = seg1.volume() + seg2.volume() - union_obb.volume()
+                        iou3d = intersection3d / union_obb.volume()
 
                     maks1 = seg1.reconstruct_mask(self.last_pose)
                     maks2 = seg2.reconstruct_mask(self.last_pose)
@@ -266,17 +263,11 @@ class Tracker():
                                 obs = seg2.last_observation
                             seg1.update(obs, integrate_points=False)
                         seg1.integrate_points_from_segment(seg2)
-                        try:
-                            seg1.reconstruction3D(width_height=True)
-                            # print(f"Merging {seg2.id} into {seg1.id}")
-                            seg1.id = min(seg1.id, seg2.id)
-                            if j < len(self.segments):
-                                self.segments.pop(j)
-                            else:
-                                self.segment_graveyard.pop(j - len(self.segments))
-                        except: # merging failed
-                            # print(f"Merging failed, instead removing {seg1.id}")
-                            self.segments.pop(i)
+                        seg1.id = min(seg1.id, seg2.id)
+                        if j < len(self.segments):
+                            self.segments.pop(j)
+                        else:
+                            self.segment_graveyard.pop(j - len(self.segments))
                         edited = True
                         break
                 if edited:
