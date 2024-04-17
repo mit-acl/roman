@@ -111,6 +111,15 @@ class Segment():
         else:
             return self.points.shape[0]
         
+    def volume(self):
+        if self.num_points > 4: # 4 is the minimum number of points needed to define a 3D box
+            obb = o3d.geometry.OrientedBoundingBox.create_from_points(
+                                o3d.utility.Vector3dVector(self.points))
+            volume = obb.volume()
+            return volume
+        else:
+            return 0.0
+        
     def aabb_volume(self):
         """Return the volume of the 3D axis-aligned bounding box
         """
@@ -161,7 +170,7 @@ class Segment():
     def reconstruct_mask(self, pose, downsample_factor=1):
         mask = np.zeros((self.camera_params.height, self.camera_params.width), dtype=np.uint8)
         # TODO: should it ever take this if statement? I think it should always use depth
-        if self.points is not None:
+        if self.points is None:
             reconstruction = self.reconstruction3D(width_height=True)
             p_c = transform(np.linalg.inv(pose), reconstruction[:3])
             if p_c[2] >= 0:
