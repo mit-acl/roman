@@ -242,17 +242,22 @@ def main(args):
 
     # Create plots
     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+    fig.subplots_adjust(wspace=.3)
     mp = ax[0].imshow(robots_nearby_mat, vmin=0)
-    fig.colorbar(mp)
+    fig.colorbar(mp, fraction=0.03, pad=0.04)
     ax[0].set_title("Submaps Overlap")
 
     mp = ax[1].imshow(-clipper_angle_mat, vmax=0, vmin=-10)
-    fig.colorbar(mp)
+    fig.colorbar(mp, fraction=0.03, pad=0.04)
     ax[1].set_title("Registration Error (deg)")
 
     mp = ax[2].imshow(clipper_num_associations, vmin=0)
-    fig.colorbar(mp)
+    fig.colorbar(mp, fraction=0.03, pad=0.04)
     ax[2].set_title("Number of CLIPPER Associations")
+
+    for i in range(3):
+        ax[i].set_xlabel("submap index (robot 2)")
+        ax[i].set_ylabel("submap index (robot 1)")
 
     if args.output:
         plt.savefig(args.output)
