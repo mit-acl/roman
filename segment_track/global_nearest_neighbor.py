@@ -27,8 +27,8 @@ def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, 
             if min_similarity is not None and similarity < min_similarity:
                 score = M
             else:
-                score = similarity
-            scores[i,j] = score
+                score = -similarity
+            scores[i,j] = score # TODO: Hungarian is trying to associate low similarity values, score should maybe = - similarity....
 
     # augment cost to add option for no associations
     hungarian_cost = np.concatenate([
