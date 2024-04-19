@@ -160,18 +160,23 @@ def main(args):
         submap_centers = [submap_centers[i][args.submaps_idx[i][0]:args.submaps_idx[i][1]] for i in range(2)]
 
     # Registration setup
-    clipper_angle_mat = np.empty((len(submaps[0]), len(submaps[1])))
-    clipper_num_associations = np.empty((len(submaps[0]), len(submaps[1])))
+    clipper_angle_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
+    clipper_dist_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
+    clipper_num_associations = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     robots_nearby_mat = np.empty((len(submaps[0]), len(submaps[1])))
 
     # Registration method
     if args.method == 'standard':
+        method_name = f'{args.dim}D Point CLIPPER'
         registration = ClipperPtRegistration(sigma=args.sigma, epsilon=args.epsilon)
     elif args.method == 'gravity':
+        method_name = 'Gravity Constrained CLIPPER'
         registration = GravityConstrainedClipperReg(sigma=args.sigma, epsilon=args.epsilon)
     elif args.method == 'distvol':
+        method_name = f'{args.dim}D Volume-based Registration'
         registration = DistVolSimReg(sigma=args.sigma, epsilon=args.epsilon)
     elif args.method == 'distvolgrav':
+        method_name = f'Gravity Constrained Volume-based Registration'
         registration = DistVolGravityConstrained(sigma=args.sigma, epsilon=args.epsilon)
     else:
         assert False, "Invalid method"
@@ -200,7 +205,7 @@ def main(args):
 
         plt.show()
         return
-    
+       
     # iterate over pairs of submaps and create registration results
     for i in tqdm(range(len(submaps[0]))):
         for j in (range(len(submaps[1]))):
@@ -210,22 +215,32 @@ def main(args):
 
             # if show_false_positives is not set, then skip over non overlapping submaps
             if not args.show_false_positives and robots_nearby_mat[i, j] == 0:
-                clipper_angle_mat[i, j] = np.nan
-                clipper_num_associations[i, j] = np.nan
                 continue
 
+            # Bring the submaps closer to the origin so that translation errors are easier to observe
+            submap_i = [obj.copy() for obj in submaps[0][i]]
+            submap_j = [obj.copy() for obj in submaps[1][j]]
+            center_pt = np.mean([np.array(submap_centers[0][i]).reshape(-1), np.array(submap_centers[1][j]).reshape(-1)], axis=0)
+            T_simplify = np.eye(args.dim+1)
+            T_simplify[:-1, -1] = -center_pt[:args.dim]
+
+            for obj in submap_i + submap_j:
+                obj.transform(T_simplify)
+
+            associations = registration.register(submap_i, submap_j)
             if args.dim == 2:
                 try:
-                    T_align = registration.T_align(submaps[0][i], submaps[1][j])
+                    T_align = registration.T_align(submap_i, submap_j, associations)
                 except InsufficientAssociationsException:
                     clipper_angle_mat[i, j] = 180.0
+                    clipper_dist_mat[i, j] = np.inf
                     clipper_num_associations[i, j] = 0
                     continue
                 _, _, theta = transform_2_xytheta(T_align)
 
             elif args.dim == 3:
                 try:
-                    T_align = registration.T_align(submaps[0][i], submaps[1][j])
+                    T_align = registration.T_align(submap_i, submap_j, associations)
                 except InsufficientAssociationsException:
                     clipper_angle_mat[i, j] = 180.0
                     clipper_num_associations[i, j] = 0
@@ -235,14 +250,17 @@ def main(args):
             else:
                 raise ValueError("Invalid dimension")
             
-            clipper_angle_mat[i, j] = np.abs(np.rad2deg(theta))
+            if robots_nearby_mat[i, j] == 1:
+                clipper_angle_mat[i, j] = np.abs(np.rad2deg(theta))
+                clipper_dist_mat[i, j] = np.linalg.norm(T_align[:-1, -1])
 
-            associations = registration.register(submaps[0][i], submaps[1][j])
             clipper_num_associations[i, j] = len(associations)
 
     # Create plots
-    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+    fig, ax = plt.subplots(1, 4, figsize=(20, 5))
     fig.subplots_adjust(wspace=.3)
+    fig.suptitle(method_name)
+
     mp = ax[0].imshow(robots_nearby_mat, vmin=0)
     fig.colorbar(mp, fraction=0.03, pad=0.04)
     ax[0].set_title("Submaps Overlap")
@@ -251,11 +269,15 @@ def main(args):
     fig.colorbar(mp, fraction=0.03, pad=0.04)
     ax[1].set_title("Registration Error (deg)")
 
-    mp = ax[2].imshow(clipper_num_associations, vmin=0)
+    mp = ax[2].imshow(-clipper_dist_mat, vmax=0, vmin=-5.0)
     fig.colorbar(mp, fraction=0.03, pad=0.04)
-    ax[2].set_title("Number of CLIPPER Associations")
+    ax[2].set_title("Registration Distance Error (m)")
 
-    for i in range(3):
+    mp = ax[3].imshow(clipper_num_associations, vmin=0)
+    fig.colorbar(mp, fraction=0.03, pad=0.04)
+    ax[3].set_title("Number of CLIPPER Associations")
+
+    for i in range(4):
         ax[i].set_xlabel("submap index (robot 2)")
         ax[i].set_ylabel("submap index (robot 1)")
 
@@ -273,12 +295,14 @@ if __name__ == '__main__':
     parser.add_argument('--method', '-m', type=str, default='standard')
     parser.add_argument('--show-false-positives', '-s', action='store_true')
     parser.add_argument('--output', '-o', type=str, default=None)
+    parser.add_argument('-r', '--submap-radius', type=float, default=15.0)
+    parser.add_argument('-c', '--submap-center-dist', type=float, default=15.0)
     
     args = parser.parse_args()
 
     # constant params
-    args.submap_radius = 15. # 20.0 for kimera multi data?
-    args.submap_center_dist = 15.0
+    # args.submap_radius = 15. # 20.0 for kimera multi data?
+    # args.submap_center_dist = 15.0
 
     args.sigma = .3
     args.epsilon = .4
