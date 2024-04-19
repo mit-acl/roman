@@ -38,6 +38,7 @@ fastsam:
   weights: "$FASTSAM_WEIGHTS_PATH"
   imgsz: 256
   device: "cuda"
+  ignore_people: True
 
 segment_tracking:
   min_sightings: 5 
