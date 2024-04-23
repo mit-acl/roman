@@ -144,14 +144,16 @@ class FastSAMWrapper():
         self.orb_num_final = 10
             
     def setup_filtering(self,
-        ignore_people=False,
+        ignore_labels = ['person'],
+        keep_labels = ['car'],          
         yolo_det_img_size=None,
         max_cov_axis_ratio=np.inf,
         area_bounds=np.array([0, np.inf]),
         allow_tblr_edges = [True, True, True, True],
     ):
-        self.ignore_people = ignore_people
-        if self.ignore_people:
+        self.ignore_labels = ignore_labels
+        self.keep_labels = keep_labels
+        if len(ignore_labels) > 0:
             if yolo_det_img_size is None:
                 yolo_det_img_size=(int(self.imgsz), int(self.imgsz))
             self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size)
@@ -194,11 +196,7 @@ class FastSAMWrapper():
         """
         self.observations = []
 
-        if self.ignore_people:
-            ignore_mask = self._create_people_mask(img)
-        else:
-            ignore_mask = None
-
+        ignore_mask = self._create_mask(img)
         # run fastsam
         masks, means, covs, (fig, ax) = self._process_img(
             img, plot=plot, ignore_mask=ignore_mask)
@@ -283,15 +281,17 @@ class FastSAMWrapper():
         
         return kp_sel, des
 
-    def _create_people_mask(self, img):
+    def _create_mask(self, img):
         classes, boxes, scores = self.yolov7_det.detect(img)
-        person_boxes = []
+        ignore_boxes = []
+        print("All classes: ", classes)
         for i, cl in enumerate(classes[0]):
-            if self.yolov7_det.names[cl] == 'person':
-                person_boxes.append(boxes[0][i])
+            if self.yolov7_det.names[cl] in self.ignore_labels or not self.yolov7_det.names[cl] in self.keep_labels:
+                print("Deleted class: ", self.yolov7_det.names[cl])
+                ignore_boxes.append(boxes[0][i])
 
         mask = np.zeros(img.shape[:2]).astype(np.int8)
-        for box in person_boxes:
+        for box in ignore_boxes:
             x0, y0, x1, y1 = np.array(box).astype(np.int64).reshape(-1).tolist()
             x0 = max(x0, 0)
             y0 = max(y0, 0)
@@ -364,7 +364,7 @@ class FastSAMWrapper():
             segmask = None
 
         if (segmask is not None):
-
+            print("Seg mask before procesing: ", segmask.shape)
             # FastSAM provides a numMask-channel image in shape C, H, W where each channel in the image is a binary mask
             # of the detected segment
             [numMasks, h, w] = segmask.shape
@@ -390,6 +390,7 @@ class FastSAMWrapper():
                 # filter out ignore mask
                 if ignore_mask is not None and \
                     np.any(np.bitwise_and(segmask[maskId,:,:].astype(np.int8), ignore_mask)):
+                    print("Delete maskID: ", maskId)
                     to_delete.append(maskId)
                     continue
 
@@ -419,7 +420,7 @@ class FastSAMWrapper():
                     segmasks_flat = np.where(mask_this_id < 1, segmasks_flat, maskId)
 
             segmask = np.delete(segmask, to_delete, axis=0)
-
+            print("Seg mask: ", segmask.shape)
             if plot:
                 # Using skimage, overlay masked images with colors
                 image_gray_rgb = skimage.color.label2rgb(segmasks_flat, image_gray_rgb)
