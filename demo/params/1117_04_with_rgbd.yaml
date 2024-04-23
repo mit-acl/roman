@@ -1,8 +1,12 @@
 time:
-  t0: 160 #45
+  t0: 160 # 02:40
   tf: 720 # 12:00
+  # 30 second run with a lot of features
   # t0: 590
   # tf: 620
+  # first half of overlapping map
+  # t0: 590 # 09:50
+  # tf: 690 # 11:30
   relative: True
 
 img_data:

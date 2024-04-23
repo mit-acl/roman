@@ -3,18 +3,23 @@
 #   tf: 930 #15:30
 #   relative: True
 
+# time: 
+#   t0: 1665777935
+#   tf: 1665778015
+#   relative: False
+
 img_data:
-  path: "$KMD_BAGS_PATH/sparkal2.bag"
-  img_topic: /sparkal2/forward/color/image_raw/compressed
-  cam_info_topic: /sparkal2/forward/color/camera_info
-  depth_img_topic: /sparkal2/forward/depth/image_rect_raw
-  depth_cam_info_topic: /sparkal2/forward/depth/camera_info
+  path: "$KMD_BAGS_PATH/sparkal1.bag"
+  img_topic: /sparkal1/forward/color/image_raw/compressed
+  cam_info_topic: /sparkal1/forward/color/camera_info
+  depth_img_topic: /sparkal1/forward/depth/image_rect_raw
+  depth_cam_info_topic: /sparkal1/forward/depth/camera_info
   depth_compressed: False
   depth_compressed_rvl: False
 
 pose_data: 
   file_type: "csv"
-  path: "$KMD_GT_PATH/sparkal2.csv"
+  path: "$KMD_GT_PATH/sparkal1.csv"
   frame: "FLU"
   csv_options:
     cols:
