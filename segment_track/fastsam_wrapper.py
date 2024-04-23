@@ -197,10 +197,10 @@ class FastSAMWrapper():
         """
         self.observations = []
 
-        ignore_mask = self._create_mask(img)
+        ignore_mask, keep_mask = self._create_mask(img)
         # run fastsam
         masks, means, covs, (fig, ax) = self._process_img(
-            img, plot=plot, ignore_mask=ignore_mask)
+            img, plot=plot, ignore_mask=ignore_mask, keep_mask=keep_mask)
 
         widths = []
         heights = []
@@ -303,21 +303,36 @@ class FastSAMWrapper():
     def _create_mask(self, img):
         classes, boxes, scores = self.yolov7_det.detect(img)
         ignore_boxes = []
+        keep_boxes = []
         print("All classes: ", classes)
         for i, cl in enumerate(classes[0]):
-            if self.yolov7_det.names[cl] in self.ignore_labels or not self.yolov7_det.names[cl] in self.keep_labels:
+            if self.yolov7_det.names[cl] in self.ignore_labels:
                 print("Deleted class: ", self.yolov7_det.names[cl])
                 ignore_boxes.append(boxes[0][i])
 
-        mask = np.zeros(img.shape[:2]).astype(np.int8)
+            if self.yolov7_det.names[cl] in self.keep_labels:
+                print("Keep class: ", self.yolov7_det.names[cl])
+                keep_boxes.append(boxes[0][i])
+
+        ignore_mask = np.zeros(img.shape[:2]).astype(np.int8)
         for box in ignore_boxes:
             x0, y0, x1, y1 = np.array(box).astype(np.int64).reshape(-1).tolist()
             x0 = max(x0, 0)
             y0 = max(y0, 0)
-            x1 = min(x1, mask.shape[1])
-            y1 = min(y1, mask.shape[0])
-            mask[y0:y1,x0:x1] = np.ones((y1-y0, x1-x0)).astype(np.int8)
-        return mask
+            x1 = min(x1, ignore_mask.shape[1])
+            y1 = min(y1, ignore_mask.shape[0])
+            ignore_mask[y0:y1,x0:x1] = np.ones((y1-y0, x1-x0)).astype(np.int8)
+
+        keep_mask = np.zeros(img.shape[:2]).astype(np.int8)
+        for box in keep_boxes:
+            x0, y0, x1, y1 = np.array(box).astype(np.int64).reshape(-1).tolist()
+            x0 = max(x0, 0)
+            y0 = max(y0, 0)
+            x1 = min(x1, keep_mask.shape[1])
+            y1 = min(y1, keep_mask.shape[0])
+            keep_mask[y0:y1,x0:x1] = np.ones((y1-y0, x1-x0)).astype(np.int8)
+
+        return ignore_mask, keep_mask
 
     def _delete_edge_masks(self, segmask):
         [numMasks, h, w] = segmask.shape
@@ -330,7 +345,7 @@ class FastSAMWrapper():
                             (np.sum(mask[:edge_width,:]) > 0 and not self.allow_tblr_edges[0]) or (np.sum(mask[-edge_width:, :]) > 0 and not self.allow_tblr_edges[1])
         return np.delete(segmask, contains_edge, axis=0)
 
-    def _process_img(self, image_bgr, plot=False, ignore_mask=None):
+    def _process_img(self, image_bgr, plot=False, ignore_mask=None, keep_mask=None):
         """Process FastSAM on image, returns segment masks and center points from results
 
         Args:
@@ -407,12 +422,14 @@ class FastSAMWrapper():
                 blob_mean, blob_cov = compute_blob_mean_and_covariance(mask_this_id)
 
                 # filter out ignore mask
-                if ignore_mask is not None and \
-                    np.any(np.bitwise_and(segmask[maskId,:,:].astype(np.int8), ignore_mask)):
+                if ignore_mask is not None and np.any(np.bitwise_and(segmask[maskId,:,:].astype(np.int8), ignore_mask)):
                     print("Delete maskID: ", maskId)
                     to_delete.append(maskId)
                     continue
-
+                elif keep_mask is not None and not np.any(np.bitwise_and(segmask[maskId,:,:].astype(np.int8), keep_mask)):
+                    print("Delete maskID: ", maskId)
+                    to_delete.append(maskId)
+                    continue
                 # qualify covariance
                 # filter out segments based on covariance size and shape
                 if self.max_cov_axis_ratio is not None:
