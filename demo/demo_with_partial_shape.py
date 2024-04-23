@@ -29,7 +29,7 @@ from segment_track.segment import Segment
 from segment_track.tracker import Tracker
 from segment_track.fastsam_wrapper import FastSAMWrapper
 
-def draw(t, img, pose, tracker, observations, ax):
+def draw(t, img, pose, tracker, observations, reprojected_bboxs, ax):
     for axi in ax:
         axi.clear()
         remove_ticks(axi)
@@ -37,24 +37,22 @@ def draw(t, img, pose, tracker, observations, ax):
     img_fastsam = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
     img_fastsam = np.concatenate([img_fastsam[...,None]]*3, axis=2)
 
+    segment: Segment
     for i, segment in enumerate(tracker.segments + tracker.segment_graveyard):
         # only draw segments seen in the last however many seconds
         if segment.last_seen < t - 50:
             continue
-        try:
-            reconstruction = segment.reconstruction3D(width_height=True)
-            # print("Reconstruction shape: ", reconstruction.shape)
-        except:
-            continue
-        centroid_w, width, height = reconstruction[:3], reconstruction[3], reconstruction[4]
-        centroid_c = transform(np.linalg.inv(pose), centroid_w)
-        if centroid_c[2] < 0: # behind camera
+        bbox = segment.reprojected_bbox(pose)
+        if bbox is None:
             continue
         if i < len(tracker.segments):
             color = (0, 255, 0)
         else:
             color = (255, 0, 0)
-        img = draw_cylinder(img, tracker.camera_params.K, centroid_c, width, height, color=color, id=segment.id)
+        img = cv.rectangle(img, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
+                    np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=color, thickness=2)
+        img = cv.putText(img, str(segment.id), (np.array(bbox[0]) + np.array([10., 10.])).astype(np.int32), 
+                         cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
     matched_masks = []
     for segment in tracker.segments:
@@ -87,19 +85,25 @@ def draw(t, img, pose, tracker, observations, ax):
         white_mask = obs.mask.astype(np.int32)[..., np.newaxis]*np.ones(3)*255
         white_mask = white_mask.astype(np.uint8)
         img_fastsam = cv.addWeighted(img_fastsam, 1.0, white_mask, 0.5, 0)
+
+    for seg_id, bbox in reprojected_bboxs:
+        np.random.seed(seg_id)
+        rand_color = np.random.randint(0, 255, 3)
+        cv.rectangle(img_fastsam, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
+                     np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=rand_color.tolist(), thickness=2)
             
 
     ax[0].imshow(img[...,::-1])
     ax[1].imshow(img_fastsam)
     return
 
-def draw_pcd(ax_pcd, segment_pcd):
-    ax_pcd.clear()
-    for pcd in segment_pcd:
-        # print("Observation pcd: ", obs.point_cloud)
-        if pcd is None:
-            continue
-        ax_pcd.scatter(pcd["seg_pcd"][:, 0], pcd["seg_pcd"][:, 1], pcd["seg_pcd"][:, 2])
+# def draw_pcd(ax_pcd, segment_pcd):
+#     ax_pcd.clear()
+#     for pcd in segment_pcd:
+#         # print("Observation pcd: ", obs.point_cloud)
+#         if pcd is None:
+#             continue
+#         ax_pcd.scatter(pcd["seg_pcd"][:, 0], pcd["seg_pcd"][:, 1], pcd["seg_pcd"][:, 2])
         # observation_history.append(obs.point_cloud)
     # ax_pcd.set_xlim(-50, 50)
     # ax_pcd.set_ylim(-50, 50)
@@ -114,6 +118,17 @@ def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, ax_pcd, pos
         pose = pose_data.T_WB(img_t)
     except NoDataNearTimeException:
         return
+
+    # collect reprojected masks
+    reprojected_bboxs = []
+    segment: Segment
+    for i, segment in enumerate(tracker.segments + tracker.segment_graveyard):
+        # only draw segments seen in the last however many seconds
+        if segment.last_seen < t - 50:
+            continue
+        bbox = segment.reprojected_bbox(pose)
+        if bbox is not None:
+            reprojected_bboxs.append((segment.id, bbox))
 
     observations = fastsam.run(t, pose, img, img_depth=img_depth)
     # print("Pointcloud shape: ", observations[0].point_cloud.shape)
@@ -135,15 +150,9 @@ def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, ax_pcd, pos
     if ax is not None:
         # print("Axes pcd: ", ax_pcd)
         # draw_pcd(ax_pcd, segment_pcd)
-        draw(t, img, pose, tracker, observations, ax)
+        draw(t, img, pose, tracker, observations, reprojected_bboxs, ax)
 
     poses_history.append(pose)
-    # file = open('observation_history', 'wb')
-    # pickle.dump(observation_history, file)
-    # # close the file
-    # file.close()
-    # input("Press Enter to continue...")/
-    # time.sleep(1.0)
     return
     
 
@@ -280,7 +289,7 @@ def main(args):
     )
     img_area = img_data.camera_params.width * img_data.camera_params.height
     fastsam.setup_filtering(
-        ignore_labels = ['person'],
+        ignore_labels = ['person', 'stop sign', 'bicycle', 'parking meter'],
         keep_labels = ['car', 'bus', 'truck'],
         yolo_det_img_size=(128, 128),
         allow_tblr_edges=[True, True, True, True],
@@ -301,13 +310,15 @@ def main(args):
     wc_t0 = time.time()
     if not args.no_vid:
         fig, ax = plt.subplots(1, 2, dpi=400, layout='tight')
-        fig_pcd = plt.figure()
-        ax_pcd = fig_pcd.add_subplot(1, 1, 1, projection='3d')
+        # fig_pcd = plt.figure()
+        # ax_pcd = fig_pcd.add_subplot(1, 1, 1, projection='3d')
+        fig_pcd = None
+        ax_pcd = None
         print("Create pcd visualization.")
     else:
         fig = None
         ax = None
-        fig_pcs = None
+        fig_pcd = None
         ax_pcd = None
     poses_history = []
     segment_pcd = []
@@ -316,7 +327,7 @@ def main(args):
         print(f"t: {t - t0:.2f} = {t}")
 
     if not args.no_vid:
-        ani = FuncAnimation(fig, update_wrapper, frames=tqdm.tqdm(np.arange(t0, tf, params['segment_tracking']['dt'])), interval=100, repeat=False)
+        ani = FuncAnimation(fig, update_wrapper, frames=tqdm.tqdm(np.arange(t0, tf, params['segment_tracking']['dt'])), interval=10, repeat=False)
         if not args.output:
             plt.show()
         else:
