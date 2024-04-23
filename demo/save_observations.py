@@ -74,15 +74,15 @@ if __name__ == '__main__':
     )
 
     fastsam = FastSAMWrapper(
-        weights="/home/masonbp/tools/fastsam/weights/FastSAM-x.pt",
+        weights="/home/lucas/Documents/GitLab/dmot/fastsam3d/FastSAM/weights/FastSAM-x.pt",
         imgsz=512,
         device='cuda'
     )
     img_area = img_data.camera_params.width * img_data.camera_params.height
     fastsam.setup_filtering(
         ignore_people=True,
-        yolo_det_img_size=(128, 128),
-        allow_tblr_edges=[True, False, False, False],
+        yolo_det_img_size=(512, 512),
+        allow_tblr_edges=[True, True, True, True],
         area_bounds=[img_area / 20**2, img_area / 3**2]
     )
 
