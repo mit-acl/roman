@@ -1,6 +1,10 @@
 time: 
+  # full loop
   t0: 60 # 1:00
   tf: 405 # 6:45
+  # easier half of loop
+  # t0: 60 # 1:00
+  # tf: 255 # 4:15
   relative: True
 
 img_data:

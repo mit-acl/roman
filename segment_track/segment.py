@@ -111,6 +111,15 @@ class Segment():
         else:
             return self.points.shape[0]
         
+    def volume(self):
+        if self.num_points > 4: # 4 is the minimum number of points needed to define a 3D box
+            obb = o3d.geometry.OrientedBoundingBox.create_from_points(
+                                o3d.utility.Vector3dVector(self.points))
+            volume = obb.volume()
+            return volume
+        else:
+            return 0.0
+        
     def aabb_volume(self):
         """Return the volume of the 3D axis-aligned bounding box
         """
@@ -160,21 +169,28 @@ class Segment():
     
     def reconstruct_mask(self, pose, downsample_factor=1):
         mask = np.zeros((self.camera_params.height, self.camera_params.width), dtype=np.uint8)
-        reconstruction = self.reconstruction3D(width_height=True)
-        p_c = transform(np.linalg.inv(pose), reconstruction[:3])
-        if p_c[2] >= 0:
-            w, h = reconstruction[3], reconstruction[4]
-            lower_left_c = p_c - np.array([w/2, h/2, 0])
-            upper_right_c = p_c + np.array([w/2, h/2, 0])
-            lower_left_uv = xyz_2_pixel(lower_left_c, self.camera_params.K)
-            upper_right_uv = xyz_2_pixel(upper_right_c, self.camera_params.K)
+        # TODO: should it ever take this if statement? I think it should always use depth
+        if self.points is None:
+            reconstruction = self.reconstruction3D(width_height=True)
+            p_c = transform(np.linalg.inv(pose), reconstruction[:3])
+            if p_c[2] >= 0:
+                w, h = reconstruction[3], reconstruction[4]
+                lower_left_c = p_c - np.array([w/2, h/2, 0])
+                upper_right_c = p_c + np.array([w/2, h/2, 0])
+                lower_left_uv = xyz_2_pixel(lower_left_c, self.camera_params.K)
+                upper_right_uv = xyz_2_pixel(upper_right_c, self.camera_params.K)
 
-            lower_left_uv = np.round(lower_left_uv).astype(int).reshape(-1)
-            upper_right_uv = np.round(upper_right_uv).astype(int).reshape(-1)
+                lower_left_uv = np.round(lower_left_uv).astype(int).reshape(-1)
+                upper_right_uv = np.round(upper_right_uv).astype(int).reshape(-1)
 
-            lower_left_uv = np.maximum(lower_left_uv, 0)
-            upper_right_uv = np.minimum(upper_right_uv, [self.camera_params.width, self.camera_params.height])
-            mask[lower_left_uv[1]:upper_right_uv[1], lower_left_uv[0]:upper_right_uv[0]] = 1
+                lower_left_uv = np.maximum(lower_left_uv, 0)
+                upper_right_uv = np.minimum(upper_right_uv, [self.camera_params.width, self.camera_params.height])
+                mask[lower_left_uv[1]:upper_right_uv[1], lower_left_uv[0]:upper_right_uv[0]] = 1
+        else:
+            bbox = self.reprojected_bbox(pose)
+            if bbox is not None:
+                upper_left, lower_right = bbox
+                mask[upper_left[1]:lower_right[1], upper_left[0]:lower_right[0]] = 1
 
         if downsample_factor == 1:
             return mask.astype('uint8')
@@ -186,6 +202,20 @@ class Segment():
                     interpolation=cv.INTER_NEAREST
                 )).astype('uint8')
         return mask
+    
+    def reprojected_bbox(self, pose):
+        points_c = transform(np.linalg.inv(pose), self.points, axis=0)
+        points_c = points_c[points_c[:,2] >= 0]
+        if len(points_c) == 0:
+            return None
+        pixels = xyz_2_pixel(points_c, self.camera_params.K)
+        upper_left = np.max([np.min(pixels, axis=0).astype(int), [0, 0]], axis=0)
+        lower_right = np.min([np.max(pixels, axis=0).astype(int), 
+                                [self.camera_params.width, self.camera_params.height]], axis=0)
+        # if width == 0 or height == 0
+        if lower_right[0] - upper_left[0] <= 0 or lower_right[1] - upper_left[1] <= 0:
+            return None
+        return upper_left, lower_right
     
     @property
     def covariance(self):

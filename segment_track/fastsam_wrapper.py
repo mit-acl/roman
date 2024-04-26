@@ -159,7 +159,7 @@ class FastSAMWrapper():
         self.area_bounds = area_bounds
         self.allow_tblr_edges= allow_tblr_edges
 
-    def setup_rgbd_params(self, depth_cam_params, max_depth, depth_scale=1e3, voxel_size=0.05):
+    def setup_rgbd_params(self, depth_cam_params, max_depth, depth_scale=1e3, voxel_size=0.05, within_depth_frac=0.5):
         """Setup params for processing RGB-D depth measurements
 
         Args:
@@ -170,6 +170,7 @@ class FastSAMWrapper():
         """
         self.depth_cam_params = depth_cam_params
         self.max_depth = max_depth
+        self.within_depth_frac = within_depth_frac
         self.depth_scale = depth_scale
         self.depth_cam_intrinsics = o3d.camera.PinholeCameraIntrinsic(
             width=int(depth_cam_params.width),
@@ -234,10 +235,28 @@ class FastSAMWrapper():
                     stride=1,
                     project_valid_depth_only=True
                 )
+                pcd_test = o3d.geometry.PointCloud.create_from_depth_image(
+                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
+                    self.depth_cam_intrinsics,
+                    depth_scale=self.depth_scale,
+                    # depth_trunc=self.max_depth,
+                    stride=1,
+                    project_valid_depth_only=True
+                )
+                ptcld_test = np.asarray(pcd_test.points)
+                pre_truncate_len = len(ptcld_test)
+                ptcld_test = ptcld_test[ptcld_test[:,2] < self.max_depth]
+                # require some fraction of the points to be within the max depth
+                if len(ptcld_test) < self.within_depth_frac*pre_truncate_len:
+                    continue
+                # print(f"pre_truncate_len={pre_truncate_len}, post_truncate_len={len(ptcld_test)}")
+                
                 pcd.remove_non_finite_points()
                 pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
                 if not pcd_sampled.is_empty():
                     ptcld = np.asarray(pcd_sampled.points)
+                if ptcld is None:
+                    continue
 
             # Generate downsampled mask
             # TODO: make downsample factor into a param
