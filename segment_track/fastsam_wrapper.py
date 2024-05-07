@@ -10,6 +10,7 @@ import open3d as o3d
 import copy
 from yolov7_package import Yolov7Detector
 import math
+import time
 
 from FastSAM.fastsam import FastSAMPrompt
 from FastSAM.fastsam import FastSAM
@@ -159,7 +160,7 @@ class FastSAMWrapper():
         self.area_bounds = area_bounds
         self.allow_tblr_edges= allow_tblr_edges
 
-    def setup_rgbd_params(self, depth_cam_params, max_depth, depth_scale=1e3, voxel_size=0.05, within_depth_frac=0.5):
+    def setup_rgbd_params(self, depth_cam_params, max_depth, depth_scale=1e3, voxel_size=0.05, within_depth_frac=0.5, pcd_stride=4):
         """Setup params for processing RGB-D depth measurements
 
         Args:
@@ -167,6 +168,8 @@ class FastSAMWrapper():
             max_depth (float): maximum depth to be included in point cloud
             depth_scale (float, optional): scale of depth image. Defaults to 1e3.
             voxel_size (float, optional): Voxel size when downsampling point cloud. Defaults to 0.05.
+            within_depth_frac(float, optional): Fraction of points that must be within max_depth. Defaults to 0.5.
+            pcd_stride (int, optional): Stride for downsampling point cloud. Defaults to 4.
         """
         self.depth_cam_params = depth_cam_params
         self.max_depth = max_depth
@@ -181,6 +184,7 @@ class FastSAMWrapper():
             cy=depth_cam_params.cy,
         )
         self.voxel_size = voxel_size
+        self.pcd_stride = pcd_stride
 
     def run(self, t, pose, img, img_depth=None, plot=False):
         """
@@ -227,20 +231,15 @@ class FastSAMWrapper():
                 depth_obj = copy.deepcopy(img_depth)
                 depth_obj[mask==0] = 0
                 logger.debug(f"img_depth type {img_depth.dtype}, shape={img_depth.shape}")
-                pcd = o3d.geometry.PointCloud.create_from_depth_image(
-                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
-                    self.depth_cam_intrinsics,
-                    depth_scale=self.depth_scale,
-                    depth_trunc=self.max_depth,
-                    stride=1,
-                    project_valid_depth_only=True
-                )
+
+                # Extract point cloud without truncation to heuristically check if enough of the object
+                # is within the max depth
                 pcd_test = o3d.geometry.PointCloud.create_from_depth_image(
                     o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
                     self.depth_cam_intrinsics,
                     depth_scale=self.depth_scale,
                     # depth_trunc=self.max_depth,
-                    stride=1,
+                    stride=self.pcd_stride,
                     project_valid_depth_only=True
                 )
                 ptcld_test = np.asarray(pcd_test.points)
@@ -249,8 +248,15 @@ class FastSAMWrapper():
                 # require some fraction of the points to be within the max depth
                 if len(ptcld_test) < self.within_depth_frac*pre_truncate_len:
                     continue
-                # print(f"pre_truncate_len={pre_truncate_len}, post_truncate_len={len(ptcld_test)}")
                 
+                pcd = o3d.geometry.PointCloud.create_from_depth_image(
+                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
+                    self.depth_cam_intrinsics,
+                    depth_scale=self.depth_scale,
+                    depth_trunc=self.max_depth,
+                    stride=self.pcd_stride,
+                    project_valid_depth_only=True
+                )
                 pcd.remove_non_finite_points()
                 pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
                 if not pcd_sampled.is_empty():
@@ -267,7 +273,7 @@ class FastSAMWrapper():
             )).astype('uint8')
 
             self.observations.append(Observation(t, pose, np.array(mean), w, h, mask, mask_downsampled, ptcld))
-
+        
         # TODO: fix plotting
         # if plot_dir is not None:
         #     self._plot_3d_pos(centroids, means, plot_dir, i, fig, ax)
