@@ -5,6 +5,7 @@
 import cv2 as cv
 import matplotlib.pyplot as plt
 import numpy as np
+from numpy.linalg import eig
 import skimage
 import open3d as o3d
 import copy
@@ -14,13 +15,26 @@ import time
 
 from FastSAM.fastsam import FastSAMPrompt
 from FastSAM.fastsam import FastSAM
-import fastsam3D.segment_qualification as seg_qual
 
 from segment_track.observation import Observation
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
+def is_elongated(covs_img, max_axis_ratio=np.inf):
+    """
+    Finds elongated covariances from input
+
+    Args:
+        covs_img ((n,2,2) np.array): n 2-dimensional covariance matrix inputs
+        max_axis_ratio (float, optional): maximum ratio allowed between major and minor covariance matrix axes. Defaults to np.inf.
+
+    Returns:
+        (n,) np.array: boolean array indicating whether covariances are elongated
+    """
+    covs_arr = np.array(covs_img)
+    eigvals, eigvecs = eig(covs_arr)
+    return np.bitwise_or(eigvals[:,0] > max_axis_ratio*eigvals[:,1], eigvals[:,1] > max_axis_ratio*eigvals[:,0])
 
 def compute_blob_mean_and_covariance(binary_image):
 
@@ -441,13 +455,9 @@ class FastSAMWrapper():
                 # qualify covariance
                 # filter out segments based on covariance size and shape
                 if self.max_cov_axis_ratio is not None:
-                    if seg_qual.is_elongated([blob_cov], max_axis_ratio=self.max_cov_axis_ratio):
+                    if is_elongated([blob_cov], max_axis_ratio=self.max_cov_axis_ratio):
                         to_delete.append(maskId)
                         continue
-                # if self.area_bounds is not None:
-                #     if seg_qual.is_out_of_bounds_area([blob_cov], bounds_area=area_bounds):
-                #         to_delete.append(maskId)
-                #         continue
 
                 if self.area_bounds is not None:
                     area = np.sum(segmask[maskId,:,:])
