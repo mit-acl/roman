@@ -14,13 +14,33 @@ import time
 
 from FastSAM.fastsam import FastSAMPrompt
 from FastSAM.fastsam import FastSAM
-from fastsam3D.utils import compute_blob_mean_and_covariance, plotErrorEllipse
 import fastsam3D.segment_qualification as seg_qual
 
 from segment_track.observation import Observation
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+
+def compute_blob_mean_and_covariance(binary_image):
+
+    # Create a grid of pixel coordinates.
+    y, x = np.indices(binary_image.shape)
+
+    # Threshold the binary image to isolate the blob.
+    blob_pixels = (binary_image > 0).astype(int)
+
+    # Compute the mean of pixel coordinates.
+    mean_x, mean_y = np.mean(x[blob_pixels == 1]), np.mean(y[blob_pixels == 1])
+    mean = (mean_x, mean_y)
+
+    # Stack pixel coordinates to compute covariance using Scipy's cov function.
+    pixel_coordinates = np.vstack((x[blob_pixels == 1], y[blob_pixels == 1]))
+
+    # Compute the covariance matrix using Scipy's cov function.
+    covariance_matrix = np.cov(pixel_coordinates)
+
+    return mean, covariance_matrix
 
 def ssc(keypoints, num_ret_points, tolerance, cols, rows):
     exp1 = rows + cols + 2 * num_ret_points
@@ -451,17 +471,6 @@ class FastSAMWrapper():
 
         else: 
             return [], [], [], (None, None)
-
-        if plot:
-            # For each centroid and covariance, plot an ellipse
-            for m, c in zip(blob_means, blob_covs):
-                plotErrorEllipse(ax, m[0], m[1], c, "r",stdMultiplier=2.0)
-
-            # Show image using Matplotlib, set axis limits, save and close the output figure.
-            ax.imshow(image_gray_rgb)
-            ax.set_xlim([0,w])
-            ax.set_ylim([h,0])        
-            return segmask, blob_means, blob_covs, (fig, ax)
 
         return segmask, blob_means, blob_covs, (None, None)
 
