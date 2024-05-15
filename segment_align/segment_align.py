@@ -10,6 +10,7 @@ import open3d as o3d
 
 from robot_utils.robot_data.pose_data import PoseData
 from robot_utils.transform import transform_2_xytheta
+from robot_utils.geometry import circle_intersection
 
 from segment_track.segment import Segment
 from segment_track.tracker import Tracker
@@ -147,8 +148,11 @@ def main(args):
     for i in tqdm(range(len(submaps[0]))):
         for j in (range(len(submaps[1]))):
             
-            submap_dist = np.linalg.norm(submap_centers[0][i] - submap_centers[1][j])
-            robots_nearby_mat[i, j] = 1 if submap_dist < args.submap_radius*2 else 0
+            submap_intersection = circle_intersection(
+                center1=submap_centers[0][i][:2], center2=submap_centers[1][j][:2], radius1=args.submap_radius, radius2=args.submap_radius
+            )
+            submap_area = np.pi*args.submap_radius**2
+            robots_nearby_mat[i, j] = 1 if submap_intersection/submap_area > args.submap_overlap_threshold else 0
 
             # if show_false_positives is not set, then skip over non overlapping submaps
             if not args.show_false_positives and robots_nearby_mat[i, j] == 0:
@@ -247,5 +251,6 @@ if __name__ == '__main__':
     # args.submaps_idx = [[32, 42], [45, 55], ]
     # args.submaps_idx = [[38, 52], [20, 35],]
     args.submaps_idx = None
+    args.submap_overlap_threshold = 0.5
     
     main(args)
