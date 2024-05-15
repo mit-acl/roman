@@ -16,29 +16,14 @@ from segment_track.tracker import Tracker
 
 from object_map_registration.object.ellipsoid import Ellipsoid
 from object_map_registration.object.object import Object
+from object_map_registration.object.pointcloud_object import PointCloudObject
 from object_map_registration.register.clipper_pt_registration import ClipperPtRegistration
 from object_map_registration.register.gravity_constrained_clipper_reg import GravityConstrainedClipperReg
 from object_map_registration.register.dist_vol_gravity_constrained import DistVolGravityConstrained
 from object_map_registration.register.dist_vol_sim_reg import DistVolSimReg
 from object_map_registration.register.object_registration import InsufficientAssociationsException
 from object_map_registration.utils import object_list_bounds
-
-def centroid_from_points(segment: Segment):
-    """
-    Method to get a single point representing a segment.
-
-    Args:
-        segment (Segment): segment object
-
-    Returns:
-        np.array, shape=(3,): representative point
-    """
-    if segment.points is not None:
-        pt = np.median(segment.points, axis=0)
-        pt[2] = np.min(segment.points[:,2])
-        return pt
-    else:
-        return None
+    
     
 def submap_centers_from_poses(poses: List[np.array], dist: float):
     """
@@ -75,43 +60,16 @@ def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius:
     """
     submaps = []
     for center in centers:
-        submap = [obj for obj in object_map if np.linalg.norm(obj.centroid.flatten() - center[:obj.dim]) < radius]
+        submap = [obj for obj in object_map if np.linalg.norm(obj.center.flatten()[:2] - center[:2]) < radius]
         submaps.append(submap)
     return submaps
         
-    
-# def load_pose_data(pose_file, csv=False):
-#     kmd_csv_options = {'cols': {'time': ['#timestamp_kf'],
-#                                 'position': ['x', 'y', 'z'],
-#                                 'orientation': ['qx', 'qy', 'qz', 'qw']},
-#                     'col_nums': {'time': [0],
-#                                 'position': [1,2,3],
-#                                 'orientation': [5,6,7,4]},
-#                     'timescale': 1e-9}
-#     if not csv:
-#         return PoseData(
-#             data_file=os.path.expanduser(os.path.expandvars(pose_file)),
-#             file_type='bag',
-#             topic="/acl_jackal2/kimera_vio_ros/odometry",
-#             time_tol=10.0,
-#             interp=True,
-#         )
-#     else:
-#         return PoseData(
-#             data_file=os.path.expanduser(os.path.expandvars(pose_file)),
-#             file_type='csv',
-#             time_tol=10.0,
-#             interp=True,
-#             csv_options=kmd_csv_options
-#         )
 
 def main(args):
     colors = ['maroon', 'blue']
     poses = []
     trackers = []
     object_maps = [[], []]
-    t0s = []
-    tfs = []
     
     # extract pickled data
     for pickle_file in args.input:
@@ -122,34 +80,13 @@ def main(args):
 
     # create objects from segments
     for i, tracker in enumerate(trackers):
-        t0 = np.inf
-        tf = -np.inf
         segment: Segment
         for segment in tracker.segments + tracker.segment_graveyard:
-            segment.first_seen = np.min([obs.time for obs in segment.observations])
-            t0 = np.min([segment.first_seen, t0])
-            tf = np.max([segment.last_seen, tf])
-            centroid = centroid_from_points(segment)
-            if centroid is not None:
-
-                try:
-                    obb = o3d.geometry.OrientedBoundingBox.create_from_points(
-                        o3d.utility.Vector3dVector(segment.points)
-                    )
-                except:
-                    continue
-                volume = obb.volume()
-                # new_obj = Object(centroid.reshape(-1)[:args.dim])
-                new_obj = Ellipsoid(
-                    centroid.reshape(-1)[:args.dim], 
-                    np.array([volume**(1/args.dim) for i in range(args.dim)]), 
-                    np.eye(args.dim)
-                )
-                new_obj.first_seen = np.min([obs.time for obs in segment.observations])
-                new_obj.last_seen = np.max([obs.time for obs in segment.observations])
+            if segment.points is not None and len(segment.points) > 0:
+                # new_obj = PointCloudObject(np.mean(segment.points, axis=0), np.eye(3), segment.points - np.mean(segment.points, axis=0), dim=3)
+                new_obj = PointCloudObject(np.zeros(3), np.eye(3), segment.points, dim=3)
+                new_obj.use_bottom_median_as_center()
                 object_maps[i].append(new_obj)
-        t0s.append(t0)
-        tfs.append(tf)
 
     # create submaps
     submap_centers = [submap_centers_from_poses(pose_list, args.submap_center_dist) for pose_list in poses]
@@ -168,13 +105,13 @@ def main(args):
     # Registration method
     if args.method == 'standard':
         method_name = f'{args.dim}D Point CLIPPER'
-        registration = ClipperPtRegistration(sigma=args.sigma, epsilon=args.epsilon)
+        registration = ClipperPtRegistration(sigma=args.sigma, epsilon=args.epsilon, dim=args.dim)
     elif args.method == 'gravity':
         method_name = 'Gravity Constrained CLIPPER'
         registration = GravityConstrainedClipperReg(sigma=args.sigma, epsilon=args.epsilon)
     elif args.method == 'distvol':
         method_name = f'{args.dim}D Volume-based Registration'
-        registration = DistVolSimReg(sigma=args.sigma, epsilon=args.epsilon)
+        registration = DistVolSimReg(sigma=args.sigma, epsilon=args.epsilon, dim=args.dim)
     elif args.method == 'distvolgrav':
         method_name = f'Gravity Constrained Volume-based Registration'
         registration = DistVolGravityConstrained(sigma=args.sigma, epsilon=args.epsilon)
@@ -221,19 +158,19 @@ def main(args):
             submap_i = [obj.copy() for obj in submaps[0][i]]
             submap_j = [obj.copy() for obj in submaps[1][j]]
             center_pt = np.mean([np.array(submap_centers[0][i]).reshape(-1), np.array(submap_centers[1][j]).reshape(-1)], axis=0)
-            T_simplify = np.eye(args.dim+1)
-            T_simplify[:-1, -1] = -center_pt[:args.dim]
+            T_simplify = np.eye(4)
+            T_simplify[:args.dim, 3] = -center_pt[:args.dim]
 
             for obj in submap_i + submap_j:
                 obj.transform(T_simplify)
-
+                
             associations = registration.register(submap_i, submap_j)
             if args.dim == 2:
                 try:
                     T_align = registration.T_align(submap_i, submap_j, associations)
                 except InsufficientAssociationsException:
                     clipper_angle_mat[i, j] = 180.0
-                    clipper_dist_mat[i, j] = np.inf
+                    clipper_dist_mat[i, j] = 1e6
                     clipper_num_associations[i, j] = 0
                     continue
                 _, _, theta = transform_2_xytheta(T_align)
@@ -243,6 +180,7 @@ def main(args):
                     T_align = registration.T_align(submap_i, submap_j, associations)
                 except InsufficientAssociationsException:
                     clipper_angle_mat[i, j] = 180.0
+                    clipper_dist_mat[i, j] = 1e6
                     clipper_num_associations[i, j] = 0
                     continue
                 theta = Rot.from_matrix(T_align[:3, :3]).magnitude()
@@ -252,7 +190,7 @@ def main(args):
             
             if robots_nearby_mat[i, j] == 1:
                 clipper_angle_mat[i, j] = np.abs(np.rad2deg(theta))
-                clipper_dist_mat[i, j] = np.linalg.norm(T_align[:-1, -1])
+                clipper_dist_mat[i, j] = np.linalg.norm(T_align[:args.dim, 3])
 
             clipper_num_associations[i, j] = len(associations)
 
