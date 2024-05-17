@@ -178,26 +178,28 @@ def main(args):
                 try:
                     T_align = registration.T_align(submap_i, submap_j, associations)
                     _, _, theta = transform_2_xytheta(T_align)
+                    dist = np.linalg.norm(T_align[:args.dim, 3])
                 except InsufficientAssociationsException:
-                    clipper_angle_mat[i, j] = 180.0
-                    clipper_dist_mat[i, j] = 1e6
-                    clipper_num_associations[i, j] = 0
+                    theta = 180.0
+                    dist = 1e6
+                    associations = []
 
             elif args.dim == 3:
                 try:
                     T_align = registration.T_align(submap_i, submap_j, associations)
                     theta = Rot.from_matrix(T_align[:3, :3]).magnitude()
+                    dist = np.linalg.norm(T_align[:args.dim, 3])
                 except InsufficientAssociationsException:
-                    clipper_angle_mat[i, j] = 180.0
-                    clipper_dist_mat[i, j] = 1e6
-                    clipper_num_associations[i, j] = 0
+                    theta = 180.0
+                    dist = 1e6
+                    associations = []
 
             else:
                 raise ValueError("Invalid dimension")
             
             if robots_nearby_mat[i, j] > args.submap_overlap_threshold:
                 clipper_angle_mat[i, j] = np.abs(np.rad2deg(theta))
-                clipper_dist_mat[i, j] = np.linalg.norm(T_align[:args.dim, 3])
+                clipper_dist_mat[i, j] = dist
             else:
                 clipper_angle_mat[i, j] = np.nan
                 clipper_dist_mat[i, j] = np.nan
