@@ -18,10 +18,7 @@ from segment_track.tracker import Tracker
 from object_map_registration.object.ellipsoid import Ellipsoid
 from object_map_registration.object.object import Object
 from object_map_registration.object.pointcloud_object import PointCloudObject
-from object_map_registration.register.clipper_pt_registration import ClipperPtRegistration
-from object_map_registration.register.gravity_constrained_clipper_reg import GravityConstrainedClipperReg
-from object_map_registration.register.dist_vol_gravity_constrained import DistVolGravityConstrained
-from object_map_registration.register.dist_vol_sim_reg import DistVolSimReg
+from object_map_registration.register.dist_feature_sim_reg import DistOnlyReg, DistVolReg
 from object_map_registration.register.object_registration import InsufficientAssociationsException
 from object_map_registration.utils import object_list_bounds
     
@@ -137,16 +134,16 @@ def main(args):
     # Registration method
     if args.method == 'standard':
         method_name = f'{args.dim}D Point CLIPPER'
-        registration = ClipperPtRegistration(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim)
+        registration = DistOnlyReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pt_dim=args.dim)
     elif args.method == 'gravity':
         method_name = 'Gravity Constrained CLIPPER'
-        registration = GravityConstrainedClipperReg(sigma=args.sigma, mindist=args.mindist, epsilon=args.epsilon)
+        registration = DistOnlyReg(sigma=args.sigma, mindist=args.mindist, epsilon=args.epsilon, use_gravity=True)
     elif args.method == 'distvol':
         method_name = f'{args.dim}D Volume-based Registration'
-        registration = DistVolSimReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim)
+        registration = DistVolReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pt_dim=args.dim, volume_epsilon=args.epsilon_volume)
     elif args.method == 'distvolgrav':
         method_name = f'Gravity Constrained Volume-based Registration'
-        registration = DistVolGravityConstrained(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist)
+        registration = DistVolReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, use_gravity=True, volume_epsilon=args.epsilon_volume)
     else:
         assert False, "Invalid method"
     # registration = DistVolSimReg(sigma=args.sigma, epsilon=args.epsilon, vol_score_min=0.5, dist_score_min=0.5)
@@ -273,6 +270,7 @@ if __name__ == '__main__':
     parser.add_argument('-r', '--submap-radius', type=float, default=15.0)
     parser.add_argument('-c', '--submap-center-dist', type=float, default=15.0)
     parser.add_argument('--ambiguity', '-a', action='store_true', help="Create ambiguity matrix plot")
+    parser.add_argument('--submaps-idx', type=int, nargs=4, default=None, help="Specify submap indices to use")
     
     args = parser.parse_args()
 
@@ -281,11 +279,17 @@ if __name__ == '__main__':
     # args.submap_center_dist = 15.0
 
     args.sigma = .3
-    args.epsilon = .4
+    args.epsilon = .5
     args.mindist = 0.2
+    args.epsilon_volume = 0.2
+    if args.submaps_idx is not None:
+        args.submaps_idx = [args.submaps_idx[:2], args.submaps_idx[2:]]
+    # args.submaps_idx = None
     # args.submaps_idx = [[32, 42], [45, 55], ]
-    # args.submaps_idx = [[38, 52], [20, 35],]
-    args.submaps_idx = None
+    # args.submaps_idx = [[38, 52], [20, 35],] # sparkal2/1 opposite direction
+    # args.submaps_idx = [[0, 20], [0, 20],] # sparkal2/1 same direction
+    # args.submaps_idx = [[4, 18], [13, 28]] # acl_jackal2/sparkal1 same direction
+    # args.submaps_idx = [[4, 11], [60, 67]] # acl_jackal2/sparkal1 90 degrees crossed
     args.submap_overlap_threshold = 0.1
     
     main(args)
