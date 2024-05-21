@@ -131,6 +131,8 @@ def main(args):
     clipper_dist_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     clipper_num_associations = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     robots_nearby_mat = np.empty((len(submaps[0]), len(submaps[1])))
+    if args.ambiguity:
+        ambiguity_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
 
     # Registration method
     if args.method == 'standard':
@@ -173,7 +175,13 @@ def main(args):
             for obj in submap_i + submap_j:
                 obj.transform(T_simplify)
                 
+            # register the submaps (run multiple times if ambiguity is set)
+            if args.ambiguity:
+                solutions = registration.mno_clipper(submap_i, submap_j, num_solutions=2)
+                ambiguity_mat[i, j] = np.min([solutions[k][1] for k in range(2)]) / np.max([solutions[k][1] for k in range(2)])
+                associations = solutions[0][0]
             associations = registration.register(submap_i, submap_j)
+            
             if args.dim == 2:
                 try:
                     T_align = registration.T_align(submap_i, submap_j, associations)
@@ -207,7 +215,10 @@ def main(args):
             clipper_num_associations[i, j] = len(associations)
 
     # Create plots
-    fig, ax = plt.subplots(1, 4, figsize=(20, 5))
+    if args.ambiguity:
+        fig, ax = plt.subplots(1, 5, figsize=(25, 5))
+    else:
+        fig, ax = plt.subplots(1, 4, figsize=(20, 5))
     fig.subplots_adjust(wspace=.3)
     fig.suptitle(method_name)
 
@@ -227,7 +238,12 @@ def main(args):
     fig.colorbar(mp, fraction=0.03, pad=0.04)
     ax[3].set_title("Number of CLIPPER Associations")
 
-    for i in range(4):
+    if args.ambiguity:
+        mp = ax[4].imshow(ambiguity_mat, vmin=0, vmax=1.0)
+        fig.colorbar(mp, fraction=0.03, pad=0.04)
+        ax[4].set_title("Ambiguity")
+
+    for i in range(len(ax)):
         ax[i].set_xlabel("submap index (robot 2)")
         ax[i].set_ylabel("submap index (robot 1)")
 
@@ -238,7 +254,10 @@ def main(args):
         
     if args.matrix_file:
         pkl_file = open(args.matrix_file, 'wb')
-        pickle.dump([robots_nearby_mat, clipper_angle_mat, clipper_dist_mat, clipper_num_associations], pkl_file)
+        if not args.ambiguity:
+            pickle.dump([robots_nearby_mat, clipper_angle_mat, clipper_dist_mat, clipper_num_associations], pkl_file)
+        else:
+            pickle.dump([robots_nearby_mat, clipper_angle_mat, clipper_dist_mat, clipper_num_associations, ambiguity_mat], pkl_file)
         pkl_file.close()
     
 
@@ -253,6 +272,7 @@ if __name__ == '__main__':
     parser.add_argument('--matrix-file', type=str, default=None)
     parser.add_argument('-r', '--submap-radius', type=float, default=15.0)
     parser.add_argument('-c', '--submap-center-dist', type=float, default=15.0)
+    parser.add_argument('--ambiguity', '-a', action='store_true', help="Create ambiguity matrix plot")
     
     args = parser.parse_args()
 
