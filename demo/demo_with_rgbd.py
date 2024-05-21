@@ -168,6 +168,8 @@ def main(args):
         params['fastsam']['max_mask_len_div'] = 5
     if 'ignore_people' not in params['fastsam']:
         params['fastsam']['ignore_people'] = False
+    if 'erosion_size' not in params['fastsam']:
+        params['fastsam']['erosion_size'] = 5
     
     assert params['segment_tracking']['min_iou'] is not None, "min_iou must be specified in params"
     assert params['segment_tracking']['min_sightings'] is not None, "min_sightings must be specified in params"
@@ -266,7 +268,8 @@ def main(args):
         depth_cam_params=depth_data.camera_params, 
         max_depth=8,
         depth_scale=1e3,
-        voxel_size=0.05
+        voxel_size=0.05,
+        erosion_size=params['fastsam']['erosion_size']
     )
     img_area = img_data.camera_params.width * img_data.camera_params.height
     fastsam.setup_filtering(
