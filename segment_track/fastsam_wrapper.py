@@ -194,7 +194,16 @@ class FastSAMWrapper():
         self.area_bounds = area_bounds
         self.allow_tblr_edges= allow_tblr_edges
 
-    def setup_rgbd_params(self, depth_cam_params, max_depth, depth_scale=1e3, voxel_size=0.05, within_depth_frac=0.5, pcd_stride=4):
+    def setup_rgbd_params(
+        self, 
+        depth_cam_params, 
+        max_depth, 
+        depth_scale=1e3,
+        voxel_size=0.05, 
+        within_depth_frac=0.5, 
+        pcd_stride=4,
+        erosion_size=0,
+    ):
         """Setup params for processing RGB-D depth measurements
 
         Args:
@@ -219,6 +228,13 @@ class FastSAMWrapper():
         )
         self.voxel_size = voxel_size
         self.pcd_stride = pcd_stride
+        if erosion_size > 0:
+            # see: https://docs.opencv.org/3.4/db/df6/tutorial_erosion_dilatation.html
+            erosion_shape = cv.MORPH_ELLIPSE
+            self.erosion_element = cv.getStructuringElement(erosion_shape, (2 * erosion_size + 1, 2 * erosion_size + 1),
+                (erosion_size, erosion_size))
+        else:
+            self.erosion_element = None
 
     def run(self, t, pose, img, img_depth=None, plot=False):
         """
@@ -263,7 +279,11 @@ class FastSAMWrapper():
             ptcld = None
             if img_depth is not None:
                 depth_obj = copy.deepcopy(img_depth)
-                depth_obj[mask==0] = 0
+                if self.erosion_element is not None:
+                    eroded_mask = cv.erode(mask, self.erosion_element)
+                    depth_obj[eroded_mask==0] = 0
+                else:
+                    depth_obj[mask==0] = 0
                 logger.debug(f"img_depth type {img_depth.dtype}, shape={img_depth.shape}")
 
                 # Extract point cloud without truncation to heuristically check if enough of the object
