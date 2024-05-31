@@ -19,6 +19,7 @@ from object_map_registration.object.ellipsoid import Ellipsoid
 from object_map_registration.object.object import Object
 from object_map_registration.object.pointcloud_object import PointCloudObject
 from object_map_registration.register.dist_feature_sim_reg import DistOnlyReg, DistVolReg
+from object_map_registration.register.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
 from object_map_registration.register.object_registration import InsufficientAssociationsException
 from object_map_registration.utils import object_list_bounds
     
@@ -83,6 +84,8 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
                 # new_obj = PointCloudObject(np.mean(segment.points, axis=0), np.eye(3), segment.points - np.mean(segment.points, axis=0), dim=3)
                 new_obj = PointCloudObject(np.zeros(3), np.eye(3), segment.points, dim=3)
                 new_obj.use_bottom_median_as_center()
+                # find volume once for each object so does not have to be recomputed each time
+                new_obj.volume
                 object_maps[i].append(new_obj)
 
     # create submaps
@@ -144,6 +147,15 @@ def main(args):
     elif args.method == 'distvolgrav':
         method_name = f'Gravity Constrained Volume-based Registration'
         registration = DistVolReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, use_gravity=True, volume_epsilon=args.epsilon_volume)
+    elif args.method == 'prunevol':
+        method_name = f'{args.dim}D Volume-based Pruning'
+        registration = DistRegWithPruning(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim, volume_epsilon=args.epsilon_volume, use_gravity=False)
+    elif args.method == 'prunevolgrav':
+        method_name = f'Gravity Filtered Volume-based Pruning'
+        registration = DistRegWithPruning(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim, volume_epsilon=args.epsilon_volume, use_gravity=True)
+    elif args.method == 'prunegrav':
+        method_name = f'Gravity Filtered Pruning'
+        registration = DistRegWithPruning(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim, use_gravity=True)
     else:
         assert False, "Invalid method"
     # registration = DistVolSimReg(sigma=args.sigma, epsilon=args.epsilon, vol_score_min=0.5, dist_score_min=0.5)
@@ -177,30 +189,26 @@ def main(args):
                 solutions = registration.mno_clipper(submap_i, submap_j, num_solutions=2)
                 ambiguity_mat[i, j] = np.min([solutions[k][1] for k in range(2)]) / np.max([solutions[k][1] for k in range(2)])
                 associations = solutions[0][0]
-            associations = registration.register(submap_i, submap_j)
-            
-            if args.dim == 2:
-                try:
+
+            try:
+                associations = registration.register(submap_i, submap_j)
+                
+                if args.dim == 2:
                     T_align = registration.T_align(submap_i, submap_j, associations)
                     _, _, theta = transform_2_xytheta(T_align)
                     dist = np.linalg.norm(T_align[:args.dim, 3])
-                except InsufficientAssociationsException:
-                    theta = 180.0
-                    dist = 1e6
-                    associations = []
 
-            elif args.dim == 3:
-                try:
+                elif args.dim == 3:
                     T_align = registration.T_align(submap_i, submap_j, associations)
                     theta = Rot.from_matrix(T_align[:3, :3]).magnitude()
                     dist = np.linalg.norm(T_align[:args.dim, 3])
-                except InsufficientAssociationsException:
-                    theta = 180.0
-                    dist = 1e6
-                    associations = []
-
-            else:
-                raise ValueError("Invalid dimension")
+                else:
+                    raise ValueError("Invalid dimension")
+                
+            except (InsufficientAssociationsException, GravityConstraintError) as ex:
+                theta = 180.0
+                dist = 1e6
+                associations = []
             
             if robots_nearby_mat[i, j] > args.submap_overlap_threshold:
                 clipper_angle_mat[i, j] = np.abs(np.rad2deg(theta))
@@ -263,7 +271,7 @@ if __name__ == '__main__':
     parser.add_argument('input', nargs=2)
     parser.add_argument('--show-maps', action='store_true', help="Shows the submaps plotted as 2D points to help with submap sizing")
     parser.add_argument('--dim', '-d', type=int, default=3, help="2 or 3 - desired dimension to use for object alignment")
-    parser.add_argument('--method', '-m', type=str, default='standard', help="Method to use for registration: standard, gravity, distvol, distvolgrav")
+    parser.add_argument('--method', '-m', type=str, default='standard', help="Method to use for registration: standard, gravity, distvol, distvolgrav, prunevol, prunevolgrav, prunegrav")
     parser.add_argument('--show-false-positives', '-s', action='store_true', help="Run alignment for submaps that do not overlap")
     parser.add_argument('--output', '-o', type=str, default=None, help="Path to save output plot")
     parser.add_argument('--matrix-file', type=str, default=None, help="Path to save matrix pickle file")
@@ -272,16 +280,18 @@ if __name__ == '__main__':
     parser.add_argument('--ambiguity', '-a', action='store_true', help="Create ambiguity matrix plot")
     parser.add_argument('--submaps-idx', type=int, nargs=4, default=None, help="Specify submap indices to use")
     
+    # registration params
+    parser.add_argument('--sigma', type=float, default=0.3)
+    parser.add_argument('--epsilon', type=float, default=0.5)
+    parser.add_argument('--mindist', type=float, default=0.2)
+    parser.add_argument('--epsilon-volume', type=float, default=0.2)
+
     args = parser.parse_args()
 
     # constant params
     # args.submap_radius = 15. # 20.0 for kimera multi data?
     # args.submap_center_dist = 15.0
 
-    args.sigma = .3
-    args.epsilon = .5
-    args.mindist = 0.2
-    args.epsilon_volume = 0.2
     if args.submaps_idx is not None:
         args.submaps_idx = [args.submaps_idx[:2], args.submaps_idx[2:]]
     # args.submaps_idx = None
