@@ -23,7 +23,11 @@ from object_map_registration.register.dist_reg_with_pruning import DistRegWithPr
 from object_map_registration.register.object_registration import InsufficientAssociationsException
 from object_map_registration.utils import object_list_bounds
     
-    
+# TODO: right now, we don't account for a when a single robot revisits the same place - 
+# in this case, there will be objects mapped from both the first and second visit in 
+# a single submap. Submaps should then have some temporal distinction as well, but that 
+# would require that the pose list also have timing, which is not the case right now.    
+
 def submap_centers_from_poses(poses: List[np.array], dist: float):
     """
     From a series of poses, generate a list of positions on the trajectory that are dist apart.
@@ -59,7 +63,15 @@ def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius:
     """
     submaps = []
     for center in centers:
-        submap = [obj for obj in object_map if np.linalg.norm(obj.center.flatten()[:2] - center[:2]) < radius]
+        # submaps is originally a collection of objects that are within a radius from the center
+        submap = [obj.copy() for obj in object_map if np.linalg.norm(obj.center.flatten()[:2] - center[:2]) < radius]
+        
+        # Transform objects to be centered at the submap center
+        T_submap_world = np.eye(4) # transformation to move submap from world frame to centered submap frame
+        T_submap_world[:args.dim, 3] = -center[:args.dim]
+        for obj in submap:
+            obj.transform(T_submap_world)
+
         submaps.append(submap)
     return submaps
 
@@ -133,6 +145,10 @@ def main(args):
     robots_nearby_mat = np.empty((len(submaps[0]), len(submaps[1])))
     if args.ambiguity:
         ambiguity_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
+    if args.output_viz_file:
+        T_ij_mat = np.zeros((len(submaps[0]), len(submaps[1]), 4, 4))*np.nan
+        T_ij_hat_mat = np.zeros((len(submaps[0]), len(submaps[1]), 4, 4))*np.nan
+        associated_objs_mat = [[[] for _ in range(len(submaps[1]))] for _ in range(len(submaps[0]))] # cannot be numpy array since each element is a different sized array
 
     # Registration method
     if args.method == 'standard':
@@ -174,15 +190,13 @@ def main(args):
             if not args.show_false_positives and robots_nearby_mat[i, j] < args.submap_overlap_threshold:
                 continue
 
-            # Bring the submaps closer to the origin so that translation errors are easier to observe
-            submap_i = [obj.copy() for obj in submaps[0][i]]
-            submap_j = [obj.copy() for obj in submaps[1][j]]
-            center_pt = np.mean([np.array(submap_centers[0][i]).reshape(-1), np.array(submap_centers[1][j]).reshape(-1)], axis=0)
-            T_simplify = np.eye(4)
-            T_simplify[:args.dim, 3] = -center_pt[:args.dim]
+            submap_i = submaps[0][i]
+            submap_j = submaps[1][j]
 
-            for obj in submap_i + submap_j:
-                obj.transform(T_simplify)
+            # determine correct T_ij
+            T_wi = np.eye(4); T_wi[:args.dim, 3] = submap_centers[0][i]
+            T_wj = np.eye(4); T_wj[:args.dim, 3] = submap_centers[1][j]
+            T_ij = np.linalg.inv(T_wi) @ T_wj
                 
             # register the submaps (run multiple times if ambiguity is set)
             if args.ambiguity:
@@ -194,18 +208,21 @@ def main(args):
                 associations = registration.register(submap_i, submap_j)
                 
                 if args.dim == 2:
-                    T_align = registration.T_align(submap_i, submap_j, associations)
-                    _, _, theta = transform_2_xytheta(T_align)
-                    dist = np.linalg.norm(T_align[:args.dim, 3])
+                    T_ij_hat = registration.T_align(submap_i, submap_j, associations)
+                    T_error = np.linalg.inv(T_ij_hat) @ T_ij
+                    _, _, theta = transform_2_xytheta(T_error)
+                    dist = np.linalg.norm(T_error[:args.dim, 3])
 
                 elif args.dim == 3:
-                    T_align = registration.T_align(submap_i, submap_j, associations)
-                    theta = Rot.from_matrix(T_align[:3, :3]).magnitude()
-                    dist = np.linalg.norm(T_align[:args.dim, 3])
+                    T_ij_hat = registration.T_align(submap_i, submap_j, associations)
+                    T_error = np.linalg.inv(T_ij_hat) @ T_ij
+                    theta = Rot.from_matrix(T_error[:3, :3]).magnitude()
+                    dist = np.linalg.norm(T_error[:args.dim, 3])
                 else:
                     raise ValueError("Invalid dimension")
                 
             except (InsufficientAssociationsException, GravityConstraintError) as ex:
+                T_ij_hat = np.zeros((4, 4))*np.nan
                 theta = 180.0
                 dist = 1e6
                 associations = []
@@ -218,6 +235,11 @@ def main(args):
                 clipper_dist_mat[i, j] = np.nan
 
             clipper_num_associations[i, j] = len(associations)
+            
+            if args.output_viz_file:
+                T_ij_mat[i, j] = T_ij
+                T_ij_hat_mat[i, j] = T_ij_hat
+                associated_objs_mat[i][j] = associations
 
     # Create plots
     if args.ambiguity:
@@ -257,12 +279,21 @@ def main(args):
     else:
         plt.show()
         
+    # for saving matrix results instead of image
     if args.matrix_file:
         pkl_file = open(args.matrix_file, 'wb')
         if not args.ambiguity:
             pickle.dump([robots_nearby_mat, clipper_angle_mat, clipper_dist_mat, clipper_num_associations], pkl_file)
         else:
             pickle.dump([robots_nearby_mat, clipper_angle_mat, clipper_dist_mat, clipper_num_associations, ambiguity_mat], pkl_file)
+        pkl_file.close()
+        
+    # stores the submaps, associated objects, ground truth object overlap, and ground truth and estimated submap transformations
+    if args.output_viz_file:
+        submaps_pkl = [[[obj.to_pickle() for obj in sm] for sm in sms] for sms in submaps]
+        pkl_file = open(args.output_viz_file, 'wb')
+        # submaps for robot i, submaps for robot j, associated object indices, matrix of how much overlap is between submaps, ground truth T_ij, estimated T_ij
+        pickle.dump([submaps_pkl[0], submaps_pkl[1], associated_objs_mat, robots_nearby_mat, T_ij_mat, T_ij_hat_mat], pkl_file)
         pkl_file.close()
     
 
@@ -275,6 +306,7 @@ if __name__ == '__main__':
     parser.add_argument('--show-false-positives', '-s', action='store_true', help="Run alignment for submaps that do not overlap")
     parser.add_argument('--output', '-o', type=str, default=None, help="Path to save output plot")
     parser.add_argument('--matrix-file', type=str, default=None, help="Path to save matrix pickle file")
+    parser.add_argument('--output-viz-file', type=str, default=None, help="Path to save output visualization file")
     parser.add_argument('-r', '--submap-radius', type=float, default=15.0, help="Radius of submaps")
     parser.add_argument('-c', '--submap-center-dist', type=float, default=15.0, help="Distance between submap centers")
     parser.add_argument('--ambiguity', '-a', action='store_true', help="Create ambiguity matrix plot")
