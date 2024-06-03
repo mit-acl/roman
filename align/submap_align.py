@@ -18,7 +18,7 @@ from segment_track.tracker import Tracker
 from object_map_registration.object.ellipsoid import Ellipsoid
 from object_map_registration.object.object import Object
 from object_map_registration.object.pointcloud_object import PointCloudObject
-from object_map_registration.register.dist_feature_sim_reg import DistOnlyReg, DistVolReg
+from object_map_registration.register.dist_feature_sim_reg import DistOnlyReg, DistVolReg, DistFeaturePCAReg
 from object_map_registration.register.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
 from object_map_registration.register.object_registration import InsufficientAssociationsException
 from object_map_registration.utils import object_list_bounds
@@ -172,6 +172,9 @@ def main(args):
     elif args.method == 'prunegrav':
         method_name = f'Gravity Filtered Pruning'
         registration = DistRegWithPruning(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim, use_gravity=True)
+    elif args.method == 'distfeatpca':
+        method_name = f'Gravity Constrained PCA feature-based Registration (eps_pca={args.epsilon_pca})'
+        registration = DistFeaturePCAReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca, pt_dim=args.dim, use_gravity=True)
     else:
         assert False, "Invalid method"
     # registration = DistVolSimReg(sigma=args.sigma, epsilon=args.epsilon, vol_score_min=0.5, dist_score_min=0.5)
@@ -311,6 +314,7 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--submap-center-dist', type=float, default=15.0, help="Distance between submap centers")
     parser.add_argument('--ambiguity', '-a', action='store_true', help="Create ambiguity matrix plot")
     parser.add_argument('--submaps-idx', type=int, nargs=4, default=None, help="Specify submap indices to use")
+    parser.add_argument('--epsilon-pca', type=float, nargs=1, default=0.2, help="Epsilon for PCA feature")
     
     # registration params
     parser.add_argument('--sigma', type=float, default=0.3)
