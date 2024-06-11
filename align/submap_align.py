@@ -7,6 +7,8 @@ import os
 from tqdm import tqdm
 from typing import List
 import open3d as o3d
+import clipperpy
+import time
 
 from robot_utils.robot_data.pose_data import PoseData
 from robot_utils.transform import transform_2_xytheta
@@ -18,7 +20,8 @@ from segment_track.tracker import Tracker
 from object_map_registration.object.ellipsoid import Ellipsoid
 from object_map_registration.object.object import Object
 from object_map_registration.object.pointcloud_object import PointCloudObject
-from object_map_registration.register.dist_feature_sim_reg import DistOnlyReg, DistVolReg, DistFeaturePCAReg
+from object_map_registration.register.dist_feature_sim_reg import DistOnlyReg, DistVolReg, DistFeaturePCAReg, DistCustomFeatureComboReg
+from object_map_registration.register.ransac_reg import RansacReg
 from object_map_registration.register.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
 from object_map_registration.register.object_registration import InsufficientAssociationsException
 from object_map_registration.utils import object_list_bounds
@@ -94,7 +97,7 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
         for segment in tracker.segments + tracker.segment_graveyard:
             if segment.points is not None and len(segment.points) > 0:
                 # new_obj = PointCloudObject(np.mean(segment.points, axis=0), np.eye(3), segment.points - np.mean(segment.points, axis=0), dim=3)
-                new_obj = PointCloudObject(np.zeros(3), np.eye(3), segment.points, dim=3)
+                new_obj = PointCloudObject(np.zeros(3), np.eye(3), segment.points, dim=3, id=segment.id)
                 new_obj.use_bottom_median_as_center()
                 # find volume once for each object so does not have to be recomputed each time
                 new_obj.volume
@@ -143,26 +146,38 @@ def main(args):
     clipper_dist_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     clipper_num_associations = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     robots_nearby_mat = np.empty((len(submaps[0]), len(submaps[1])))
+    timing_list = []
     if args.ambiguity:
         ambiguity_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
-    if args.output_viz_file:
+    if args.output_viz:
         T_ij_mat = np.zeros((len(submaps[0]), len(submaps[1]), 4, 4))*np.nan
         T_ij_hat_mat = np.zeros((len(submaps[0]), len(submaps[1]), 4, 4))*np.nan
         associated_objs_mat = [[[] for _ in range(len(submaps[1]))] for _ in range(len(submaps[0]))] # cannot be numpy array since each element is a different sized array
 
     # Registration method
+    if args.fusion_method == 'geometric_mean':
+        sim_fusion_method = clipperpy.invariants.DistanceFeatureSimilarity.GEOMETRIC_MEAN
+    elif args.fusion_method == 'arithmetic_mean':
+        sim_fusion_method = clipperpy.invariants.DistanceFeatureSimilarity.ARITHMETIC_MEAN
+    elif args.fusion_method == 'product':
+        sim_fusion_method = clipperpy.invariants.DistanceFeatureSimilarity.PRODUCT
+        
+
     if args.method == 'standard':
         method_name = f'{args.dim}D Point CLIPPER'
         registration = DistOnlyReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pt_dim=args.dim)
     elif args.method == 'gravity':
-        method_name = 'Gravity Constrained CLIPPER'
-        registration = DistOnlyReg(sigma=args.sigma, mindist=args.mindist, epsilon=args.epsilon, use_gravity=True)
+        method_name = 'Gravity Guided CLIPPER'
+        registration = DistOnlyReg(sigma=args.sigma, mindist=args.mindist, epsilon=args.epsilon, use_gravity=True,
+                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'distvol':
         method_name = f'{args.dim}D Volume-based Registration'
-        registration = DistVolReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pt_dim=args.dim, volume_epsilon=args.epsilon_volume)
+        registration = DistVolReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pt_dim=args.dim, volume_epsilon=args.epsilon_volume,
+                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'distvolgrav':
-        method_name = f'Gravity Constrained Volume-based Registration'
-        registration = DistVolReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, use_gravity=True, volume_epsilon=args.epsilon_volume)
+        method_name = f'Gravity Guided Volume-based Registration'
+        registration = DistVolReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, use_gravity=True, volume_epsilon=args.epsilon_volume,
+                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'prunevol':
         method_name = f'{args.dim}D Volume-based Pruning'
         registration = DistRegWithPruning(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim, volume_epsilon=args.epsilon_volume, use_gravity=False)
@@ -174,10 +189,21 @@ def main(args):
         registration = DistRegWithPruning(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim, use_gravity=True)
     elif args.method == 'distfeatpca':
         method_name = f'Gravity Constrained PCA feature-based Registration (eps_pca={args.epsilon_pca})'
-        registration = DistFeaturePCAReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca, pt_dim=args.dim, use_gravity=True)
+        registration = DistFeaturePCAReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca, pt_dim=args.dim, use_gravity=True,
+                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
+    elif args.method == 'pcavolgrav':
+        method_name = f'Gravity Guided PCA feature-based Volume Registration (eps_pca={args.epsilon_pca})'
+        registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca[0], volume_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, pca=True, volume=True,
+                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
+    elif args.method == 'extentvolgrav':
+        method_name = f'Gravity Guided Extent-based Volume Registration'
+        registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, volume_epsilon=args.epsilon_volume, extent_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, extent=True, volume=True,
+                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
+    elif args.method == 'ransac':
+        method_name = 'RANSAC'
+        registration = RansacReg(dim=args.dim, max_iteration=args.ransac_iter)
     else:
         assert False, "Invalid method"
-    # registration = DistVolSimReg(sigma=args.sigma, epsilon=args.epsilon, vol_score_min=0.5, dist_score_min=0.5)
 
     # iterate over pairs of submaps and create registration results
     for i in tqdm(range(len(submaps[0]))):
@@ -197,8 +223,8 @@ def main(args):
             submap_j = submaps[1][j]
 
             # determine correct T_ij
-            T_wi = np.eye(4); T_wi[:args.dim, 3] = submap_centers[0][i]
-            T_wj = np.eye(4); T_wj[:args.dim, 3] = submap_centers[1][j]
+            T_wi = np.eye(4); T_wi[:args.dim, 3] = submap_centers[0][i][:args.dim]
+            T_wj = np.eye(4); T_wj[:args.dim, 3] = submap_centers[1][j][:args.dim]
             T_ij = np.linalg.inv(T_wi) @ T_wj
                 
             # register the submaps (run multiple times if ambiguity is set)
@@ -208,7 +234,10 @@ def main(args):
                 associations = solutions[0][0]
 
             try:
+                start_t = time.time()
                 associations = registration.register(submap_i, submap_j)
+                timing_list.append(time.time() - start_t)
+
                 
                 if args.dim == 2:
                     T_ij_hat = registration.T_align(submap_i, submap_j, associations)
@@ -225,6 +254,7 @@ def main(args):
                     raise ValueError("Invalid dimension")
                 
             except (InsufficientAssociationsException, GravityConstraintError) as ex:
+                timing_list.append(time.time() - start_t)
                 T_ij_hat = np.zeros((4, 4))*np.nan
                 theta = 180.0
                 dist = 1e6
@@ -239,7 +269,7 @@ def main(args):
 
             clipper_num_associations[i, j] = len(associations)
             
-            if args.output_viz_file:
+            if args.output_viz:
                 T_ij_mat[i, j] = T_ij
                 T_ij_hat_mat[i, j] = T_ij_hat
                 associated_objs_mat[i][j] = associations
@@ -292,13 +322,20 @@ def main(args):
         pkl_file.close()
         
     # stores the submaps, associated objects, ground truth object overlap, and ground truth and estimated submap transformations
-    if args.output_viz_file:
+    if args.output_viz:
         submaps_pkl = [[[obj.to_pickle() for obj in sm] for sm in sms] for sms in submaps]
-        pkl_file = open(args.output_viz_file, 'wb')
+        pkl_file = open(args.output_viz, 'wb')
         # submaps for robot i, submaps for robot j, associated object indices, matrix of how much overlap is between submaps, ground truth T_ij, estimated T_ij
         pickle.dump([submaps_pkl[0], submaps_pkl[1], associated_objs_mat, robots_nearby_mat, T_ij_mat, T_ij_hat_mat], pkl_file)
         pkl_file.close()
-    
+
+    if args.output_timing:
+        with open(args.output_timing, 'w') as f:
+            f.write(f"Total number of submaps: {len(submaps[0])} x {len(submaps[1])} = {len(submaps[0])*len(submaps[1])}\n")
+            f.write(f"Average time per registration: {np.mean(timing_list):.4f} seconds\n")
+            f.write(f"Total time: {np.sum(timing_list):.4f} seconds\n")
+            f.write(f"Total number of objects: {np.sum([len(submap) for submap in submaps[0] + submaps[1]])}\n")
+            f.write(f"Average number of obects per map: {np.mean([len(submap) for submap in submaps[0] + submaps[1]]):.2f}\n")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -306,21 +343,27 @@ if __name__ == '__main__':
     parser.add_argument('--show-maps', action='store_true', help="Shows the submaps plotted as 2D points to help with submap sizing")
     parser.add_argument('--dim', '-d', type=int, default=3, help="2 or 3 - desired dimension to use for object alignment")
     parser.add_argument('--method', '-m', type=str, default='standard', help="Method to use for registration: standard, gravity, distvol, distvolgrav, prunevol, prunevolgrav, prunegrav")
+    parser.add_argument('--fusion-method', type=str, default='geometric_mean', help="Method to use for similarity fusion: geometric_mean, arithmetic_mean, product")
     parser.add_argument('--show-false-positives', '-s', action='store_true', help="Run alignment for submaps that do not overlap")
-    parser.add_argument('--output', '-o', type=str, default=None, help="Path to save output plot")
-    parser.add_argument('--matrix-file', type=str, default=None, help="Path to save matrix pickle file")
-    parser.add_argument('--output-viz-file', type=str, default=None, help="Path to save output visualization file")
     parser.add_argument('-r', '--submap-radius', type=float, default=15.0, help="Radius of submaps")
     parser.add_argument('-c', '--submap-center-dist', type=float, default=15.0, help="Distance between submap centers")
     parser.add_argument('--ambiguity', '-a', action='store_true', help="Create ambiguity matrix plot")
     parser.add_argument('--submaps-idx', type=int, nargs=4, default=None, help="Specify submap indices to use")
-    parser.add_argument('--epsilon-pca', type=float, nargs=1, default=0.2, help="Epsilon for PCA feature")
+
+    # output files
+    parser.add_argument('--output', '-o', type=str, default=None, help="Path to save output plot")
+    parser.add_argument('--matrix-file', type=str, default=None, help="Path to save matrix pickle file")
+    parser.add_argument('--output-viz', type=str, default=None, help="Path to save output visualization file")
+    parser.add_argument('--output-timing', type=str, default=None, help="Path to save output timing file")
     
     # registration params
     parser.add_argument('--sigma', type=float, default=0.3)
     parser.add_argument('--epsilon', type=float, default=0.5)
     parser.add_argument('--mindist', type=float, default=0.2)
-    parser.add_argument('--epsilon-volume', type=float, default=0.2)
+    parser.add_argument('--epsilon-volume', type=float, default=0.1)
+    parser.add_argument('--epsilon-pca', type=float, nargs=1, default=0.1, help="Epsilon for PCA feature")
+    parser.add_argument('--distance-weight', type=float, default=3.0, help="Weight for distance in similarity fusion")
+    parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
 
     args = parser.parse_args()
 
