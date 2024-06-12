@@ -273,7 +273,7 @@ def main(args):
     )
     img_area = img_data.camera_params.width * img_data.camera_params.height
     fastsam.setup_filtering(
-        ignore_people=params['fastsam']['ignore_people'],
+        ignore_labels=['people'] if params['fastsam']['ignore_people'] else [],
         yolo_det_img_size=(128, 128) if params['fastsam']['ignore_people'] else None,
         allow_tblr_edges=[True, True, True, True],
         area_bounds=[img_area / (params['fastsam']['min_mask_len_div']**2), img_area / (params['fastsam']['max_mask_len_div']**2)]

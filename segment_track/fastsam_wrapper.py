@@ -252,9 +252,14 @@ class FastSAMWrapper():
         self.observations = []
 
         ignore_mask, keep_mask = self._create_mask(img)
+        
+        # TODO: we need to revisit the logic for keep_mask - 
+        # we don't easily have an option to still accept all masks, so for now 
+        # do not use the keep_mask
+        
         # run fastsam
         masks, means, covs, (fig, ax) = self._process_img(
-            img, plot=plot, ignore_mask=ignore_mask, keep_mask=keep_mask)
+            img, plot=plot, ignore_mask=ignore_mask, keep_mask=None)
 
         widths = []
         heights = []
