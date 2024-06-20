@@ -190,7 +190,8 @@ class FastSAMWrapper():
         self.keep_labels = keep_labels
         if len(ignore_labels) > 0:
             if yolo_det_img_size is None:
-                yolo_det_img_size=(int(self.imgsz), int(self.imgsz))
+                # yolo_det_img_size=(int(self.imgsz), int(self.imgsz))
+                yolo_det_img_size=self.imgsz
             self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size)
         self.max_cov_axis_ratio = max_cov_axis_ratio
         self.area_bounds = area_bounds
