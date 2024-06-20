@@ -36,7 +36,9 @@ class Tracker():
             merge_objects: bool = False,
             merge_objects_iou: float = 0.25,
             max_cov_axis: float = 2.0,
-            mask_downsample_factor: int = 1
+            mask_downsample_factor: int = 1,
+            min_max_extent: float = 0.5, # to get rid of very small objects
+            plane_prune_params: List[float] = [3.0, 3.0, 0.5] # to get rid of planar objects (likely background)
     ):
         self.camera_params = camera_params
         self.pixel_std_dev = pixel_std_dev
@@ -50,7 +52,9 @@ class Tracker():
         self.merge_objects_iou_2d = 0.8
         self.max_cov_axis = max_cov_axis
         self.mask_downsample_factor = mask_downsample_factor
-        self.min_volume = .25**3 # 25x25x25 cm^3
+        # self.min_volume = .25**3 # 25x25x25 cm^3
+        self.min_max_extent = min_max_extent
+        self.plane_prune_params = plane_prune_params
 
         self.segment_nursery = []
         self.segments = []
@@ -184,7 +188,7 @@ class Tracker():
         self.segment_graveyard = [seg for seg in self.segment_graveyard if not rm_fun(seg)]
         return
     
-    def remove_bad_segments(self, segments: List[Segment], min_volume: float=0.0):
+    def remove_bad_segments(self, segments: List[Segment], min_volume: float=0.0, min_max_extent: float=0.0, plane_prune_params: List[float]=[np.inf, np.inf, 0.0]):
         """
         Remove segments that have small volumes or have no points
 
@@ -198,12 +202,19 @@ class Tracker():
         to_delete = []
         # reason = []
         for seg in segments:
+            extent = np.sort(seg.extent) # in ascending order
             if seg.num_points == 0:
                 to_delete.append(seg)
                 # reason.append(f"Segment {seg.id} has no points")
             elif seg.volume() < min_volume:
                 to_delete.append(seg)
                 # reason.append(f"Segment {seg.id} has volume {seg.volume} < {min_volume}")
+            elif extent[-1] < min_max_extent:
+                to_delete.append(seg)
+                # reason.append(f"Segment {seg.id} has max extent {np.max(seg.extent)} < {min_max_extent}"
+            elif extent[2] > plane_prune_params[0] and extent[1] > plane_prune_params[1] and extent[0] < plane_prune_params[2]:
+                to_delete.append(seg)
+                # reason.append(f"Segment {seg.id} has extent {seg.extent} which is likely a plane")
         for seg in to_delete:
             segments.remove(seg)
             # for r in reason:
@@ -224,7 +235,7 @@ class Tracker():
         n = 0
         edited = True
 
-        self.segment_graveyard = self.remove_bad_segments(self.segment_graveyard, min_volume=self.min_volume)
+        self.segment_graveyard = self.remove_bad_segments(self.segment_graveyard, min_max_extent=self.min_max_extent, plane_prune_params=self.plane_prune_params)
         self.segments = self.remove_bad_segments(self.segments)
 
         # repeatedly try to merge until no further merges are possible
