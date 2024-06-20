@@ -120,6 +120,16 @@ class Segment():
         else:
             return 0.0
         
+    @property
+    def extent(self):
+        if self.num_points > 4:
+            obb = o3d.geometry.OrientedBoundingBox.create_from_points(
+                                o3d.utility.Vector3dVector(self.points))
+            extent = obb.extent
+            return extent
+        else:
+            return np.zeros(3)
+        
     def aabb_volume(self):
         """Return the volume of the 3D axis-aligned bounding box
         """

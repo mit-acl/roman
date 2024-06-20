@@ -14,6 +14,9 @@ setup(
         'scipy',
         'matplotlib', 
         'gtsam',
+        'scikit-image',
+        'open3d',
+        'yolov7-package'
     ],
 )
 

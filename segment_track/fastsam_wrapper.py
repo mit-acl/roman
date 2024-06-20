@@ -5,21 +5,56 @@
 import cv2 as cv
 import matplotlib.pyplot as plt
 import numpy as np
+from numpy.linalg import eig
 import skimage
 import open3d as o3d
 import copy
 from yolov7_package import Yolov7Detector
 import math
+import time
 
 from FastSAM.fastsam import FastSAMPrompt
 from FastSAM.fastsam import FastSAM
-from fastsam3D.utils import compute_blob_mean_and_covariance, plotErrorEllipse
-import fastsam3D.segment_qualification as seg_qual
 
 from segment_track.observation import Observation
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+def is_elongated(covs_img, max_axis_ratio=np.inf):
+    """
+    Finds elongated covariances from input
+
+    Args:
+        covs_img ((n,2,2) np.array): n 2-dimensional covariance matrix inputs
+        max_axis_ratio (float, optional): maximum ratio allowed between major and minor covariance matrix axes. Defaults to np.inf.
+
+    Returns:
+        (n,) np.array: boolean array indicating whether covariances are elongated
+    """
+    covs_arr = np.array(covs_img)
+    eigvals, eigvecs = eig(covs_arr)
+    return np.bitwise_or(eigvals[:,0] > max_axis_ratio*eigvals[:,1], eigvals[:,1] > max_axis_ratio*eigvals[:,0])
+
+def compute_blob_mean_and_covariance(binary_image):
+
+    # Create a grid of pixel coordinates.
+    y, x = np.indices(binary_image.shape)
+
+    # Threshold the binary image to isolate the blob.
+    blob_pixels = (binary_image > 0).astype(int)
+
+    # Compute the mean of pixel coordinates.
+    mean_x, mean_y = np.mean(x[blob_pixels == 1]), np.mean(y[blob_pixels == 1])
+    mean = (mean_x, mean_y)
+
+    # Stack pixel coordinates to compute covariance using Scipy's cov function.
+    pixel_coordinates = np.vstack((x[blob_pixels == 1], y[blob_pixels == 1]))
+
+    # Compute the covariance matrix using Scipy's cov function.
+    covariance_matrix = np.cov(pixel_coordinates)
+
+    return mean, covariance_matrix
 
 def ssc(keypoints, num_ret_points, tolerance, cols, rows):
     exp1 = rows + cols + 2 * num_ret_points
@@ -144,14 +179,16 @@ class FastSAMWrapper():
         self.orb_num_final = 10
             
     def setup_filtering(self,
-        ignore_people=False,
+        ignore_labels = ['person'],
+        keep_labels = ['car'],          
         yolo_det_img_size=None,
         max_cov_axis_ratio=np.inf,
         area_bounds=np.array([0, np.inf]),
         allow_tblr_edges = [True, True, True, True],
     ):
-        self.ignore_people = ignore_people
-        if self.ignore_people:
+        self.ignore_labels = ignore_labels
+        self.keep_labels = keep_labels
+        if len(ignore_labels) > 0:
             if yolo_det_img_size is None:
                 yolo_det_img_size=(int(self.imgsz), int(self.imgsz))
             self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size)
@@ -159,7 +196,16 @@ class FastSAMWrapper():
         self.area_bounds = area_bounds
         self.allow_tblr_edges= allow_tblr_edges
 
-    def setup_rgbd_params(self, depth_cam_params, max_depth, depth_scale=1e3, voxel_size=0.05, within_depth_frac=0.5):
+    def setup_rgbd_params(
+        self, 
+        depth_cam_params, 
+        max_depth, 
+        depth_scale=1e3,
+        voxel_size=0.05, 
+        within_depth_frac=0.5, 
+        pcd_stride=4,
+        erosion_size=0,
+    ):
         """Setup params for processing RGB-D depth measurements
 
         Args:
@@ -167,6 +213,8 @@ class FastSAMWrapper():
             max_depth (float): maximum depth to be included in point cloud
             depth_scale (float, optional): scale of depth image. Defaults to 1e3.
             voxel_size (float, optional): Voxel size when downsampling point cloud. Defaults to 0.05.
+            within_depth_frac(float, optional): Fraction of points that must be within max_depth. Defaults to 0.5.
+            pcd_stride (int, optional): Stride for downsampling point cloud. Defaults to 4.
         """
         self.depth_cam_params = depth_cam_params
         self.max_depth = max_depth
@@ -181,6 +229,14 @@ class FastSAMWrapper():
             cy=depth_cam_params.cy,
         )
         self.voxel_size = voxel_size
+        self.pcd_stride = pcd_stride
+        if erosion_size > 0:
+            # see: https://docs.opencv.org/3.4/db/df6/tutorial_erosion_dilatation.html
+            erosion_shape = cv.MORPH_ELLIPSE
+            self.erosion_element = cv.getStructuringElement(erosion_shape, (2 * erosion_size + 1, 2 * erosion_size + 1),
+                (erosion_size, erosion_size))
+        else:
+            self.erosion_element = None
 
     def run(self, t, pose, img, img_depth=None, plot=False):
         """
@@ -195,14 +251,15 @@ class FastSAMWrapper():
         """
         self.observations = []
 
-        if self.ignore_people:
-            ignore_mask = self._create_people_mask(img)
-        else:
-            ignore_mask = None
-
+        ignore_mask, keep_mask = self._create_mask(img)
+        
+        # TODO: we need to revisit the logic for keep_mask - 
+        # we don't easily have an option to still accept all masks, so for now 
+        # do not use the keep_mask
+        
         # run fastsam
         masks, means, covs, (fig, ax) = self._process_img(
-            img, plot=plot, ignore_mask=ignore_mask)
+            img, plot=plot, ignore_mask=ignore_mask, keep_mask=None)
 
         widths = []
         heights = []
@@ -225,22 +282,21 @@ class FastSAMWrapper():
             ptcld = None
             if img_depth is not None:
                 depth_obj = copy.deepcopy(img_depth)
-                depth_obj[mask==0] = 0
+                if self.erosion_element is not None:
+                    eroded_mask = cv.erode(mask, self.erosion_element)
+                    depth_obj[eroded_mask==0] = 0
+                else:
+                    depth_obj[mask==0] = 0
                 logger.debug(f"img_depth type {img_depth.dtype}, shape={img_depth.shape}")
-                pcd = o3d.geometry.PointCloud.create_from_depth_image(
-                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
-                    self.depth_cam_intrinsics,
-                    depth_scale=self.depth_scale,
-                    depth_trunc=self.max_depth,
-                    stride=1,
-                    project_valid_depth_only=True
-                )
+
+                # Extract point cloud without truncation to heuristically check if enough of the object
+                # is within the max depth
                 pcd_test = o3d.geometry.PointCloud.create_from_depth_image(
                     o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
                     self.depth_cam_intrinsics,
                     depth_scale=self.depth_scale,
                     # depth_trunc=self.max_depth,
-                    stride=1,
+                    stride=self.pcd_stride,
                     project_valid_depth_only=True
                 )
                 ptcld_test = np.asarray(pcd_test.points)
@@ -249,8 +305,15 @@ class FastSAMWrapper():
                 # require some fraction of the points to be within the max depth
                 if len(ptcld_test) < self.within_depth_frac*pre_truncate_len:
                     continue
-                # print(f"pre_truncate_len={pre_truncate_len}, post_truncate_len={len(ptcld_test)}")
                 
+                pcd = o3d.geometry.PointCloud.create_from_depth_image(
+                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
+                    self.depth_cam_intrinsics,
+                    depth_scale=self.depth_scale,
+                    depth_trunc=self.max_depth,
+                    stride=self.pcd_stride,
+                    project_valid_depth_only=True
+                )
                 pcd.remove_non_finite_points()
                 pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
                 if not pcd_sampled.is_empty():
@@ -267,7 +330,7 @@ class FastSAMWrapper():
             )).astype('uint8')
 
             self.observations.append(Observation(t, pose, np.array(mean), w, h, mask, mask_downsampled, ptcld))
-
+        
         # TODO: fix plotting
         # if plot_dir is not None:
         #     self._plot_3d_pos(centroids, means, plot_dir, i, fig, ax)
@@ -302,22 +365,39 @@ class FastSAMWrapper():
         
         return kp_sel, des
 
-    def _create_people_mask(self, img):
+    def _create_mask(self, img):
         classes, boxes, scores = self.yolov7_det.detect(img)
-        person_boxes = []
+        ignore_boxes = []
+        keep_boxes = []
+        print("All classes: ", classes)
         for i, cl in enumerate(classes[0]):
-            if self.yolov7_det.names[cl] == 'person':
-                person_boxes.append(boxes[0][i])
+            if self.yolov7_det.names[cl] in self.ignore_labels:
+                print("Deleted class: ", self.yolov7_det.names[cl])
+                ignore_boxes.append(boxes[0][i])
 
-        mask = np.zeros(img.shape[:2]).astype(np.int8)
-        for box in person_boxes:
+            if self.yolov7_det.names[cl] in self.keep_labels:
+                print("Keep class: ", self.yolov7_det.names[cl])
+                keep_boxes.append(boxes[0][i])
+
+        ignore_mask = np.zeros(img.shape[:2]).astype(np.int8)
+        for box in ignore_boxes:
             x0, y0, x1, y1 = np.array(box).astype(np.int64).reshape(-1).tolist()
             x0 = max(x0, 0)
             y0 = max(y0, 0)
-            x1 = min(x1, mask.shape[1])
-            y1 = min(y1, mask.shape[0])
-            mask[y0:y1,x0:x1] = np.ones((y1-y0, x1-x0)).astype(np.int8)
-        return mask
+            x1 = min(x1, ignore_mask.shape[1])
+            y1 = min(y1, ignore_mask.shape[0])
+            ignore_mask[y0:y1,x0:x1] = np.ones((y1-y0, x1-x0)).astype(np.int8)
+
+        keep_mask = np.zeros(img.shape[:2]).astype(np.int8)
+        for box in keep_boxes:
+            x0, y0, x1, y1 = np.array(box).astype(np.int64).reshape(-1).tolist()
+            x0 = max(x0, 0)
+            y0 = max(y0, 0)
+            x1 = min(x1, keep_mask.shape[1])
+            y1 = min(y1, keep_mask.shape[0])
+            keep_mask[y0:y1,x0:x1] = np.ones((y1-y0, x1-x0)).astype(np.int8)
+
+        return ignore_mask, keep_mask
 
     def _delete_edge_masks(self, segmask):
         [numMasks, h, w] = segmask.shape
@@ -330,7 +410,7 @@ class FastSAMWrapper():
                             (np.sum(mask[:edge_width,:]) > 0 and not self.allow_tblr_edges[0]) or (np.sum(mask[-edge_width:, :]) > 0 and not self.allow_tblr_edges[1])
         return np.delete(segmask, contains_edge, axis=0)
 
-    def _process_img(self, image_bgr, plot=False, ignore_mask=None):
+    def _process_img(self, image_bgr, plot=False, ignore_mask=None, keep_mask=None):
         """Process FastSAM on image, returns segment masks and center points from results
 
         Args:
@@ -383,7 +463,7 @@ class FastSAMWrapper():
             segmask = None
 
         if (segmask is not None):
-
+            print("Seg mask before procesing: ", segmask.shape)
             # FastSAM provides a numMask-channel image in shape C, H, W where each channel in the image is a binary mask
             # of the detected segment
             [numMasks, h, w] = segmask.shape
@@ -407,21 +487,20 @@ class FastSAMWrapper():
                 blob_mean, blob_cov = compute_blob_mean_and_covariance(mask_this_id)
 
                 # filter out ignore mask
-                if ignore_mask is not None and \
-                    np.any(np.bitwise_and(segmask[maskId,:,:].astype(np.int8), ignore_mask)):
+                if ignore_mask is not None and np.any(np.bitwise_and(segmask[maskId,:,:].astype(np.int8), ignore_mask)):
+                    print("Delete maskID: ", maskId)
                     to_delete.append(maskId)
                     continue
-
+                elif keep_mask is not None and not np.any(np.bitwise_and(segmask[maskId,:,:].astype(np.int8), keep_mask)):
+                    print("Delete maskID: ", maskId)
+                    to_delete.append(maskId)
+                    continue
                 # qualify covariance
                 # filter out segments based on covariance size and shape
                 if self.max_cov_axis_ratio is not None:
-                    if seg_qual.is_elongated([blob_cov], max_axis_ratio=self.max_cov_axis_ratio):
+                    if is_elongated([blob_cov], max_axis_ratio=self.max_cov_axis_ratio):
                         to_delete.append(maskId)
                         continue
-                # if self.area_bounds is not None:
-                #     if seg_qual.is_out_of_bounds_area([blob_cov], bounds_area=area_bounds):
-                #         to_delete.append(maskId)
-                #         continue
 
                 if self.area_bounds is not None:
                     area = np.sum(segmask[maskId,:,:])
@@ -438,24 +517,13 @@ class FastSAMWrapper():
                     segmasks_flat = np.where(mask_this_id < 1, segmasks_flat, maskId)
 
             segmask = np.delete(segmask, to_delete, axis=0)
-
+            print("Seg mask: ", segmask.shape)
             if plot:
                 # Using skimage, overlay masked images with colors
                 image_gray_rgb = skimage.color.label2rgb(segmasks_flat, image_gray_rgb)
 
         else: 
             return [], [], [], (None, None)
-
-        if plot:
-            # For each centroid and covariance, plot an ellipse
-            for m, c in zip(blob_means, blob_covs):
-                plotErrorEllipse(ax, m[0], m[1], c, "r",stdMultiplier=2.0)
-
-            # Show image using Matplotlib, set axis limits, save and close the output figure.
-            ax.imshow(image_gray_rgb)
-            ax.set_xlim([0,w])
-            ax.set_ylim([h,0])        
-            return segmask, blob_means, blob_covs, (fig, ax)
 
         return segmask, blob_means, blob_covs, (None, None)
 

@@ -10,6 +10,7 @@ import cv2 as cv
 import signal
 import sys
 import open3d as o3d
+
 import logging
 import os
 
@@ -96,8 +97,19 @@ def draw(t, img, pose, tracker, observations, reprojected_bboxs, ax):
     ax[1].imshow(img_fastsam)
     return
 
+# def draw_pcd(ax_pcd, segment_pcd):
+#     ax_pcd.clear()
+#     for pcd in segment_pcd:
+#         # print("Observation pcd: ", obs.point_cloud)
+#         if pcd is None:
+#             continue
+#         ax_pcd.scatter(pcd["seg_pcd"][:, 0], pcd["seg_pcd"][:, 1], pcd["seg_pcd"][:, 2])
+        # observation_history.append(obs.point_cloud)
+    # ax_pcd.set_xlim(-50, 50)
+    # ax_pcd.set_ylim(-50, 50)
+    # ax_pcd.set_zlim(0, 10)
 
-def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history):
+def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, ax_pcd, poses_history, segment_pcd):
 
     try:
         img = img_data.img(t)
@@ -106,7 +118,7 @@ def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_histo
         pose = pose_data.T_WB(img_t)
     except NoDataNearTimeException:
         return
-    
+
     # collect reprojected masks
     reprojected_bboxs = []
     segment: Segment
@@ -119,7 +131,7 @@ def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_histo
             reprojected_bboxs.append((segment.id, bbox))
 
     observations = fastsam.run(t, pose, img, img_depth=img_depth)
-
+    # print("Pointcloud shape: ", observations[0].point_cloud.shape)
     if len(observations) > 0:
         tracker.update(t, pose, observations)
 
@@ -128,13 +140,19 @@ def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_histo
     )
     if len(tracker.segments) > 0:
         for seg in tracker.segments:
-            print("seg id={}, num_points={}".format(seg.id, seg.num_points))
-
+            if (not seg.points is None) and seg.num_points > 0:
+                segment_pcd.append({"seg_id": seg.id, "seg_pcd": seg.points})
+                print("seg id={}, num_points={}".format(seg.id, seg.num_points))
+        file = open('segments_pcd', 'wb')
+        pickle.dump(segment_pcd, file)
+        file.close()
+        
     if ax is not None:
+        # print("Axes pcd: ", ax_pcd)
+        # draw_pcd(ax_pcd, segment_pcd)
         draw(t, img, pose, tracker, observations, reprojected_bboxs, ax)
 
     poses_history.append(pose)
-
     return
     
 
@@ -165,11 +183,9 @@ def main(args):
     if 'min_mask_len_div' not in params['fastsam']:
         params['fastsam']['min_mask_len_div'] = 30
     if 'max_mask_len_div' not in params['fastsam']:
-        params['fastsam']['max_mask_len_div'] = 3
+        params['fastsam']['max_mask_len_div'] = 5
     if 'ignore_people' not in params['fastsam']:
         params['fastsam']['ignore_people'] = False
-    if 'erosion_size' not in params['fastsam']:
-        params['fastsam']['erosion_size'] = 3
     
     assert params['segment_tracking']['min_iou'] is not None, "min_iou must be specified in params"
     assert params['segment_tracking']['min_sightings'] is not None, "min_sightings must be specified in params"
@@ -199,8 +215,9 @@ def main(args):
         time_range = None
 
     print(f"Time range: {time_range}")
-    img_data = ImgData.from_bag(
-        path=img_file_path,
+    img_data = ImgData(
+        data_file=img_file_path,
+        file_type='bag',
         topic=params["img_data"]["img_topic"],
         time_tol=.02,
         time_range=time_range
@@ -211,8 +228,9 @@ def main(args):
     tf = img_data.tf
 
     print("Loading depth data for time range {}...".format(time_range))
-    depth_data = ImgData.from_bag(
-        path=img_file_path,
+    depth_data = ImgData(
+        data_file=os.path.expanduser(os.path.expandvars(params["img_data"]["path"])),
+        file_type='bag',
         topic=params['img_data']['depth_img_topic'],
         time_tol=.02,
         time_range=time_range,
@@ -222,16 +240,6 @@ def main(args):
     depth_data.extract_params(params['img_data']['depth_cam_info_topic'])
 
     print("Loading pose data...")
-    pose_file_path = params['pose_data']['path']
-    pose_file_type = params['pose_data']['file_type']
-    pose_time_tol = params['pose_data']['time_tol']
-    if pose_file_type == 'bag':
-        pose_topic = params['pose_data']['topic']
-        csv_options = None
-    else:
-        pose_topic = None
-        csv_options = params['pose_data']['csv_options']
-        
     T_postmultiply = np.eye(4)
     # if 'T_body_odom' in params['pose_data']:
     #     T_postmultiply = np.linalg.inv(np.array(params['pose_data']['T_body_odom']).reshape((4, 4)))
@@ -242,26 +250,28 @@ def main(args):
             T_postmultiply = T_FLURDF
         elif params['pose_data']['T_postmultiply'] == 'T_RDFFLU':
             T_postmultiply = T_RDFFLU
-    if 'tf_to_cam' in params['pose_data']:
-        T_postmultiply = PoseData.static_tf_from_bag(
-            os.path.expanduser(img_file_path), params['pose_data']['tf_to_cam']['parent'], params['pose_data']['tf_to_cam']['child'])
-            
+    
+    
+
+    pose_file_path = params['pose_data']['path']
+    pose_file_type = params['pose_data']['file_type']
+    pose_time_tol = params['pose_data']['time_tol']
     if pose_file_type == 'bag':
-        pose_data = PoseData.from_bag(
-            path=os.path.expanduser(pose_file_path),
-            topic=pose_topic,
-            time_tol=pose_time_tol,
-            interp=True,
-            T_postmultiply=T_postmultiply
-        )
+        pose_topic = params['pose_data']['topic']
+        csv_options = None
     else:
-        pose_data = PoseData.from_csv(
-            path=os.path.expanduser(pose_file_path),
-            csv_options=csv_options,
-            time_tol=pose_time_tol,
-            interp=True,
-            T_postmultiply=T_postmultiply
-        )
+        pose_topic = None
+        csv_options = params['pose_data']['csv_options']
+        
+    pose_data = PoseData(
+        data_file=os.path.expanduser(pose_file_path),
+        file_type=pose_file_type,
+        topic=pose_topic,
+        csv_options=csv_options,
+        time_tol=pose_time_tol,
+        interp=True,
+        T_postmultiply=T_postmultiply
+    )
     
     print("Setting up FastSAM...")
     fastsam = FastSAMWrapper(
@@ -270,17 +280,18 @@ def main(args):
         device=params['fastsam']['device'],
         mask_downsample_factor=params['segment_tracking']['mask_downsample_factor']
     )
+    # TODO: Decrease depth to increase performance.
     fastsam.setup_rgbd_params(
         depth_cam_params=depth_data.camera_params, 
         max_depth=8,
         depth_scale=1e3,
-        voxel_size=0.05,
-        erosion_size=params['fastsam']['erosion_size']
+        voxel_size=0.05
     )
     img_area = img_data.camera_params.width * img_data.camera_params.height
     fastsam.setup_filtering(
-        ignore_labels=['person'] if params['fastsam']['ignore_people'] else [],
-        yolo_det_img_size=(128, 128) if params['fastsam']['ignore_people'] else None,
+        ignore_labels = ['person', 'stop sign', 'bicycle', 'parking meter'],
+        keep_labels = ['car', 'bus', 'truck'],
+        yolo_det_img_size=(128, 128),
         allow_tblr_edges=[True, True, True, True],
         area_bounds=[img_area / (params['fastsam']['min_mask_len_div']**2), img_area / (params['fastsam']['max_mask_len_div']**2)]
     )
@@ -299,14 +310,21 @@ def main(args):
     wc_t0 = time.time()
     if not args.no_vid:
         fig, ax = plt.subplots(1, 2, dpi=400, layout='tight')
+        # fig_pcd = plt.figure()
+        # ax_pcd = fig_pcd.add_subplot(1, 1, 1, projection='3d')
+        fig_pcd = None
+        ax_pcd = None
+        print("Create pcd visualization.")
     else:
         fig = None
         ax = None
+        fig_pcd = None
+        ax_pcd = None
     poses_history = []
+    segment_pcd = []
     def update_wrapper(t): 
-        update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history)
+        update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, ax_pcd, poses_history, segment_pcd)
         print(f"t: {t - t0:.2f} = {t}")
-        # fig.suptitle(f"t: {t - t0:.2f}")
 
     if not args.no_vid:
         ani = FuncAnimation(fig, update_wrapper, frames=tqdm.tqdm(np.arange(t0, tf, params['segment_tracking']['dt'])), interval=10, repeat=False)
@@ -320,6 +338,7 @@ def main(args):
         for t in np.arange(t0, tf, params['segment_tracking']['dt']):
             update_wrapper(t)
 
+    # np.save(np.array(observation_history), "observation_history.npy")
     print(f"Segment tracking took {time.time() - wc_t0:.2f} seconds")
     print(f"Run duration was {tf - t0:.2f} seconds")
     print(f"Compute per second: {(time.time() - wc_t0) / (tf - t0):.2f}")
@@ -336,25 +355,24 @@ def main(args):
         logging.info(f"Saved tracker, poses_history to file: {pkl_path}.")
         pkl_file.close()
 
-    if not args.no_o3d:
-        poses_list = []
-        pcd_list = []
-        for Twb in poses_history:
-            pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
-            pose_obj.transform(Twb)
-            poses_list.append(pose_obj)
-        for seg in tracker.segments + tracker.segment_graveyard:
-            seg_points = seg.points
-            if seg_points is not None:
-                num_pts = seg_points.shape[0]
-                pcd = o3d.geometry.PointCloud()
-                pcd.points = o3d.utility.Vector3dVector(seg_points)
-                rand_color = np.random.uniform(0, 1, size=(1,3))
-                rand_color = np.repeat(rand_color, num_pts, axis=0)
-                pcd.colors = o3d.utility.Vector3dVector(rand_color)
-                pcd_list.append(pcd)
-        
-        o3d.visualization.draw_geometries(poses_list + pcd_list)
+    poses_list = []
+    pcd_list = []
+    for Twb in poses_history:
+        pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
+        pose_obj.transform(Twb)
+        poses_list.append(pose_obj)
+    for seg in tracker.segments + tracker.segment_graveyard:
+        seg_points = seg.points
+        if seg_points is not None:
+            num_pts = seg_points.shape[0]
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(seg_points)
+            rand_color = np.random.uniform(0, 1, size=(1,3))
+            rand_color = np.repeat(rand_color, num_pts, axis=0)
+            pcd.colors = o3d.utility.Vector3dVector(rand_color)
+            pcd_list.append(pcd)
+    
+    o3d.visualization.draw_geometries(poses_list + pcd_list)
 
 
 
@@ -363,7 +381,6 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--params', type=str, help='Path to params file', required=True)
     parser.add_argument('-o', '--output', type=str, help='Path to output file', required=False, default=None)
     parser.add_argument('--no-vid', action='store_true', help='Do not show or save video')
-    parser.add_argument('--no-o3d', action='store_true', help='Do not show o3d visualization')
     args = parser.parse_args()
 
     main(args)
