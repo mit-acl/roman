@@ -9,6 +9,8 @@ from typing import List
 import open3d as o3d
 import clipperpy
 import time
+import json
+from copy import deepcopy
 
 from robot_utils.robot_data.pose_data import PoseData
 from robot_utils.transform import transform_2_xytheta
@@ -130,12 +132,69 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
             ax.set_ylim(ylim)
 
         plt.show()
-        return
+        exit(0)
+    return submap_centers, submaps
+
+def load_segment_slam_submaps(json_files: List[str], show_maps=False):
+    submaps = []
+    submap_centers = []
+    for json_file in json_files:
+        with open(json_file, 'r') as f:
+            smcs = []
+            sms = []
+            objs = {}
+            
+            data = json.load(f)
+            for seg in data['segments']:
+                centroid = np.array([seg['centroid_odom']['x'], seg['centroid_odom']['y'], seg['centroid_odom']['z']])[:args.dim]
+                new_obj = Object(centroid, id=seg['segment_index'])
+                new_obj.set_volume(seg['volume'])
+                objs[seg['segment_index']] = new_obj
+                
+            for submap in data['submaps']:
+                center = np.array([submap['T_odom_submap']['tx'], submap['T_odom_submap']['ty'], submap['T_odom_submap']['tz']])
+                sm = [deepcopy(objs[idx]) for idx in submap['segment_indices']]
+
+                # Transform objects to be centered at the submap center
+                T_submap_world = np.eye(4) # transformation to move submap from world frame to centered submap frame
+                T_submap_world[:args.dim, 3] = -center[:args.dim]
+                for obj in sm:
+                    obj.transform(T_submap_world)
+
+                smcs.append(center)
+                sms.append(sm)
+                
+            submap_centers.append(smcs)
+            submaps.append(sms)
+    if show_maps:
+        for i in range(2):
+            for submap in submaps[i]:
+                fig, ax = plt.subplots()
+                for obj in submap:
+                    obj.plot2d(ax, color='blue')
+                
+                bounds = object_list_bounds(submap)
+                if len(bounds) == 3:
+                    xlim, ylim, _ = bounds
+                else:
+                    xlim, ylim = bounds
+
+                # ax.plot([position[0] for position in submap_centers[i]], [position[1] for position in submap_centers[i]], 'o', color='black')
+                ax.set_aspect('equal')
+                
+                ax.set_xlim(xlim)
+                ax.set_ylim(ylim)
+
+            plt.show()
+        exit(0)
     return submap_centers, submaps
         
 
 def main(args):
-    submap_centers, submaps = create_submaps(args.input, args.submap_radius, args.submap_center_dist, show_maps=args.show_maps)
+    if not args.segment_slam:
+        submap_centers, submaps = create_submaps(args.input, args.submap_radius, args.submap_center_dist, show_maps=args.show_maps)
+    else:
+        submap_centers, submaps = load_segment_slam_submaps(args.input, show_maps=args.show_maps)
 
     if args.submaps_idx:
         submaps = [submaps[i][args.submaps_idx[i][0]:args.submaps_idx[i][1]] for i in range(2)]
@@ -340,6 +399,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('input', nargs=2)
+    parser.add_argument('--segment-slam', action='store_true', help="Use online mapped segment_slam data")
     parser.add_argument('--show-maps', action='store_true', help="Shows the submaps plotted as 2D points to help with submap sizing")
     parser.add_argument('--dim', '-d', type=int, default=3, help="2 or 3 - desired dimension to use for object alignment")
     parser.add_argument('--method', '-m', type=str, default='standard', help="Method to use for registration: standard, gravity, distvol, distvolgrav, prunevol, prunevolgrav, prunegrav")
@@ -360,8 +420,8 @@ if __name__ == '__main__':
     parser.add_argument('--sigma', type=float, default=0.3)
     parser.add_argument('--epsilon', type=float, default=0.5)
     parser.add_argument('--mindist', type=float, default=0.2)
-    parser.add_argument('--epsilon-volume', type=float, default=0.1)
-    parser.add_argument('--epsilon-pca', type=float, nargs=1, default=0.1, help="Epsilon for PCA feature")
+    parser.add_argument('--epsilon-volume', type=float, default=0.0)
+    parser.add_argument('--epsilon-pca', type=float, nargs=1, default=0.0, help="Epsilon for PCA feature")
     parser.add_argument('--distance-weight', type=float, default=3.0, help="Weight for distance in similarity fusion")
     parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
 

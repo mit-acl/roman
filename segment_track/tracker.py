@@ -305,3 +305,11 @@ class Tracker():
             - 0.5 * np.sqrt((-d + r1 + r2) * (d + r1 - r2) * (d - r1 + r2) * (d + r1 + r2))) \
             * intersecting_height
             
+    def make_pickle_compatible(self):
+        """
+        Make the tracker object pickle compatible
+        """
+        for seg in self.segments + self.segment_nursery + self.segment_graveyard:
+            seg.reset_obb()
+        return
+            
