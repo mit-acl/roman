@@ -27,6 +27,7 @@ class Segment():
         self.last_observation = observation
         self.points = None
         self.voxel_size = voxel_size  # voxel size used for maintaining point clouds
+        self._obb = None
 
     def update(self, observation: Observation, force=False, integrate_points=True):
         """Update a 3D segment with a new observation
@@ -38,11 +39,12 @@ class Segment():
         """
 
         # See if this will break the reconstruction
-        if not force:
-            try: 
-                self.reconstruction_from_observations(self.observations + [observation], width_height=False)
-            except:
-                return
+        # if not force:
+        #     try: 
+        #         self.reconstruction_from_observations(self.observations + [observation], width_height=False)
+        #     except:
+        #         return
+        self.reset_obb()
             
         # Integrate point measurements
         if integrate_points:
@@ -62,6 +64,8 @@ class Segment():
         Args:
             observation (Observation): input observation object
         """
+        self.reset_obb() # reset bbox
+
         if observation.point_cloud is None:
             return
         # Convert observed points to global frame
@@ -80,6 +84,7 @@ class Segment():
         Args:
             segment (Segment): _description_
         """
+        self.reset_obb() # reset bbox
         if segment.num_points > 0:
             self._add_points(segment.points)
 
@@ -111,11 +116,15 @@ class Segment():
         else:
             return self.points.shape[0]
         
+    def reset_obb(self):
+        self._obb = None
+        
     def volume(self):
         if self.num_points > 4: # 4 is the minimum number of points needed to define a 3D box
-            obb = o3d.geometry.OrientedBoundingBox.create_from_points(
+            if self._obb is None:
+                self._obb = o3d.geometry.OrientedBoundingBox.create_from_points(
                                 o3d.utility.Vector3dVector(self.points))
-            volume = obb.volume()
+            volume = self._obb.volume()
             return volume
         else:
             return 0.0
@@ -123,9 +132,10 @@ class Segment():
     @property
     def extent(self):
         if self.num_points > 4:
-            obb = o3d.geometry.OrientedBoundingBox.create_from_points(
+            if self._obb is None:
+                self._obb = o3d.geometry.OrientedBoundingBox.create_from_points(
                                 o3d.utility.Vector3dVector(self.points))
-            extent = obb.extent
+            extent = self._obb.extent
             return extent
         else:
             return np.zeros(3)

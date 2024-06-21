@@ -12,6 +12,7 @@ import sys
 import open3d as o3d
 import logging
 import os
+from threading import Thread
 
 from robot_utils.robot_data.img_data import ImgData
 from robot_utils.robot_data.pose_data import PoseData
@@ -97,7 +98,7 @@ def draw(t, img, pose, tracker, observations, reprojected_bboxs, ax):
     return
 
 
-def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history):
+def update_fastsam(t, img_data, depth_data, pose_data, fastsam, tracker):
 
     try:
         img = img_data.img(t)
@@ -105,7 +106,7 @@ def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_histo
         img_t = img_data.nearest_time(t)
         pose = pose_data.T_WB(img_t)
     except NoDataNearTimeException:
-        return
+        return None, None, None, None
     
     # collect reprojected masks
     reprojected_bboxs = []
@@ -117,8 +118,10 @@ def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_histo
         bbox = segment.reprojected_bbox(pose)
         if bbox is not None:
             reprojected_bboxs.append((segment.id, bbox))
-
     observations = fastsam.run(t, pose, img, img_depth=img_depth)
+    return observations, reprojected_bboxs, pose, img
+
+def update_segment_track(t, observations, reprojected_bboxs, pose, img, tracker, ax, poses_history): 
 
     if len(observations) > 0:
         tracker.update(t, pose, observations)
@@ -304,7 +307,10 @@ def main(args):
         ax = None
     poses_history = []
     def update_wrapper(t): 
-        update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history)
+        observations, reprojected_bboxs, pose, img = update_fastsam(t, img_data, depth_data, pose_data, fastsam, tracker)
+        if observations is not None and reprojected_bboxs is not None and pose is not None and img is not None:
+            update_segment_track(t, observations, reprojected_bboxs, pose, img, tracker, ax, poses_history)
+            # t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history)
         print(f"t: {t - t0:.2f} = {t}")
         # fig.suptitle(f"t: {t - t0:.2f}")
 
@@ -319,6 +325,41 @@ def main(args):
     else:
         for t in np.arange(t0, tf, params['segment_tracking']['dt']):
             update_wrapper(t)
+        # observations, reprojected_bboxs, pose, img = None, None, None, None
+        # new_observations, new_reprojected_bboxs, new_pose, new_img = None, None, None, None
+        # def fastsam_update_wrapper(t, img_data, depth_data, pose_data, fastsam, tracker, results):
+        #     observations, reprojected_bboxs, pose, img = update_fastsam(t, img_data, depth_data, pose_data, fastsam, tracker)
+        #     results[0] = observations
+        #     results[1] = reprojected_bboxs
+        #     results[2] = pose
+        #     results[3] = img
+        # results = [0, 0, 0, 0]
+        # fastsam_update_wrapper(t0, img_data, depth_data, pose_data, fastsam, tracker, results)
+        # new_observations, new_reprojected_bboxs, new_pose, new_img = results
+        # # Start here: figure out how to do arguments in threading: https://stackoverflow.com/questions/6893968/how-to-get-the-return-value-from-a-thread
+        # for t in np.arange(t0, tf, params['segment_tracking']['dt']):
+        #     print(f"t: {t - t0:.2f} = {t}")
+        #     observations = new_observations
+        #     reprojected_bboxs = new_reprojected_bboxs
+        #     pose = new_pose
+        #     img = new_img
+
+        #     run_seg_track_t = observations is not None and reprojected_bboxs is not None and pose is not None and img is not None
+        #     run_fastsam_tp = t + params['segment_tracking']['dt'] < tf
+
+        #     if run_seg_track_t:
+        #         t1 = Thread(target = update_segment_track(t, observations, reprojected_bboxs, pose, img, tracker, ax, poses_history))
+        #         t1.start()
+        #     if run_fastsam_tp:
+        #         t2 = Thread(fastsam_update_wrapper(t+params['segment_tracking']['dt'], img_data, depth_data, pose_data, fastsam, tracker, results))
+        #         t2.start()
+        #     if run_seg_track_t:
+        #         t1.join()
+        #     if run_fastsam_tp:
+        #         t2.join()
+        #         new_observations, new_reprojected_bboxs, new_pose, new_img = results
+        #     else: # last iteration
+        #         break
 
     print(f"Segment tracking took {time.time() - wc_t0:.2f} seconds")
     print(f"Run duration was {tf - t0:.2f} seconds")
@@ -329,9 +370,7 @@ def main(args):
     if args.output:
         pkl_path = os.path.expanduser(os.path.expandvars(args.output)) + ".pkl"
         pkl_file = open(pkl_path, 'wb')
-        # for seg in tracker.segments + tracker.segment_graveyard + tracker.segment_nursery:
-        #     for obs in seg.observations:
-        #         obs.keypoints = None
+        tracker.make_pickle_compatible()
         pickle.dump([tracker, poses_history], pkl_file, -1)
         logging.info(f"Saved tracker, poses_history to file: {pkl_path}.")
         pkl_file.close()
