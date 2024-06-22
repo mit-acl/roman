@@ -16,6 +16,7 @@ class Segment():
                  pixel_std_dev: float, id: int = 0, voxel_size: float = 0.05):
         self.id = id
         self.observations = [observation.copy(include_mask=False)]
+        self.first_seen = observation.time
         self.last_seen = observation.time
         self.camera_params = camera_params
         self.cal3ds2 = gtsam.Cal3DS2(camera_params.K[0,0], camera_params.K[1,1], 

@@ -371,7 +371,7 @@ def main(args):
         pkl_path = os.path.expanduser(os.path.expandvars(args.output)) + ".pkl"
         pkl_file = open(pkl_path, 'wb')
         tracker.make_pickle_compatible()
-        pickle.dump([tracker, poses_history], pkl_file, -1)
+        pickle.dump([tracker, poses_history, np.arange(t0, tf, params['segment_tracking']['dt'])], pkl_file, -1)
         logging.info(f"Saved tracker, poses_history to file: {pkl_path}.")
         pkl_file.close()
 
