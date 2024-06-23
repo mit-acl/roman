@@ -13,13 +13,15 @@ from yolov7_package import Yolov7Detector
 import math
 import time
 
-from FastSAM.fastsam import FastSAMPrompt
-from FastSAM.fastsam import FastSAM
+from fastsam import FastSAMPrompt
+from fastsam import FastSAM
 
 from segment_track.observation import Observation
 import logging
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
 
 def is_elongated(covs_img, max_axis_ratio=np.inf):
     """
