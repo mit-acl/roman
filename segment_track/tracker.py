@@ -29,7 +29,6 @@ class Tracker():
     def __init__(
             self,
             camera_params: CameraParams,
-            pixel_std_dev: float,
             min_iou: float,
             min_sightings: int,
             max_t_no_sightings: int,
@@ -38,10 +37,11 @@ class Tracker():
             max_cov_axis: float = 2.0,
             mask_downsample_factor: int = 1,
             min_max_extent: float = 0.5, # to get rid of very small objects
-            plane_prune_params: List[float] = [3.0, 3.0, 0.5] # to get rid of planar objects (likely background)
+            plane_prune_params: List[float] = [3.0, 3.0, 0.5], # to get rid of planar objects (likely background)
+            segment_graveyard_time: float = 15.0, # time after which an inactive segment is sent to the graveyard
+            segment_graveyard_dist: float = 10.0, # distance traveled after which an inactive segment is sent to the graveyard
     ):
         self.camera_params = camera_params
-        self.pixel_std_dev = pixel_std_dev
         self.min_iou = min_iou
         self.min_sightings = min_sightings
         self.max_t_no_sightings = max_t_no_sightings
@@ -55,9 +55,12 @@ class Tracker():
         # self.min_volume = .25**3 # 25x25x25 cm^3
         self.min_max_extent = min_max_extent
         self.plane_prune_params = plane_prune_params
+        self.segment_graveyard_time = segment_graveyard_time
+        self.segment_graveyard_dist = segment_graveyard_dist
 
         self.segment_nursery = []
         self.segments = []
+        self.inactive_segments = []
         self.segment_graveyard = []
         self.id_counter = 0
         self.last_pose = None
@@ -91,17 +94,25 @@ class Tracker():
             # forcing add does not try to reconstruct the segment
             self.segment_nursery[seg_idx].update(observations[obs_idx], force=True, integrate_points=True)
 
-        # delete masks for segments that were not seen recently
+        # delete masks for segments that were not seen in this frame
         for seg in self.segments:
             if not np.allclose(t, seg.last_seen, rtol=0.0):
                 seg.last_observation.mask = None
 
-        # handle moving existing segments to graveyard
+        # handle moving existing segments to inactive
         to_rm = [seg for seg in self.segments \
                     if t - seg.last_seen > self.max_t_no_sightings]
         for seg in to_rm:
-            self.segment_graveyard.append(seg)
+            self.inactive_segments.append(seg)
             self.segments.remove(seg)
+            
+        # handle moving inactive segments to graveyard
+        to_rm = [seg for seg in self.inactive_segments \
+                    if t - seg.last_seen > self.segment_graveyard_time \
+                        or np.linalg.norm(seg.last_observation.pose[:3,3] - pose[:3,3]) > self.segment_graveyard_dist]
+        for seg in to_rm:
+            self.segment_graveyard.append(seg)
+            self.inactive_segments.remove(seg)
 
         to_rm = [seg for seg in self.segment_nursery \
                     if t - seg.last_seen > self.max_t_no_sightings]
@@ -121,7 +132,7 @@ class Tracker():
                             if idx not in associated_obs]
         for obs in new_observations:
             self.segment_nursery.append(
-                Segment(obs, self.camera_params, self.pixel_std_dev, self.id_counter))
+                Segment(obs, self.camera_params, self.id_counter))
             self.id_counter += 1
 
         self.merge()
@@ -181,12 +192,12 @@ class Tracker():
         return len(good_matches) / self.num_orb_features
 
     
-    def filter_segment_graveyard(self, rm_fun: callable):
-        """
-        Filter the segment graveyard when rm_fun returns True
-        """
-        self.segment_graveyard = [seg for seg in self.segment_graveyard if not rm_fun(seg)]
-        return
+    # def filter_segment_graveyard(self, rm_fun: callable):
+    #     """
+    #     Filter the segment graveyard when rm_fun returns True
+    #     """
+    #     self.segment_graveyard = [seg for seg in self.segment_graveyard if not rm_fun(seg)]
+    #     return
     
     def remove_bad_segments(self, segments: List[Segment], min_volume: float=0.0, min_max_extent: float=0.0, plane_prune_params: List[float]=[np.inf, np.inf, 0.0]):
         """
@@ -235,7 +246,7 @@ class Tracker():
         n = 0
         edited = True
 
-        self.segment_graveyard = self.remove_bad_segments(self.segment_graveyard, min_max_extent=self.min_max_extent, plane_prune_params=self.plane_prune_params)
+        self.inactive_segments = self.remove_bad_segments(self.inactive_segments, min_max_extent=self.min_max_extent, plane_prune_params=self.plane_prune_params)
         self.segments = self.remove_bad_segments(self.segments)
 
         # repeatedly try to merge until no further merges are possible
@@ -244,13 +255,18 @@ class Tracker():
             n += 1
 
             for i, seg1 in enumerate(self.segments):
-                for j, seg2 in enumerate(self.segments + self.segment_graveyard):
+                for j, seg2 in enumerate(self.segments + self.inactive_segments):
                     if i >= j:
                         continue
 
                     # TODO: merging needs to be faster, this may not be the right way to do it.
-                    if np.abs(seg2.last_seen - seg1.last_seen) > max_time_passed_merge:
-                        continue
+                    # if np.abs(seg2.last_seen - seg1.last_seen) > max_time_passed_merge:
+                    #     continue
+                    # if segments are very far away, don't worry about doing extra checking
+                    if np.mean(seg1.points) - np.mean(seg2.points) > \
+                        .5 * (np.max(seg1.extent) + np.max(seg2.extent)):
+                        continue 
+                    
                     combined_pts = np.vstack([seg1.points, seg2.points])
                     if combined_pts.shape[0] < 4:
                         iou3d = 0.0
@@ -278,7 +294,7 @@ class Tracker():
                         if j < len(self.segments):
                             self.segments.pop(j)
                         else:
-                            self.segment_graveyard.pop(j - len(self.segments))
+                            self.inactive_segments.pop(j - len(self.segments))
                         edited = True
                         break
                 if edited:
@@ -309,7 +325,7 @@ class Tracker():
         """
         Make the tracker object pickle compatible
         """
-        for seg in self.segments + self.segment_nursery + self.segment_graveyard:
+        for seg in self.segments + self.segment_nursery + self.inactive_segments + self.segment_graveyard:
             seg.reset_obb()
         return
             

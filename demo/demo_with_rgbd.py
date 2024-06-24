@@ -38,17 +38,19 @@ def draw(t, img, pose, tracker, observations, reprojected_bboxs, ax):
     img_fastsam = np.concatenate([img_fastsam[...,None]]*3, axis=2)
 
     segment: Segment
-    for i, segment in enumerate(tracker.segments + tracker.segment_graveyard):
+    for i, segment in enumerate(tracker.segments + tracker.inactive_segments + tracker.segment_graveyard):
         # only draw segments seen in the last however many seconds
-        if segment.last_seen < t - 50:
+        if segment.last_seen < t - tracker.segment_graveyard_time - 10:
             continue
         bbox = segment.reprojected_bbox(pose)
         if bbox is None:
             continue
         if i < len(tracker.segments):
             color = (0, 255, 0)
-        else:
+        elif i < len(tracker.segments) + len(tracker.inactive_segments):
             color = (255, 0, 0)
+        else:
+            color = (180, 0, 180)
         img = cv.rectangle(img, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
                     np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=color, thickness=2)
         img = cv.putText(img, str(segment.id), (np.array(bbox[0]) + np.array([10., 10.])).astype(np.int32), 
@@ -70,7 +72,7 @@ def draw(t, img, pose, tracker, observations, reprojected_bboxs, ax):
             img_fastsam = cv.addWeighted(img_fastsam, 1.0, colored_mask, 0.5, 0)
             for obs in segment.observations[::-1]:
                 if obs.time == t:
-                    img_fastsam = cv.putText(img_fastsam, str(segment.id), obs.pixel.astype(np.int32), 
+                    img_fastsam = cv.putText(img_fastsam, str(segment.id), np.mean(obs.mask).astype(np.int32), 
                          cv.FONT_HERSHEY_SIMPLEX, 0.5, rand_color.tolist(), 2)
                     break
     
@@ -98,7 +100,7 @@ def draw(t, img, pose, tracker, observations, reprojected_bboxs, ax):
     return
 
 
-def update_fastsam(t, img_data, depth_data, pose_data, fastsam, tracker):
+def update_fastsam(t, img_data, depth_data, pose_data, fastsam):
 
     try:
         img = img_data.img(t)
@@ -106,22 +108,21 @@ def update_fastsam(t, img_data, depth_data, pose_data, fastsam, tracker):
         img_t = img_data.nearest_time(t)
         pose = pose_data.T_WB(img_t)
     except NoDataNearTimeException:
-        return None, None, None, None
+        return None, None, None
     
-    # collect reprojected masks
-    reprojected_bboxs = []
-    segment: Segment
-    for i, segment in enumerate(tracker.segments + tracker.segment_graveyard):
-        # only draw segments seen in the last however many seconds
-        if segment.last_seen < t - 50:
-            continue
-        bbox = segment.reprojected_bbox(pose)
-        if bbox is not None:
-            reprojected_bboxs.append((segment.id, bbox))
     observations = fastsam.run(t, pose, img, img_depth=img_depth)
-    return observations, reprojected_bboxs, pose, img
+    return observations, pose, img
 
-def update_segment_track(t, observations, reprojected_bboxs, pose, img, tracker, ax, poses_history): 
+def update_segment_track(t, observations, pose, img, tracker, ax, poses_history): 
+
+    # collect reprojected masks
+    if ax is not None:
+        reprojected_bboxs = []
+        segment: Segment
+        for i, segment in enumerate(tracker.segments + tracker.inactive_segments):
+            bbox = segment.reprojected_bbox(pose)
+            if bbox is not None:
+                reprojected_bboxs.append((segment.id, bbox))
 
     if len(observations) > 0:
         tracker.update(t, pose, observations)
@@ -176,7 +177,6 @@ def main(args):
     
     assert params['segment_tracking']['min_iou'] is not None, "min_iou must be specified in params"
     assert params['segment_tracking']['min_sightings'] is not None, "min_sightings must be specified in params"
-    assert params['segment_tracking']['pixel_std_dev'] is not None, "max_t_no_sightings must be specified in params"
     assert params['segment_tracking']['max_t_no_sightings'] is not None, "max_t_no_sightings must be specified in params"
     assert params['segment_tracking']['mask_downsample_factor'] is not None, "Mask downsample factor cannot be none!"
 
@@ -291,7 +291,6 @@ def main(args):
     print("Setting up segment tracker...")
     tracker = Tracker(
         camera_params=img_data.camera_params,
-        pixel_std_dev=params['segment_tracking']['pixel_std_dev'],
         min_iou=params['segment_tracking']['min_iou'],
         min_sightings=params['segment_tracking']['min_sightings'],
         max_t_no_sightings=params['segment_tracking']['max_t_no_sightings'],
@@ -307,9 +306,9 @@ def main(args):
         ax = None
     poses_history = []
     def update_wrapper(t): 
-        observations, reprojected_bboxs, pose, img = update_fastsam(t, img_data, depth_data, pose_data, fastsam, tracker)
-        if observations is not None and reprojected_bboxs is not None and pose is not None and img is not None:
-            update_segment_track(t, observations, reprojected_bboxs, pose, img, tracker, ax, poses_history)
+        observations, pose, img = update_fastsam(t, img_data, depth_data, pose_data, fastsam)
+        if observations is not None and pose is not None and img is not None:
+            update_segment_track(t, observations, pose, img, tracker, ax, poses_history)
             # t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history)
         print(f"t: {t - t0:.2f} = {t}")
         # fig.suptitle(f"t: {t - t0:.2f}")
@@ -382,7 +381,7 @@ def main(args):
             pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
             pose_obj.transform(Twb)
             poses_list.append(pose_obj)
-        for seg in tracker.segments + tracker.segment_graveyard:
+        for seg in tracker.segments + tracker.inactive_segments + tracker.segment_graveyard:
             seg_points = seg.points
             if seg_points is not None:
                 num_pts = seg_points.shape[0]
