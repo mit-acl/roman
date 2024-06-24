@@ -9,7 +9,12 @@ import os
 def main(args, filter_viz=False):
 
     with open(os.path.expanduser(args.pickle_file[0]), 'rb') as f:
-        tracker, poses_history = pickle.load(f)
+        pickle_data = pickle.load(f)
+        if len(pickle_data) == 2:
+            tracker, poses_history, = pickle_data
+            times = None
+        else:
+            tracker, poses_history, _ = pickle_data
         
     poses_list = []
     pcd_list = []
