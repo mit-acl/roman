@@ -144,11 +144,12 @@ class Tracker():
         Compute the similarity between the mask of a segment and an observation
         """
         if not projected or segment in self.segment_nursery:
-            segment_last_mask = segment.last_observation.mask_downsampled
-            if segment_last_mask is None:
+            # segment_last_mask = segment.last_observation.mask_downsampled
+            segment_propagated_mask = segment.propagated_last_mask(observation.time, observation.pose, downsample_factor=self.mask_downsample_factor)
+            if segment_propagated_mask is None:
                 iou = 0.0
             else:
-                iou = Tracker.compute_iou(segment_last_mask, observation.mask_downsampled)
+                iou = Tracker.compute_iou(segment_propagated_mask, observation.mask_downsampled)
 
         # compute the similarity using the projected mask rather than last mask
         else:

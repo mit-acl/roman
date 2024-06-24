@@ -70,11 +70,9 @@ def draw(t, img, pose, tracker, observations, reprojected_bboxs, ax):
                 import ipdb; ipdb.set_trace()
             colored_mask = colored_mask.astype(np.uint8)
             img_fastsam = cv.addWeighted(img_fastsam, 1.0, colored_mask, 0.5, 0)
-            for obs in segment.observations[::-1]:
-                if obs.time == t:
-                    img_fastsam = cv.putText(img_fastsam, str(segment.id), np.mean(obs.mask).astype(np.int32), 
-                         cv.FONT_HERSHEY_SIMPLEX, 0.5, rand_color.tolist(), 2)
-                    break
+            mass_x, mass_y = np.where(segment.last_mask >= 1)
+            img_fastsam = cv.putText(img_fastsam, str(segment.id), (int(np.mean(mass_x)), int(np.mean(mass_y))), 
+                    cv.FONT_HERSHEY_SIMPLEX, 0.5, rand_color.tolist(), 2)
     
     for obs in observations:
         alread_shown = False
@@ -319,7 +317,8 @@ def main(args):
             plt.show()
         else:
             video_file = os.path.expanduser(os.path.expandvars(args.output)) + ".mp4"
-            writervideo = FFMpegWriter(fps=int(.5*1/params['segment_tracking']['dt']))
+            fps = int(np.max([1., .5*1/params['segment_tracking']['dt']]))
+            writervideo = FFMpegWriter(fps=fps)
             ani.save(video_file, writer=writervideo)          
     else:
         for t in np.arange(t0, tf, params['segment_tracking']['dt']):

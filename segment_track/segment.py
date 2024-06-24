@@ -4,8 +4,8 @@ import cv2 as cv
 from typing import List
 
 from robot_utils.robot_data.img_data import CameraParams
-from robot_utils.transform import transform
-from robot_utils.camera import xyz_2_pixel
+from robot_utils.transform import transform, aruns
+from robot_utils.camera import xyz_2_pixel, pixel_depth_2_xyz
 
 import open3d as o3d
 from segment_track.observation import Observation
@@ -28,6 +28,10 @@ class Segment():
         self.points = None
         self.voxel_size = voxel_size  # voxel size used for maintaining point clouds
         self._obb = None
+        self.last_propagated_mask = None
+        self.last_propagated_time = None
+        
+        self.integrate_points_from_observation(observation)
 
     def update(self, observation: Observation, force=False, integrate_points=True):
         """Update a 3D segment with a new observation
@@ -189,3 +193,49 @@ class Segment():
         if lower_right[0] - upper_left[0] <= 0 or lower_right[1] - upper_left[1] <= 0:
             return None
         return upper_left, lower_right
+    
+    def propagated_last_mask(self, t, pose, downsample_factor=1):
+        if self.last_propagated_mask is not None and self.last_propagated_time == t:
+            return self.last_propagated_mask
+        
+        if self.last_observation.mask_downsampled is None:
+            self.last_propagated_mask = None
+            self.last_propagated_time = t
+            return None
+        
+        if self.points is None:
+            return self.last_observation.mask_downsampled
+        
+        # get depth of the segment
+        points_all_cm1 = transform(np.linalg.inv(self.last_observation.pose), self.points, axis=0)
+        depth = np.mean(points_all_cm1[:,2])
+        mask_unchanged = self.last_observation.mask_downsampled
+        
+        # compute the bounding box of the segment for the last observation camera pose
+        bbox_ul = np.array(np.min(np.argwhere(mask_unchanged > 0), axis=0))
+        bbox_lr = np.array(np.max(np.argwhere(mask_unchanged > 0), axis=0))
+        bbox_ul *= downsample_factor
+        bbox_lr *= downsample_factor
+        bbox_ur = np.array([bbox_lr[0], bbox_ul[1]])
+        bbox_ll = np.array([bbox_ul[0], bbox_lr[1]])
+        points_uvm1 = np.array([bbox_ul, bbox_ur, bbox_lr, bbox_ll])
+        
+        # compute the 3D points of the bounding box in the last observation camera frame
+        points_cm1 = np.array([pixel_depth_2_xyz(p[0], p[1], depth, self.camera_params.K) for p in points_uvm1])
+
+        # get corresponding word coordinates for the bounding box points
+        points_w = transform(self.last_observation.pose, points_cm1, axis=0)
+        
+        # project the bounding box points to the current camera frame
+        points_c = transform(np.linalg.inv(pose), points_w, axis=0)
+        points_uv = xyz_2_pixel(points_c, self.camera_params.K, axis=0)
+        points_uvm1 = np.array([pt / downsample_factor for pt in points_uvm1])
+        points_uv = np.array([pt / downsample_factor for pt in points_uv])
+        T_pixels = aruns(points_uv, points_uvm1)
+        mask = cv.warpAffine(mask_unchanged.astype(np.float32), T_pixels[:2, :3], (mask_unchanged.shape[1], mask_unchanged.shape[0])) 
+                            # flags=cv.INTER_NEAREST)
+        mask = mask.astype(np.uint8)
+        
+        self.last_propagated_mask = mask
+        self.last_propagated_time = t
+        return mask
