@@ -12,6 +12,7 @@ import sys
 import open3d as o3d
 import logging
 import os
+from threading import Thread
 
 from robot_utils.robot_data.img_data import ImgData
 from robot_utils.robot_data.pose_data import PoseData
@@ -37,17 +38,19 @@ def draw(t, img, pose, tracker, observations, reprojected_bboxs, ax):
     img_fastsam = np.concatenate([img_fastsam[...,None]]*3, axis=2)
 
     segment: Segment
-    for i, segment in enumerate(tracker.segments + tracker.segment_graveyard):
+    for i, segment in enumerate(tracker.segments + tracker.inactive_segments + tracker.segment_graveyard):
         # only draw segments seen in the last however many seconds
-        if segment.last_seen < t - 50:
+        if segment.last_seen < t - tracker.segment_graveyard_time - 10:
             continue
         bbox = segment.reprojected_bbox(pose)
         if bbox is None:
             continue
         if i < len(tracker.segments):
             color = (0, 255, 0)
-        else:
+        elif i < len(tracker.segments) + len(tracker.inactive_segments):
             color = (255, 0, 0)
+        else:
+            color = (180, 0, 180)
         img = cv.rectangle(img, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
                     np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=color, thickness=2)
         img = cv.putText(img, str(segment.id), (np.array(bbox[0]) + np.array([10., 10.])).astype(np.int32), 
@@ -67,11 +70,9 @@ def draw(t, img, pose, tracker, observations, reprojected_bboxs, ax):
                 import ipdb; ipdb.set_trace()
             colored_mask = colored_mask.astype(np.uint8)
             img_fastsam = cv.addWeighted(img_fastsam, 1.0, colored_mask, 0.5, 0)
-            for obs in segment.observations[::-1]:
-                if obs.time == t:
-                    img_fastsam = cv.putText(img_fastsam, str(segment.id), obs.pixel.astype(np.int32), 
-                         cv.FONT_HERSHEY_SIMPLEX, 0.5, rand_color.tolist(), 2)
-                    break
+            mass_x, mass_y = np.where(segment.last_mask >= 1)
+            img_fastsam = cv.putText(img_fastsam, str(segment.id), (int(np.mean(mass_x)), int(np.mean(mass_y))), 
+                    cv.FONT_HERSHEY_SIMPLEX, 0.5, rand_color.tolist(), 2)
     
     for obs in observations:
         alread_shown = False
@@ -97,7 +98,7 @@ def draw(t, img, pose, tracker, observations, reprojected_bboxs, ax):
     return
 
 
-def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history):
+def update_fastsam(t, img_data, depth_data, pose_data, fastsam):
 
     try:
         img = img_data.img(t)
@@ -105,20 +106,21 @@ def update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_histo
         img_t = img_data.nearest_time(t)
         pose = pose_data.T_WB(img_t)
     except NoDataNearTimeException:
-        return
+        return None, None, None
     
-    # collect reprojected masks
-    reprojected_bboxs = []
-    segment: Segment
-    for i, segment in enumerate(tracker.segments + tracker.segment_graveyard):
-        # only draw segments seen in the last however many seconds
-        if segment.last_seen < t - 50:
-            continue
-        bbox = segment.reprojected_bbox(pose)
-        if bbox is not None:
-            reprojected_bboxs.append((segment.id, bbox))
-
     observations = fastsam.run(t, pose, img, img_depth=img_depth)
+    return observations, pose, img
+
+def update_segment_track(t, observations, pose, img, tracker, ax, poses_history): 
+
+    # collect reprojected masks
+    if ax is not None:
+        reprojected_bboxs = []
+        segment: Segment
+        for i, segment in enumerate(tracker.segments + tracker.inactive_segments):
+            bbox = segment.reprojected_bbox(pose)
+            if bbox is not None:
+                reprojected_bboxs.append((segment.id, bbox))
 
     if len(observations) > 0:
         tracker.update(t, pose, observations)
@@ -175,7 +177,6 @@ def main(args):
     
     assert params['segment_tracking']['min_iou'] is not None, "min_iou must be specified in params"
     assert params['segment_tracking']['min_sightings'] is not None, "min_sightings must be specified in params"
-    assert params['segment_tracking']['pixel_std_dev'] is not None, "max_t_no_sightings must be specified in params"
     assert params['segment_tracking']['max_t_no_sightings'] is not None, "max_t_no_sightings must be specified in params"
     assert params['segment_tracking']['mask_downsample_factor'] is not None, "Mask downsample factor cannot be none!"
 
@@ -305,7 +306,6 @@ def main(args):
     print("Setting up segment tracker...")
     tracker = Tracker(
         camera_params=img_data.camera_params,
-        pixel_std_dev=params['segment_tracking']['pixel_std_dev'],
         min_iou=params['segment_tracking']['min_iou'],
         min_sightings=params['segment_tracking']['min_sightings'],
         max_t_no_sightings=params['segment_tracking']['max_t_no_sightings'],
@@ -321,7 +321,10 @@ def main(args):
         ax = None
     poses_history = []
     def update_wrapper(t): 
-        update(t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history)
+        observations, pose, img = update_fastsam(t, img_data, depth_data, pose_data, fastsam)
+        if observations is not None and pose is not None and img is not None:
+            update_segment_track(t, observations, pose, img, tracker, ax, poses_history)
+            # t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history)
         print(f"t: {t - t0:.2f} = {t}")
         # fig.suptitle(f"t: {t - t0:.2f}")
 
@@ -331,11 +334,47 @@ def main(args):
             plt.show()
         else:
             video_file = os.path.expanduser(os.path.expandvars(args.output)) + ".mp4"
-            writervideo = FFMpegWriter(fps=int(.5*1/params['segment_tracking']['dt']))
+            fps = int(np.max([1., .5*1/params['segment_tracking']['dt']]))
+            writervideo = FFMpegWriter(fps=fps)
             ani.save(video_file, writer=writervideo)          
     else:
         for t in np.arange(t0, tf, params['segment_tracking']['dt']):
             update_wrapper(t)
+        # observations, reprojected_bboxs, pose, img = None, None, None, None
+        # new_observations, new_reprojected_bboxs, new_pose, new_img = None, None, None, None
+        # def fastsam_update_wrapper(t, img_data, depth_data, pose_data, fastsam, tracker, results):
+        #     observations, reprojected_bboxs, pose, img = update_fastsam(t, img_data, depth_data, pose_data, fastsam, tracker)
+        #     results[0] = observations
+        #     results[1] = reprojected_bboxs
+        #     results[2] = pose
+        #     results[3] = img
+        # results = [0, 0, 0, 0]
+        # fastsam_update_wrapper(t0, img_data, depth_data, pose_data, fastsam, tracker, results)
+        # new_observations, new_reprojected_bboxs, new_pose, new_img = results
+        # # Start here: figure out how to do arguments in threading: https://stackoverflow.com/questions/6893968/how-to-get-the-return-value-from-a-thread
+        # for t in np.arange(t0, tf, params['segment_tracking']['dt']):
+        #     print(f"t: {t - t0:.2f} = {t}")
+        #     observations = new_observations
+        #     reprojected_bboxs = new_reprojected_bboxs
+        #     pose = new_pose
+        #     img = new_img
+
+        #     run_seg_track_t = observations is not None and reprojected_bboxs is not None and pose is not None and img is not None
+        #     run_fastsam_tp = t + params['segment_tracking']['dt'] < tf
+
+        #     if run_seg_track_t:
+        #         t1 = Thread(target = update_segment_track(t, observations, reprojected_bboxs, pose, img, tracker, ax, poses_history))
+        #         t1.start()
+        #     if run_fastsam_tp:
+        #         t2 = Thread(fastsam_update_wrapper(t+params['segment_tracking']['dt'], img_data, depth_data, pose_data, fastsam, tracker, results))
+        #         t2.start()
+        #     if run_seg_track_t:
+        #         t1.join()
+        #     if run_fastsam_tp:
+        #         t2.join()
+        #         new_observations, new_reprojected_bboxs, new_pose, new_img = results
+        #     else: # last iteration
+        #         break
 
     print(f"Segment tracking took {time.time() - wc_t0:.2f} seconds")
     print(f"Run duration was {tf - t0:.2f} seconds")
@@ -346,10 +385,8 @@ def main(args):
     if args.output:
         pkl_path = os.path.expanduser(os.path.expandvars(args.output)) + ".pkl"
         pkl_file = open(pkl_path, 'wb')
-        # for seg in tracker.segments + tracker.segment_graveyard + tracker.segment_nursery:
-        #     for obs in seg.observations:
-        #         obs.keypoints = None
-        pickle.dump([tracker, poses_history], pkl_file, -1)
+        tracker.make_pickle_compatible()
+        pickle.dump([tracker, poses_history, np.arange(t0, tf, params['segment_tracking']['dt'])], pkl_file, -1)
         logging.info(f"Saved tracker, poses_history to file: {pkl_path}.")
         pkl_file.close()
 
@@ -360,7 +397,7 @@ def main(args):
             pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
             pose_obj.transform(Twb)
             poses_list.append(pose_obj)
-        for seg in tracker.segments + tracker.segment_graveyard:
+        for seg in tracker.segments + tracker.inactive_segments + tracker.segment_graveyard:
             seg_points = seg.points
             if seg_points is not None:
                 num_pts = seg_points.shape[0]
