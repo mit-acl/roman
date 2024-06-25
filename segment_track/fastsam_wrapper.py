@@ -3,58 +3,21 @@
 
 
 import cv2 as cv
-import matplotlib.pyplot as plt
 import numpy as np
-from numpy.linalg import eig
-import skimage
 import open3d as o3d
 import copy
 from yolov7_package import Yolov7Detector
 import math
 import time
 
-from FastSAM.fastsam import FastSAMPrompt
-from FastSAM.fastsam import FastSAM
+from fastsam import FastSAMPrompt
+from fastsam import FastSAM
 
 from segment_track.observation import Observation
 import logging
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
-def is_elongated(covs_img, max_axis_ratio=np.inf):
-    """
-    Finds elongated covariances from input
-
-    Args:
-        covs_img ((n,2,2) np.array): n 2-dimensional covariance matrix inputs
-        max_axis_ratio (float, optional): maximum ratio allowed between major and minor covariance matrix axes. Defaults to np.inf.
-
-    Returns:
-        (n,) np.array: boolean array indicating whether covariances are elongated
-    """
-    covs_arr = np.array(covs_img)
-    eigvals, eigvecs = eig(covs_arr)
-    return np.bitwise_or(eigvals[:,0] > max_axis_ratio*eigvals[:,1], eigvals[:,1] > max_axis_ratio*eigvals[:,0])
-
-def compute_blob_mean_and_covariance(binary_image):
-
-    # Create a grid of pixel coordinates.
-    y, x = np.indices(binary_image.shape)
-
-    # Threshold the binary image to isolate the blob.
-    blob_pixels = (binary_image > 0).astype(int)
-
-    # Compute the mean of pixel coordinates.
-    mean_x, mean_y = np.mean(x[blob_pixels == 1]), np.mean(y[blob_pixels == 1])
-    mean = (mean_x, mean_y)
-
-    # Stack pixel coordinates to compute covariance using Scipy's cov function.
-    pixel_coordinates = np.vstack((x[blob_pixels == 1], y[blob_pixels == 1]))
-
-    # Compute the covariance matrix using Scipy's cov function.
-    covariance_matrix = np.cov(pixel_coordinates)
-
-    return mean, covariance_matrix
 
 def ssc(keypoints, num_ret_points, tolerance, cols, rows):
     exp1 = rows + cols + 2 * num_ret_points
@@ -258,24 +221,9 @@ class FastSAMWrapper():
         # do not use the keep_mask
         
         # run fastsam
-        masks, means, covs, (fig, ax) = self._process_img(
-            img, plot=plot, ignore_mask=ignore_mask, keep_mask=None)
-
-        widths = []
-        heights = []
-        bboxes = []
-        for _, mask in enumerate(masks):
-            nonzero_indices = np.transpose(np.nonzero(mask))
-            x0 = np.min(nonzero_indices[:,1])
-            x1 = np.max(nonzero_indices[:,1])
-            y0 = np.min(nonzero_indices[:,0])
-            y1 = np.max(nonzero_indices[:,0])
-            bboxes.append([x0, y0, x1, y1])
-            widths.append(x1-x0)
-            heights.append(y1-y0)
+        masks = self._process_img(img, ignore_mask=ignore_mask, keep_mask=None)
         
-        for mean, w, h, mask, bbox in zip(means, widths, heights, masks, bboxes):
-            x0, y0, x1, y1 = bbox
+        for mask in masks:
             # kp, des = self.compute_orb(img[y0:y1, x0:x1], 
             #     num_final=self.orb_num_final, num_initial=self.orb_num_initial)
             # Extract point cloud of object from RGBD
@@ -322,18 +270,13 @@ class FastSAMWrapper():
                     continue
 
             # Generate downsampled mask
-            # TODO: make downsample factor into a param
             mask_downsampled = np.array(cv.resize(
                 mask,
                 (mask.shape[1]//self.mask_downsample_factor, mask.shape[0]//self.mask_downsample_factor), 
                 interpolation=cv.INTER_NEAREST
             )).astype('uint8')
 
-            self.observations.append(Observation(t, pose, np.array(mean), w, h, mask, mask_downsampled, ptcld))
-        
-        # TODO: fix plotting
-        # if plot_dir is not None:
-        #     self._plot_3d_pos(centroids, means, plot_dir, i, fig, ax)
+            self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
 
         return self.observations
     
@@ -410,7 +353,7 @@ class FastSAMWrapper():
                             (np.sum(mask[:edge_width,:]) > 0 and not self.allow_tblr_edges[0]) or (np.sum(mask[-edge_width:, :]) > 0 and not self.allow_tblr_edges[1])
         return np.delete(segmask, contains_edge, axis=0)
 
-    def _process_img(self, image_bgr, plot=False, ignore_mask=None, keep_mask=None):
+    def _process_img(self, image_bgr, ignore_mask=None, keep_mask=None):
         """Process FastSAM on image, returns segment masks and center points from results
 
         Args:
@@ -427,21 +370,8 @@ class FastSAMWrapper():
             (fig, ax) (Matplotlib fig, ax): fig and ax with visualization
         """
 
-        # Create a matplotlib figure to plot image and ellipsoids on.
-        if plot:
-            fig = plt.figure(frameon=False)
-            ax = plt.Axes(fig, [0., 0., 1., 1.])
-            ax.set_axis_off()
-            fig.add_axes(ax)
-
         # OpenCV uses BGR images, but FastSAM and Matplotlib require an RGB image, so convert.
         image = cv.cvtColor(image_bgr, cv.COLOR_BGR2RGB)
-
-        # Let's also make a 1-channel grayscale image
-        image_gray = cv.cvtColor(image, cv.COLOR_RGB2GRAY)
-        if plot:
-            # ...and also a 3-channel RGB image, which we will eventually use for showing FastSAM output on
-            image_gray_rgb = np.stack((image_gray,)*3, axis=-1)
 
         # Run FastSAM
         everything_results = self.model(image, 
@@ -453,9 +383,6 @@ class FastSAMWrapper():
         prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
         segmask = prompt_process.everything_prompt()
 
-        blob_means = []
-        blob_covs = []
-
         # If there were segmentations detected by FastSAM, transfer them from GPU to CPU and convert to Numpy arrays
         if (len(segmask) > 0):
             segmask = segmask.cpu().numpy()
@@ -463,7 +390,6 @@ class FastSAMWrapper():
             segmask = None
 
         if (segmask is not None):
-            print("Seg mask before procesing: ", segmask.shape)
             # FastSAM provides a numMask-channel image in shape C, H, W where each channel in the image is a binary mask
             # of the detected segment
             [numMasks, h, w] = segmask.shape
@@ -474,74 +400,30 @@ class FastSAMWrapper():
                 segmask = self._delete_edge_masks(segmask)
                 [numMasks, h, w] = segmask.shape
 
-            # Prepare a mask of IDs where each pixel value corresponds to the mask ID
-            if plot:
-                segmasks_flat = np.zeros((h,w),dtype=int)
-
             to_delete = []
             for maskId in range(numMasks):
                 # Extract the single binary mask for this mask id
                 mask_this_id = segmask[maskId,:,:]
 
-                # From the pixel coordinates of the mask, compute centroid and a covariance matrix
-                blob_mean, blob_cov = compute_blob_mean_and_covariance(mask_this_id)
-
                 # filter out ignore mask
-                if ignore_mask is not None and np.any(np.bitwise_and(segmask[maskId,:,:].astype(np.int8), ignore_mask)):
+                if ignore_mask is not None and np.any(np.bitwise_and(mask_this_id.astype(np.int8), ignore_mask)):
                     print("Delete maskID: ", maskId)
                     to_delete.append(maskId)
                     continue
-                elif keep_mask is not None and not np.any(np.bitwise_and(segmask[maskId,:,:].astype(np.int8), keep_mask)):
+                elif keep_mask is not None and not np.any(np.bitwise_and(mask_this_id.astype(np.int8), keep_mask)):
                     print("Delete maskID: ", maskId)
                     to_delete.append(maskId)
                     continue
-                # qualify covariance
-                # filter out segments based on covariance size and shape
-                if self.max_cov_axis_ratio is not None:
-                    if is_elongated([blob_cov], max_axis_ratio=self.max_cov_axis_ratio):
-                        to_delete.append(maskId)
-                        continue
 
                 if self.area_bounds is not None:
-                    area = np.sum(segmask[maskId,:,:])
+                    area = np.sum(mask_this_id)
                     if area < self.area_bounds[0] or area > self.area_bounds[1]:
                         to_delete.append(maskId)
                         continue
 
-                # Store centroids and covariances in lists
-                blob_means.append(blob_mean)
-                blob_covs.append(blob_cov)
-
-                if plot:
-                    # Replace the 1s corresponding with masked areas with maskId (i.e. number of mask)
-                    segmasks_flat = np.where(mask_this_id < 1, segmasks_flat, maskId)
-
             segmask = np.delete(segmask, to_delete, axis=0)
-            print("Seg mask: ", segmask.shape)
-            if plot:
-                # Using skimage, overlay masked images with colors
-                image_gray_rgb = skimage.color.label2rgb(segmasks_flat, image_gray_rgb)
 
         else: 
-            return [], [], [], (None, None)
+            return []
 
-        return segmask, blob_means, blob_covs, (None, None)
-
-    def _plot_3d_pos(self, centroids, means, plot_dir, idx, fig, ax):
-        for j in range(len(centroids)):
-            centroids[j] = self.T_FLURDF @ centroids[j]
-
-        for j, mn in enumerate(means):
-            ax.text(mn[0]+5, mn[1]+5, f"{np.round(centroids[j].reshape(-1), 1).tolist()}", fontsize=8)
-
-        fig.savefig(f'{plot_dir}/image_{idx}.png')
-        plt.close(fig)
-
-        fig, ax = plt.subplots()
-        for c in centroids:
-            ax.plot(c.item(0), c.item(1), 'o', color='green')
-        ax.grid(True)
-        ax.set_aspect('equal')
-        ax.set_xlim([-10, 10])
-        ax.set_ylim([-10, 10])
-        plt.savefig(f'{plot_dir}/measurements_{idx}.png')
+        return segmask
