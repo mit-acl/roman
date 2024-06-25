@@ -143,7 +143,7 @@ class FastSAMWrapper():
             
     def setup_filtering(self,
         ignore_labels = ['person'],
-        keep_labels = ['car'],          
+        keep_labels = [],          
         yolo_det_img_size=None,
         max_cov_axis_ratio=np.inf,
         area_bounds=np.array([0, np.inf]),

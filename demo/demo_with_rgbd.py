@@ -149,7 +149,12 @@ def main(args):
         assert 't0' in params['time'], "t0 must be specified in params"
         assert 'tf' in params['time'], "tf must be specified in params"
 
-    use_kitti = params['use_kitti']
+    # use_kitti = params['use_kitti']
+    try:
+        use_kitti = params['use_kitti']
+    except KeyError:
+        use_kitti = False
+
     if not use_kitti:
         assert params['img_data']['path'] is not None, "bag must be specified in params"
         assert params['img_data']['img_topic'] is not None, "img_topic must be specified in params"
