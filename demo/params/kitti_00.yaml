@@ -17,7 +17,15 @@ fastsam:
   weights: "$FASTSAM_WEIGHTS_PATH"
   imgsz: [192, 640] # Must be multiple of 32
   device: "cuda"
-  ignore_labels: ['car', 'bus', 'truck']
+  keep_labels: ['car', 'bus', 'truck']
+  # ignore_labels: ['motorcycle', 'person', 'bicycle']
+  use_keep_labels: True
+  # keep_labels: []
+  ignore_labels: []
+  keep_labels_option: "intersect" # Set to either intersect or contain
+
+yolo:
+  imgsz: [512, 512]
 
 segment_tracking:
   min_sightings: 5 

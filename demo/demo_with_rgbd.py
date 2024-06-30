@@ -295,15 +295,18 @@ def main(args):
     )
     fastsam.setup_rgbd_params(
         depth_cam_params=depth_data.camera_params, 
-        max_depth=8,
-        depth_scale=1e3,
+        max_depth=20,
+        depth_scale=1,
         voxel_size=0.05,
         erosion_size=params['fastsam']['erosion_size']
     )
     img_area = img_data.camera_params.width * img_data.camera_params.height
     fastsam.setup_filtering(
-        ignore_labels=['person'] if params['fastsam']['ignore_people'] else [],
-        yolo_det_img_size=(128, 128) if params['fastsam']['ignore_people'] else None,
+        ignore_labels=params['fastsam']['ignore_labels'],
+        use_keep_labels=params['fastsam']['use_keep_labels'],
+        keep_labels=params['fastsam']['keep_labels'],
+        keep_labels_option=params['fastsam']['keep_labels_option'],
+        yolo_det_img_size=params['yolo']['imgsz'],
         allow_tblr_edges=[True, True, True, True],
         area_bounds=[img_area / (params['fastsam']['min_mask_len_div']**2), img_area / (params['fastsam']['max_mask_len_div']**2)]
     )
