@@ -120,9 +120,10 @@ class FastSAMWrapper():
         weights, 
         conf=.5, 
         iou=.9,
-        imgsz=1024,
+        imgsz=(1024, 1024),
         device='cuda',
-        mask_downsample_factor=1
+        mask_downsample_factor=1,
+        keep_mask_minimal_intersection=0.3
     ):
         # parameters
         self.weights = weights
@@ -140,22 +141,28 @@ class FastSAMWrapper():
 
         self.orb_num_initial = 100
         self.orb_num_final = 10
+
+        self.keep_mask_minimal_intersection = keep_mask_minimal_intersection
             
     def setup_filtering(self,
-        ignore_labels = ['person'],
-        keep_labels = [],          
+        ignore_labels = [],
+        use_keep_labels=False,
+        keep_labels = [],
+        keep_labels_option='intersect',          
         yolo_det_img_size=None,
         max_cov_axis_ratio=np.inf,
         area_bounds=np.array([0, np.inf]),
         allow_tblr_edges = [True, True, True, True],
     ):
+        assert keep_labels_option == 'intersect' or keep_labels_option == 'contain', "Keep labels option should be one of: intersect, contain"
         self.ignore_labels = ignore_labels
+        self.use_keep_labels = use_keep_labels
         self.keep_labels = keep_labels
+        self.keep_labels_option=keep_labels_option
         if len(ignore_labels) > 0:
             if yolo_det_img_size is None:
-                # yolo_det_img_size=(int(self.imgsz), int(self.imgsz))
                 yolo_det_img_size=self.imgsz
-            self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size)
+        self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size)
         self.max_cov_axis_ratio = max_cov_axis_ratio
         self.area_bounds = area_bounds
         self.allow_tblr_edges= allow_tblr_edges
@@ -222,7 +229,7 @@ class FastSAMWrapper():
         # do not use the keep_mask
         
         # run fastsam
-        masks = self._process_img(img, ignore_mask=ignore_mask, keep_mask=None)
+        masks = self._process_img(img, ignore_mask=ignore_mask, keep_mask=keep_mask)
         
         for mask in masks:
             # kp, des = self.compute_orb(img[y0:y1, x0:x1], 
@@ -326,20 +333,32 @@ class FastSAMWrapper():
         ignore_mask = np.zeros(img.shape[:2]).astype(np.int8)
         for box in ignore_boxes:
             x0, y0, x1, y1 = np.array(box).astype(np.int64).reshape(-1).tolist()
+            box_before_truncation = np.array([x0, y0, x1, y1])
             x0 = max(x0, 0)
             y0 = max(y0, 0)
             x1 = min(x1, ignore_mask.shape[1])
             y1 = min(y1, ignore_mask.shape[0])
-            ignore_mask[y0:y1,x0:x1] = np.ones((y1-y0, x1-x0)).astype(np.int8)
 
-        keep_mask = np.zeros(img.shape[:2]).astype(np.int8)
-        for box in keep_boxes:
-            x0, y0, x1, y1 = np.array(box).astype(np.int64).reshape(-1).tolist()
-            x0 = max(x0, 0)
-            y0 = max(y0, 0)
-            x1 = min(x1, keep_mask.shape[1])
-            y1 = min(y1, keep_mask.shape[0])
-            keep_mask[y0:y1,x0:x1] = np.ones((y1-y0, x1-x0)).astype(np.int8)
+            try:
+                ignore_mask[y0:y1,x0:x1] = np.ones((y1-y0, x1-x0)).astype(np.int8)
+            except:
+                print("Ignore box: ", box_before_truncation)
+                print("Ignore box after truncating: ", x0, y0, x1, y1)
+                print("Ignore mask shape: ", ignore_mask.shape)
+                raise Exception("Invalid ignore box.") 
+    
+
+        if self.use_keep_labels:
+            keep_mask = np.zeros(img.shape[:2]).astype(np.int8)
+            for box in keep_boxes:
+                x0, y0, x1, y1 = np.array(box).astype(np.int64).reshape(-1).tolist()
+                x0 = max(x0, 0)
+                y0 = max(y0, 0)
+                x1 = min(x1, keep_mask.shape[1])
+                y1 = min(y1, keep_mask.shape[0])
+                keep_mask[y0:y1,x0:x1] = np.ones((y1-y0, x1-x0)).astype(np.int8)
+        else:
+            keep_mask = None
 
         return ignore_mask, keep_mask
 
@@ -411,8 +430,15 @@ class FastSAMWrapper():
                     print("Delete maskID: ", maskId)
                     to_delete.append(maskId)
                     continue
-                elif keep_mask is not None and not np.any(np.bitwise_and(mask_this_id.astype(np.int8), keep_mask)):
-                    print("Delete maskID: ", maskId)
+
+                # Only keep masks that are within keep_mask
+                # if keep_mask is not None and not np.any(np.bitwise_and(mask_this_id.astype(np.int8), keep_mask)):
+                #     print("Delete maskID: ", maskId)
+                #     to_delete.append(maskId)
+                #     continue
+                # if keep_mask is not None and self.keep_labels_option == 'intersect' and (not np.any(np.bitwise_and(mask_this_id.astype(np.int8), keep_mask))):
+                if keep_mask is not None and self.keep_labels_option == 'intersect' and (np.bitwise_and(mask_this_id.astype(np.int8), keep_mask).sum() < self.keep_mask_minimal_intersection*mask_this_id.astype(np.int8).sum()):
+                    print("Delete maskID (not intersecting keep masks): ", maskId)
                     to_delete.append(maskId)
                     continue
 
