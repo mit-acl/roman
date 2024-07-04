@@ -214,19 +214,23 @@ class Tracker():
         to_delete = []
         # reason = []
         for seg in segments:
-            extent = np.sort(seg.extent) # in ascending order
-            if seg.num_points == 0:
+            try:
+                extent = np.sort(seg.extent) # in ascending order
+                if seg.num_points == 0:
+                    to_delete.append(seg)
+                    # reason.append(f"Segment {seg.id} has no points")
+                elif seg.volume() < min_volume:
+                    to_delete.append(seg)
+                    # reason.append(f"Segment {seg.id} has volume {seg.volume} < {min_volume}")
+                elif extent[-1] < min_max_extent:
+                    to_delete.append(seg)
+                    # reason.append(f"Segment {seg.id} has max extent {np.max(seg.extent)} < {min_max_extent}"
+                elif extent[2] > plane_prune_params[0] and extent[1] > plane_prune_params[1] and extent[0] < plane_prune_params[2]:
+                    to_delete.append(seg)
+                    # reason.append(f"Segment {seg.id} has extent {seg.extent} which is likely a plane")
+            except: 
                 to_delete.append(seg)
-                # reason.append(f"Segment {seg.id} has no points")
-            elif seg.volume() < min_volume:
-                to_delete.append(seg)
-                # reason.append(f"Segment {seg.id} has volume {seg.volume} < {min_volume}")
-            elif extent[-1] < min_max_extent:
-                to_delete.append(seg)
-                # reason.append(f"Segment {seg.id} has max extent {np.max(seg.extent)} < {min_max_extent}"
-            elif extent[2] > plane_prune_params[0] and extent[1] > plane_prune_params[1] and extent[0] < plane_prune_params[2]:
-                to_delete.append(seg)
-                # reason.append(f"Segment {seg.id} has extent {seg.extent} which is likely a plane")
+                # reason.append(f"Segment {seg.id} has an error in extent/volume computation")
         for seg in to_delete:
             segments.remove(seg)
             # for r in reason:

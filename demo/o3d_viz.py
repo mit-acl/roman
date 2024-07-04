@@ -19,7 +19,7 @@ def main(args, filter_viz=False):
     poses_list = []
     pcd_list = []
     points_bounds = np.array([[np.inf, -np.inf], [np.inf, -np.inf], [np.inf, -np.inf]])
-    for seg in tracker.segments + tracker.segment_graveyard:
+    for seg in tracker.segments + tracker.inactive_segments + tracker.segment_graveyard:
         if filter_viz:
             min_seg_id = 8900
             max_seg_id = 9600
@@ -43,6 +43,9 @@ def main(args, filter_viz=False):
         pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
         pose_obj.transform(Twb)
         poses_list.append(pose_obj)
+    
+    origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
+    poses_list.append(origin)
     
     o3d.visualization.draw_geometries(poses_list + pcd_list)
 

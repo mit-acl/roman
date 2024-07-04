@@ -71,7 +71,7 @@ def draw(t, img, pose, tracker, observations, reprojected_bboxs, ax):
             colored_mask = colored_mask.astype(np.uint8)
             img_fastsam = cv.addWeighted(img_fastsam, 1.0, colored_mask, 0.5, 0)
             mass_x, mass_y = np.where(segment.last_mask >= 1)
-            img_fastsam = cv.putText(img_fastsam, str(segment.id), (int(np.mean(mass_x)), int(np.mean(mass_y))), 
+            img_fastsam = cv.putText(img_fastsam, str(segment.id), (int(np.mean(mass_y)), int(np.mean(mass_x))), 
                     cv.FONT_HERSHEY_SIMPLEX, 0.5, rand_color.tolist(), 2)
     
     for obs in observations:
@@ -111,7 +111,7 @@ def update_fastsam(t, img_data, depth_data, pose_data, fastsam):
     observations = fastsam.run(t, pose, img, img_depth=img_depth)
     return observations, pose, img
 
-def update_segment_track(t, observations, pose, img, tracker, ax, poses_history): 
+def update_segment_track(t, observations, pose, img, tracker, ax, poses_history, times_history): 
 
     # collect reprojected masks
     if ax is not None:
@@ -136,6 +136,7 @@ def update_segment_track(t, observations, pose, img, tracker, ax, poses_history)
         draw(t, img, pose, tracker, observations, reprojected_bboxs, ax)
 
     poses_history.append(pose)
+    times_history.append(t)
 
     return
     
@@ -338,10 +339,11 @@ def main(args):
         fig = None
         ax = None
     poses_history = []
+    times_history = []
     def update_wrapper(t): 
         observations, pose, img = update_fastsam(t, img_data, depth_data, pose_data, fastsam)
         if observations is not None and pose is not None and img is not None:
-            update_segment_track(t, observations, pose, img, tracker, ax, poses_history)
+            update_segment_track(t, observations, pose, img, tracker, ax, poses_history, times_history)
             # t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history)
         print(f"t: {t - t0:.2f} = {t}")
         # fig.suptitle(f"t: {t - t0:.2f}")
@@ -404,7 +406,7 @@ def main(args):
         pkl_path = os.path.expanduser(os.path.expandvars(args.output)) + ".pkl"
         pkl_file = open(pkl_path, 'wb')
         tracker.make_pickle_compatible()
-        pickle.dump([tracker, poses_history, np.arange(t0, tf, params['segment_tracking']['dt'])], pkl_file, -1)
+        pickle.dump([tracker, poses_history, times_history], pkl_file, -1)
         logging.info(f"Saved tracker, poses_history to file: {pkl_path}.")
         pkl_file.close()
 

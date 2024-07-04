@@ -34,6 +34,12 @@ pose_data:
   T_postmultiply: "T_FLURDF"
   time_tol: 10.0
 
+# pose_data:
+#   file_type: bag
+#   path: $KMD_VIO_PATH/sparkal1.bag
+#   topic: /sparkal1/kimera_vio_ros/odometry
+#   time_tol: 10.0
+
 fastsam:
   weights: "$FASTSAM_WEIGHTS_PATH"
   imgsz: 256
