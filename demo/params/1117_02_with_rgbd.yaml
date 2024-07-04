@@ -8,7 +8,7 @@ time:
   relative: True
 
 img_data:
-  path: $WEST_POINT_2023_PATH/1117_02_map_tower_third_origin/dataset.bag
+  path: $WEST_POINT_2023_PATH/1117_02.bag
   img_topic: /acl_jackal2/forward/color/image_raw/compressed
   cam_info_topic: /acl_jackal2/forward/color/camera_info
   depth_img_topic: /acl_jackal2/forward/depth/image_rect_raw
@@ -18,14 +18,14 @@ img_data:
 
 pose_data:
   file_type: bag
-  path: $WEST_POINT_2023_PATH/1117_02_map_tower_third_origin/dataset.bag
+  path: $WEST_POINT_2023_PATH/1117_02.bag
   topic: /acl_jackal2/kimera_vio_ros/odometry
   time_tol: 0.5
   
 
 fastsam:
   weights: $FASTSAM_WEIGHTS_PATH
-  imgsz: 512
+  imgsz: [512, 512] 
   device: "cuda"
 
 segment_tracking:
