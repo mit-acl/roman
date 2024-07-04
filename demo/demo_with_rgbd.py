@@ -144,6 +144,7 @@ def main(args):
     with open(args.params, 'r') as f:
         params = yaml.safe_load(f)
 
+    # TODO: this is getting really messy. Need a way to clean this up.
     if 'time' in params:
         assert 'relative' in params['time'], "relative must be specified in params"
         assert 't0' in params['time'], "t0 must be specified in params"
@@ -169,6 +170,8 @@ def main(args):
 
     assert params['fastsam']['weights'] is not None, "weights must be specified in params"
     assert params['fastsam']['imgsz'] is not None, "imgsz must be specified in params"
+
+    # FASTSAM PARAMS
     if 'device' not in params['fastsam']:
         params['fastsam']['device'] = 'cuda'
     if 'min_mask_len_div' not in params['fastsam']:
@@ -179,6 +182,13 @@ def main(args):
         params['fastsam']['ignore_people'] = False
     if 'erosion_size' not in params['fastsam']:
         params['fastsam']['erosion_size'] = 3
+    if 'max_depth' not in params['fastsam']:
+        params['fastsam']['max_depth'] = 8.0
+        
+    # IMG_DATA PARAMS TODO: cleanup
+    if 'depth_scale' not in params['img_data']:
+        params['img_data']['depth_scale'] = 1e3
+    
     
     assert params['segment_tracking']['min_iou'] is not None, "min_iou must be specified in params"
     assert params['segment_tracking']['min_sightings'] is not None, "min_sightings must be specified in params"
@@ -295,8 +305,8 @@ def main(args):
     )
     fastsam.setup_rgbd_params(
         depth_cam_params=depth_data.camera_params, 
-        max_depth=20,
-        depth_scale=1,
+        max_depth=params['fastsam']['max_depth'],
+        depth_scale=params['img_data']['depth_scale'],
         voxel_size=0.05,
         erosion_size=params['fastsam']['erosion_size']
     )
