@@ -1,0 +1,38 @@
+time:
+  t0: 250.0 
+  tf: 400.0 
+  relative: False
+
+use_kitti: True
+
+img_data:
+  base_path: "/media/lucas/T7/KITTI/odometry/dataset"
+  sequence_id: "00"
+  depth_scale: 1.0
+
+pose_data: 
+  base_path: "/media/lucas/T7/KITTI/odometry/dataset"
+  sequence_id: "00"
+
+fastsam:
+  weights: "$FASTSAM_WEIGHTS_PATH"
+  imgsz: [192, 640] # Must be multiple of 32
+  device: "cuda"
+  keep_labels: ['car', 'bus', 'truck']
+  # ignore_labels: ['motorcycle', 'person', 'bicycle']
+  use_keep_labels: True
+  # keep_labels: []
+  ignore_labels: []
+  keep_labels_option: "intersect" # Set to either intersect or contain
+  max_depth: 20.0
+
+yolo:
+  imgsz: [512, 512]
+
+segment_tracking:
+  min_sightings: 5 
+  pixel_std_dev: 20.0
+  min_iou: 0.25
+  max_t_no_sightings: 0.25
+  dt: 0.1
+  mask_downsample_factor: 8

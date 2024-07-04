@@ -144,24 +144,34 @@ def main(args):
     with open(args.params, 'r') as f:
         params = yaml.safe_load(f)
 
+    # TODO: this is getting really messy. Need a way to clean this up.
     if 'time' in params:
         assert 'relative' in params['time'], "relative must be specified in params"
         assert 't0' in params['time'], "t0 must be specified in params"
         assert 'tf' in params['time'], "tf must be specified in params"
 
-    assert params['img_data']['path'] is not None, "bag must be specified in params"
-    assert params['img_data']['img_topic'] is not None, "img_topic must be specified in params"
-    assert params['img_data']['cam_info_topic'] is not None, "cam_info_topic must be specified in params"
-    if 'depth_compressed_rvl' not in params['img_data']:
-        params['img_data']['depth_compressed_rvl'] = False
-    assert not (('T_body_cam' in params['pose_data'] or 'T_body_odom' in params['pose_data']) \
-        and 'T_postmultiply' in params['pose_data']), "Cannot specify both T_body_cam and T_postmultiply in pose_data"
-    assert params['pose_data']['file_type'] != 'bag' or 'topic' in params['pose_data'], \
-        "pose topic must be specified in params"
-    assert params['pose_data']['time_tol'] is not None, "pose time_tol must be specified in params"
+    # use_kitti = params['use_kitti']
+    try:
+        use_kitti = params['use_kitti']
+    except KeyError:
+        use_kitti = False
+
+    if not use_kitti:
+        assert params['img_data']['path'] is not None, "bag must be specified in params"
+        assert params['img_data']['img_topic'] is not None, "img_topic must be specified in params"
+        assert params['img_data']['cam_info_topic'] is not None, "cam_info_topic must be specified in params"
+        if 'depth_compressed_rvl' not in params['img_data']:
+            params['img_data']['depth_compressed_rvl'] = False
+        assert not (('T_body_cam' in params['pose_data'] or 'T_body_odom' in params['pose_data']) \
+            and 'T_postmultiply' in params['pose_data']), "Cannot specify both T_body_cam and T_postmultiply in pose_data"
+        assert params['pose_data']['file_type'] != 'bag' or 'topic' in params['pose_data'], \
+            "pose topic must be specified in params"
+        assert params['pose_data']['time_tol'] is not None, "pose time_tol must be specified in params"
 
     assert params['fastsam']['weights'] is not None, "weights must be specified in params"
     assert params['fastsam']['imgsz'] is not None, "imgsz must be specified in params"
+
+    # FASTSAM PARAMS
     if 'device' not in params['fastsam']:
         params['fastsam']['device'] = 'cuda'
     if 'min_mask_len_div' not in params['fastsam']:
@@ -172,6 +182,13 @@ def main(args):
         params['fastsam']['ignore_people'] = False
     if 'erosion_size' not in params['fastsam']:
         params['fastsam']['erosion_size'] = 3
+    if 'max_depth' not in params['fastsam']:
+        params['fastsam']['max_depth'] = 8.0
+        
+    # IMG_DATA PARAMS TODO: cleanup
+    if 'depth_scale' not in params['img_data']:
+        params['img_data']['depth_scale'] = 1e3
+    
     
     assert params['segment_tracking']['min_iou'] is not None, "min_iou must be specified in params"
     assert params['segment_tracking']['min_sightings'] is not None, "min_sightings must be specified in params"
@@ -189,49 +206,61 @@ def main(args):
     
     print("Loading image data...")
 
-    img_file_path = os.path.expanduser(os.path.expandvars(params["img_data"]["path"]))
-    if 'time' in params:
-        if 'relative' in params['time'] and params['time']['relative']:
-            topic_t0 = ImgData.topic_t0(img_file_path, params["img_data"]["img_topic"])
-            time_range = [topic_t0 + params['time']['t0'], topic_t0 + params['time']['tf']]
-        else:
-            time_range = [params['time']['t0'], params['time']['tf']]
+    if use_kitti:
+        time_range = [params['time']['t0'], params['time']['tf']]
     else:
-        time_range = None
+        img_file_path = os.path.expanduser(os.path.expandvars(params["img_data"]["path"]))
+        if 'time' in params:
+            if 'relative' in params['time'] and params['time']['relative']:
+                topic_t0 = ImgData.topic_t0(img_file_path, params["img_data"]["img_topic"])
+                time_range = [topic_t0 + params['time']['t0'], topic_t0 + params['time']['tf']]
+            else:
+                time_range = [params['time']['t0'], params['time']['tf']]
+        else:
+            time_range = None
 
     print(f"Time range: {time_range}")
-    img_data = ImgData.from_bag(
-        path=img_file_path,
-        topic=params["img_data"]["img_topic"],
-        time_tol=.02,
-        time_range=time_range
-    )
-    img_data.extract_params(params['img_data']['cam_info_topic'])
+    if use_kitti:
+        img_data = ImgData.from_kitti(params['img_data']['base_path'], 'rgb')
+        img_data.extract_params()
+    else:
+        img_data = ImgData.from_bag(
+            path=img_file_path,
+            topic=params["img_data"]["img_topic"],
+            time_tol=.02,
+            time_range=time_range
+        )
+        img_data.extract_params(params['img_data']['cam_info_topic'])
 
     t0 = img_data.t0
     tf = img_data.tf
 
     print("Loading depth data for time range {}...".format(time_range))
-    depth_data = ImgData.from_bag(
-        path=img_file_path,
-        topic=params['img_data']['depth_img_topic'],
-        time_tol=.02,
-        time_range=time_range,
-        compressed=params['img_data']['depth_compressed'],
-        compressed_rvl=params['img_data']['depth_compressed_rvl'],
-    )
-    depth_data.extract_params(params['img_data']['depth_cam_info_topic'])
+    if use_kitti:
+        depth_data = ImgData.from_kitti(params['img_data']['base_path'], 'depth')
+        depth_data.extract_params()
+    else:
+        depth_data = ImgData.from_bag(
+            path=img_file_path,
+            topic=params['img_data']['depth_img_topic'],
+            time_tol=.02,
+            time_range=time_range,
+            compressed=params['img_data']['depth_compressed'],
+            compressed_rvl=params['img_data']['depth_compressed_rvl'],
+        )
+        depth_data.extract_params(params['img_data']['depth_cam_info_topic'])
 
     print("Loading pose data...")
-    pose_file_path = params['pose_data']['path']
-    pose_file_type = params['pose_data']['file_type']
-    pose_time_tol = params['pose_data']['time_tol']
-    if pose_file_type == 'bag':
-        pose_topic = params['pose_data']['topic']
-        csv_options = None
-    else:
-        pose_topic = None
-        csv_options = params['pose_data']['csv_options']
+    if not use_kitti:
+        pose_file_path = params['pose_data']['path']
+        pose_file_type = params['pose_data']['file_type']
+        pose_time_tol = params['pose_data']['time_tol']
+        if pose_file_type == 'bag':
+            pose_topic = params['pose_data']['topic']
+            csv_options = None
+        else:
+            pose_topic = None
+            csv_options = params['pose_data']['csv_options']
         
     T_postmultiply = np.eye(4)
     # if 'T_body_odom' in params['pose_data']:
@@ -246,8 +275,10 @@ def main(args):
     if 'tf_to_cam' in params['pose_data']:
         T_postmultiply = PoseData.static_tf_from_bag(
             os.path.expanduser(img_file_path), params['pose_data']['tf_to_cam']['parent'], params['pose_data']['tf_to_cam']['child'])
-            
-    if pose_file_type == 'bag':
+    
+    if use_kitti:
+        pose_data = PoseData.from_kitti(params['pose_data']['base_path'])
+    elif pose_file_type == 'bag':
         pose_data = PoseData.from_bag(
             path=os.path.expanduser(pose_file_path),
             topic=pose_topic,
@@ -264,6 +295,7 @@ def main(args):
             T_postmultiply=T_postmultiply
         )
     
+    ### Set up FastSAM
     print("Setting up FastSAM...")
     fastsam = FastSAMWrapper(
         weights=os.path.expanduser(os.path.expandvars(params['fastsam']['weights'])),
@@ -273,15 +305,18 @@ def main(args):
     )
     fastsam.setup_rgbd_params(
         depth_cam_params=depth_data.camera_params, 
-        max_depth=8,
-        depth_scale=1e3,
+        max_depth=params['fastsam']['max_depth'],
+        depth_scale=params['img_data']['depth_scale'],
         voxel_size=0.05,
         erosion_size=params['fastsam']['erosion_size']
     )
     img_area = img_data.camera_params.width * img_data.camera_params.height
     fastsam.setup_filtering(
-        ignore_labels=['person'] if params['fastsam']['ignore_people'] else [],
-        yolo_det_img_size=(128, 128) if params['fastsam']['ignore_people'] else None,
+        ignore_labels=params['fastsam']['ignore_labels'],
+        use_keep_labels=params['fastsam']['use_keep_labels'],
+        keep_labels=params['fastsam']['keep_labels'],
+        keep_labels_option=params['fastsam']['keep_labels_option'],
+        yolo_det_img_size=params['yolo']['imgsz'],
         allow_tblr_edges=[True, True, True, True],
         area_bounds=[img_area / (params['fastsam']['min_mask_len_div']**2), img_area / (params['fastsam']['max_mask_len_div']**2)]
     )
