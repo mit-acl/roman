@@ -8,6 +8,7 @@ use_kitti: True
 img_data:
   base_path: "/media/lucas/T7/KITTI/odometry/dataset"
   sequence_id: "00"
+  depth_scale: 1.0
 
 pose_data: 
   base_path: "/media/lucas/T7/KITTI/odometry/dataset"
@@ -23,6 +24,7 @@ fastsam:
   # keep_labels: []
   ignore_labels: []
   keep_labels_option: "intersect" # Set to either intersect or contain
+  max_depth: 20.0
 
 yolo:
   imgsz: [512, 512]

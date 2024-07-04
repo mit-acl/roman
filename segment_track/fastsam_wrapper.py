@@ -122,8 +122,7 @@ class FastSAMWrapper():
         iou=.9,
         imgsz=(1024, 1024),
         device='cuda',
-        mask_downsample_factor=1,
-        keep_mask_minimal_intersection=0.3
+        mask_downsample_factor=1
     ):
         # parameters
         self.weights = weights
@@ -141,8 +140,6 @@ class FastSAMWrapper():
 
         self.orb_num_initial = 100
         self.orb_num_final = 10
-
-        self.keep_mask_minimal_intersection = keep_mask_minimal_intersection
             
     def setup_filtering(self,
         ignore_labels = [],
@@ -153,19 +150,21 @@ class FastSAMWrapper():
         max_cov_axis_ratio=np.inf,
         area_bounds=np.array([0, np.inf]),
         allow_tblr_edges = [True, True, True, True],
+        keep_mask_minimal_intersection=0.3
     ):
         assert keep_labels_option == 'intersect' or keep_labels_option == 'contain', "Keep labels option should be one of: intersect, contain"
         self.ignore_labels = ignore_labels
         self.use_keep_labels = use_keep_labels
         self.keep_labels = keep_labels
         self.keep_labels_option=keep_labels_option
-        if len(ignore_labels) > 0:
+        if len(ignore_labels) > 0 or use_keep_labels:
             if yolo_det_img_size is None:
                 yolo_det_img_size=self.imgsz
-        self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size)
+            self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size)
         self.max_cov_axis_ratio = max_cov_axis_ratio
         self.area_bounds = area_bounds
         self.allow_tblr_edges= allow_tblr_edges
+        self.keep_mask_minimal_intersection = keep_mask_minimal_intersection
 
     def setup_rgbd_params(
         self, 
