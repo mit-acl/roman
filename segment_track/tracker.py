@@ -34,9 +34,8 @@ class Tracker():
             max_t_no_sightings: int,
             merge_objects: bool = False,
             merge_objects_iou: float = 0.25,
-            max_cov_axis: float = 2.0,
             mask_downsample_factor: int = 1,
-            min_max_extent: float = 0.5, # to get rid of very small objects
+            min_max_extent: float = 0.25, # to get rid of very small objects
             plane_prune_params: List[float] = [3.0, 3.0, 0.5], # to get rid of planar objects (likely background)
             segment_graveyard_time: float = 15.0, # time after which an inactive segment is sent to the graveyard
             segment_graveyard_dist: float = 10.0, # distance traveled after which an inactive segment is sent to the graveyard
@@ -50,7 +49,6 @@ class Tracker():
         self.merge_objects = merge_objects
         self.merge_objects_iou_3d = merge_objects_iou
         self.merge_objects_iou_2d = 0.8
-        self.max_cov_axis = max_cov_axis
         self.mask_downsample_factor = mask_downsample_factor
         # self.min_volume = .25**3 # 25x25x25 cm^3
         self.min_max_extent = min_max_extent
@@ -103,8 +101,12 @@ class Tracker():
         to_rm = [seg for seg in self.segments \
                     if t - seg.last_seen > self.max_t_no_sightings]
         for seg in to_rm:
-            self.inactive_segments.append(seg)
-            self.segments.remove(seg)
+            try:
+                seg.final_cleanup()
+                self.inactive_segments.append(seg)
+                self.segments.remove(seg)
+            except: # too few points to form clusters
+                self.segments.remove(seg)
             
         # handle moving inactive segments to graveyard
         to_rm = [seg for seg in self.inactive_segments \
@@ -144,8 +146,8 @@ class Tracker():
         Compute the similarity between the mask of a segment and an observation
         """
         if not projected or segment in self.segment_nursery:
-            # segment_last_mask = segment.last_observation.mask_downsampled
-            segment_propagated_mask = segment.propagated_last_mask(observation.time, observation.pose, downsample_factor=self.mask_downsample_factor)
+            segment_propagated_mask = segment.last_observation.mask_downsampled
+            # segment_propagated_mask = segment.propagated_last_mask(observation.time, observation.pose, downsample_factor=self.mask_downsample_factor)
             if segment_propagated_mask is None:
                 iou = 0.0
             else:

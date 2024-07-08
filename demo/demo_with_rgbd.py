@@ -185,6 +185,18 @@ def main(args):
         params['fastsam']['erosion_size'] = 3
     if 'max_depth' not in params['fastsam']:
         params['fastsam']['max_depth'] = 8.0
+    if 'ignore_labels' not in params['fastsam']:
+        params['fastsam']['ignore_labels'] = []
+    if 'use_keep_labels' not in params['fastsam']:
+        params['fastsam']['use_keep_labels'] = False
+    if 'keep_labels' not in params['fastsam']:
+        params['fastsam']['keep_labels'] = []
+    if 'keep_labels_option' not in params['fastsam']:
+        params['fastsam']['keep_labels_option'] = None
+    if 'plane_filter_params' not in params['fastsam']:
+        params['fastsam']['plane_filter_params'] = np.array([3.0, 1.0, 0.2])
+    if 'yolo' not in params:
+        params['yolo'] = {'imgsz': params['fastsam']['imgsz']}
         
     # IMG_DATA PARAMS TODO: cleanup
     if 'depth_scale' not in params['img_data']:
@@ -309,7 +321,8 @@ def main(args):
         max_depth=params['fastsam']['max_depth'],
         depth_scale=params['img_data']['depth_scale'],
         voxel_size=0.05,
-        erosion_size=params['fastsam']['erosion_size']
+        erosion_size=params['fastsam']['erosion_size'],
+        plane_filter_params=params['fastsam']['plane_filter_params']
     )
     img_area = img_data.camera_params.width * img_data.camera_params.height
     fastsam.setup_filtering(
@@ -319,7 +332,7 @@ def main(args):
         keep_labels_option=params['fastsam']['keep_labels_option'],
         yolo_det_img_size=params['yolo']['imgsz'],
         allow_tblr_edges=[True, True, True, True],
-        area_bounds=[img_area / (params['fastsam']['min_mask_len_div']**2), img_area / (params['fastsam']['max_mask_len_div']**2)]
+        area_bounds=[img_area / (params['fastsam']['min_mask_len_div']**2), img_area / (params['fastsam']['max_mask_len_div']**2)],
     )
 
     print("Setting up segment tracker...")
@@ -354,7 +367,7 @@ def main(args):
             plt.show()
         else:
             video_file = os.path.expanduser(os.path.expandvars(args.output)) + ".mp4"
-            fps = int(np.max([1., .5*1/params['segment_tracking']['dt']]))
+            fps = int(np.max([1., args.vid_rate*1/params['segment_tracking']['dt']]))
             writervideo = FFMpegWriter(fps=fps)
             ani.save(video_file, writer=writervideo)          
     else:
@@ -438,6 +451,7 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output', type=str, help='Path to output file', required=False, default=None)
     parser.add_argument('--no-vid', action='store_true', help='Do not show or save video')
     parser.add_argument('--no-o3d', action='store_true', help='Do not show o3d visualization')
+    parser.add_argument('--vid-rate', type=float, help='Video playback rate', default=1.0)
     args = parser.parse_args()
 
     main(args)
