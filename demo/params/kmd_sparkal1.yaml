@@ -3,19 +3,29 @@
 #   tf: 930 #15:30
 #   relative: True
 
+# time:
+#   t0: 340 # 5:40
+#   tf: 360 # 6:00
+#   relative: True
+
+# time:
+#   t0: 310 # 5:10
+#   tf: 400 # 6:40
+#   relative: True
+
 # time: 
 #   t0: 1665777935
 #   tf: 1665778015
 #   relative: False
 
-img_data:
-  path: "$KMD_BAGS_PATH/sparkal1.bag"
-  img_topic: /sparkal1/forward/color/image_raw/compressed
-  cam_info_topic: /sparkal1/forward/color/camera_info
-  depth_img_topic: /sparkal1/forward/depth/image_rect_raw
-  depth_cam_info_topic: /sparkal1/forward/depth/camera_info
-  depth_compressed: False
-  depth_compressed_rvl: False
+# img_data:
+#   path: "$KMD_BAGS_PATH/sparkal1.bag"
+#   img_topic: /sparkal1/forward/color/image_raw/compressed
+#   cam_info_topic: /sparkal1/forward/color/camera_info
+#   depth_img_topic: /sparkal1/forward/depth/image_rect_raw
+#   depth_cam_info_topic: /sparkal1/forward/depth/camera_info
+#   depth_compressed: False
+#   depth_compressed_rvl: False
 
 pose_data: 
   file_type: "csv"
@@ -34,20 +44,20 @@ pose_data:
   T_postmultiply: "T_FLURDF"
   time_tol: 10.0
 
-# pose_data:
-#   file_type: bag
-#   path: $KMD_VIO_PATH/sparkal1.bag
-#   topic: /sparkal1/kimera_vio_ros/odometry
-#   time_tol: 10.0
+pose_data:
+  file_type: bag
+  path: $KMD_VIO_PATH/sparkal1.bag
+  topic: /sparkal1/kimera_vio_ros/odometry
+  time_tol: 10.0
 
 fastsam:
   weights: "$FASTSAM_WEIGHTS_PATH"
-  imgsz: 256
+  imgsz: [256, 256]
   device: "cuda"
-  ignore_people: True
+  ignore_labels: ['person']
 
 segment_tracking:
-  min_sightings: 5 
+  min_sightings: 4 
   pixel_std_dev: 20.0
   min_iou: 0.25
   max_t_no_sightings: 0.25

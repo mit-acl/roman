@@ -37,12 +37,12 @@ pose_data:
 
 fastsam:
   weights: "$FASTSAM_WEIGHTS_PATH"
-  imgsz: 256
+  imgsz: [256, 256]
   device: "cuda"
-  ignore_people: True
+  ignore_labels: ['person']
 
 segment_tracking:
-  min_sightings: 5 
+  min_sightings: 4 
   pixel_std_dev: 20.0
   min_iou: 0.25
   max_t_no_sightings: 0.25

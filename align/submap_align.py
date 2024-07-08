@@ -25,6 +25,7 @@ from object_map_registration.object.ellipsoid import Ellipsoid
 from object_map_registration.object.object import Object
 from object_map_registration.object.pointcloud_object import PointCloudObject
 from object_map_registration.register.dist_feature_sim_reg import DistOnlyReg, DistVolReg, DistFeaturePCAReg, DistCustomFeatureComboReg
+# from object_map_registration.register.dist_min_max_sim_reg import DistCustomFeatureComboReg
 from object_map_registration.register.ransac_reg import RansacReg
 from object_map_registration.register.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
 from object_map_registration.register.object_registration import InsufficientAssociationsException
@@ -183,11 +184,11 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
     # create objects from segments
     for i, tracker in enumerate(trackers):
         segment: Segment
-        for segment in tracker.segments + tracker.segment_graveyard:
+        for segment in tracker.segments + tracker.inactive_segments + tracker.segment_graveyard:
             if segment.points is not None and len(segment.points) > 0:
                 # new_obj = PointCloudObject(np.mean(segment.points, axis=0), np.eye(3), segment.points - np.mean(segment.points, axis=0), dim=3)
                 new_obj = PointCloudObject(np.zeros(3), np.eye(3), segment.points, dim=3, id=segment.id)
-                new_obj.use_bottom_median_as_center()
+                # new_obj.use_bottom_median_as_center()
                 # find volume once for each object so does not have to be recomputed each time
                 new_obj.volume
                 new_obj.first_seen = segment.first_seen
@@ -361,6 +362,7 @@ def main(args):
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'extentvolgrav':
         method_name = f'Gravity Guided Extent-based Volume Registration'
+        # sim_fusion_method = clipperpy.invariants.DistanceMinMaxSimilarity.GEOMETRIC_MEAN
         registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, volume_epsilon=args.epsilon_volume, extent_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, extent=True, volume=True,
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'ransac':
@@ -510,8 +512,8 @@ if __name__ == '__main__':
     parser.add_argument('--method', '-m', type=str, default='standard', help="Method to use for registration: standard, gravity, distvol, distvolgrav, prunevol, prunevolgrav, prunegrav")
     parser.add_argument('--fusion-method', type=str, default='geometric_mean', help="Method to use for similarity fusion: geometric_mean, arithmetic_mean, product")
     parser.add_argument('--show-false-positives', '-s', action='store_true', help="Run alignment for submaps that do not overlap")
-    parser.add_argument('-r', '--submap-radius', type=float, default=15.0, help="Radius of submaps")
-    parser.add_argument('-c', '--submap-center-dist', type=float, default=15.0, help="Distance between submap centers")
+    parser.add_argument('-r', '--submap-radius', type=float, default=20.0, help="Radius of submaps")
+    parser.add_argument('-c', '--submap-center-dist', type=float, default=10.0, help="Distance between submap centers")
     parser.add_argument('--ambiguity', '-a', action='store_true', help="Create ambiguity matrix plot")
     parser.add_argument('--submaps-idx', type=int, nargs=4, default=None, help="Specify submap indices to use")
     parser.add_argument('--gt-yaml', type=str, default=[None, None], help="Path to ground truth yaml file", nargs=2)

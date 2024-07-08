@@ -147,12 +147,24 @@ class FastSAMWrapper():
         keep_labels = [],
         keep_labels_option='intersect',          
         yolo_det_img_size=None,
-        max_cov_axis_ratio=np.inf,
         area_bounds=np.array([0, np.inf]),
         allow_tblr_edges = [True, True, True, True],
-        keep_mask_minimal_intersection=0.3
+        keep_mask_minimal_intersection=0.3,
     ):
-        assert keep_labels_option == 'intersect' or keep_labels_option == 'contain', "Keep labels option should be one of: intersect, contain"
+        """
+        Filtering setup function
+
+        Args:
+            ignore_labels (list, optional): List of yolo labels to ignore masks. Defaults to [].
+            use_keep_labels (bool, optional): Use list of labels to only keep masks within keep mask. Defaults to False.
+            keep_labels (list, optional): List of yolo labels to keep masks. Defaults to [].
+            keep_labels_option (str, optional): 'intersect' or 'contain'. Defaults to 'intersect'.
+            yolo_det_img_size (List[int], optional): Two-item list denoting yolo image size. Defaults to None.
+            area_bounds (np.array, shape=(2,), optional): Two element array indicating min and max number of pixels. Defaults to np.array([0, np.inf]).
+            allow_tblr_edges (list, optional): Allow masks touching top, bottom, left, and right edge. Defaults to [True, True, True, True].
+            keep_mask_minimal_intersection (float, optional): Minimal intersection of mask within keep mask to be kept. Defaults to 0.3.
+        """
+        assert not use_keep_labels or keep_labels_option == 'intersect' or keep_labels_option == 'contain', "Keep labels option should be one of: intersect, contain"
         self.ignore_labels = ignore_labels
         self.use_keep_labels = use_keep_labels
         self.keep_labels = keep_labels
@@ -161,10 +173,11 @@ class FastSAMWrapper():
             if yolo_det_img_size is None:
                 yolo_det_img_size=self.imgsz
             self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size)
-        self.max_cov_axis_ratio = max_cov_axis_ratio
+        
         self.area_bounds = area_bounds
         self.allow_tblr_edges= allow_tblr_edges
         self.keep_mask_minimal_intersection = keep_mask_minimal_intersection
+        self.run_yolo = len(ignore_labels) > 0 or use_keep_labels
 
     def setup_rgbd_params(
         self, 
@@ -172,9 +185,10 @@ class FastSAMWrapper():
         max_depth, 
         depth_scale=1e3,
         voxel_size=0.05, 
-        within_depth_frac=0.5, 
+        within_depth_frac=0.25, 
         pcd_stride=4,
         erosion_size=0,
+        plane_filter_params=None,
     ):
         """Setup params for processing RGB-D depth measurements
 
@@ -185,6 +199,7 @@ class FastSAMWrapper():
             voxel_size (float, optional): Voxel size when downsampling point cloud. Defaults to 0.05.
             within_depth_frac(float, optional): Fraction of points that must be within max_depth. Defaults to 0.5.
             pcd_stride (int, optional): Stride for downsampling point cloud. Defaults to 4.
+            plane_filter_params (List[float], optional): If an object's oriented bounding box's extent from max to min is > > <, mask is rejected. Defaults to None.
         """
         self.depth_cam_params = depth_cam_params
         self.max_depth = max_depth
@@ -207,6 +222,7 @@ class FastSAMWrapper():
                 (erosion_size, erosion_size))
         else:
             self.erosion_element = None
+        self.plane_filter_params = plane_filter_params
 
     def run(self, t, pose, img, img_depth=None, plot=False):
         """
@@ -221,7 +237,11 @@ class FastSAMWrapper():
         """
         self.observations = []
 
-        ignore_mask, keep_mask = self._create_mask(img)
+        if self.run_yolo:
+            ignore_mask, keep_mask = self._create_mask(img)
+        else:
+            ignore_mask = None
+            keep_mask = None
         
         # TODO: we need to revisit the logic for keep_mask - 
         # we don't easily have an option to still accept all masks, so for now 
@@ -275,6 +295,19 @@ class FastSAMWrapper():
                     ptcld = np.asarray(pcd_sampled.points)
                 if ptcld is None:
                     continue
+                
+                if self.plane_filter_params is not None:
+                    # Create oriented bounding box
+                    try:
+                        obb = o3d.geometry.OrientedBoundingBox.create_from_points(
+                                o3d.utility.Vector3dVector(ptcld))
+                        extent = np.sort(obb.extent)[::-1] # in descending order
+                        if  extent[0] > self.plane_filter_params[0] and \
+                            extent[1] > self.plane_filter_params[1] and \
+                            extent[2] < self.plane_filter_params[2]:
+                                continue
+                    except:
+                        continue
 
             # Generate downsampled mask
             mask_downsampled = np.array(cv.resize(
