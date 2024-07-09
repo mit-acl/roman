@@ -1,4 +1,6 @@
 # python3 ./demo/o3d_viz.py /home/masonbp/results/west_point_2023/segment_tracking/rgbd_2/sparkal2.pkl
+# helpful for figuring out open3d visualization: 
+# https://github.com/isl-org/Open3D/pull/3233/files#diff-4bf889278ab3bd4bb37dafdc436b6b6bc772b5e730dcd67a5e7e3f369cee694c
 
 import numpy as np
 import open3d as o3d
@@ -14,16 +16,23 @@ def main(args, filter_viz=False):
             tracker, poses_history, = pickle_data
             times = None
         else:
-            tracker, poses_history, _ = pickle_data
+            tracker, poses_history, times = pickle_data
         
     poses_list = []
     pcd_list = []
+    label_list = []
     points_bounds = np.array([[np.inf, -np.inf], [np.inf, -np.inf], [np.inf, -np.inf]])
+    if args.time_range is not None:
+        args.time_range = np.array(args.time_range) + times[0]
+
     for seg in tracker.segments + tracker.inactive_segments + tracker.segment_graveyard:
         if filter_viz:
             min_seg_id = 8900
             max_seg_id = 9600
             if not (seg.id > min_seg_id and seg.id < max_seg_id):
+                continue
+        if args.time_range is not None:
+            if seg.first_seen > args.time_range[1] or seg.last_seen < args.time_range[0]:
                 continue
         seg_points = seg.points
         if seg_points is not None:
@@ -37,22 +46,77 @@ def main(args, filter_viz=False):
             rand_color = np.repeat(rand_color, num_pts, axis=0)
             pcd.colors = o3d.utility.Vector3dVector(rand_color)
             pcd_list.append(pcd)
-    for Twb in poses_history:
+            if not args.no_text:
+                label = [f"id: {seg.id}", f"volume: {seg.volume():.2f}", 
+                        f"extent: [{seg.extent[0]:.2f}, {seg.extent[1]:.2f}, {seg.extent[2]:.2f}]"]
+                for i in range(3):
+                    label_list.append((np.median(pcd.points, axis=0) + np.array([0, 0, -0.15*i]), label[i]))
+                    
+    print(f"Displaying {len(pcd_list)} objects.")
+
+    displayed_positions = []
+    for i, Twb in enumerate(poses_history):
         if filter_viz and np.any(Twb[:3,3] < points_bounds[:,0]) or np.any(Twb[:3,3] > points_bounds[:,1]):
             continue
+        if args.time_range is not None:
+            if times is not None:
+                t = times[i]
+                if t < args.time_range[0] or t > args.time_range[1]:
+                    continue
+        
+        displayed_positions.append(Twb[:3,3])
         pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
         pose_obj.transform(Twb)
         poses_list.append(pose_obj)
     
-    origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
-    poses_list.append(origin)
+    if not args.no_orig:
+        origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
+        poses_list.append(origin)
+    else:
+        origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
+        T = np.eye(4)
+        T[:3,3] = np.mean(displayed_positions, axis=0)
+        origin.transform(T)
+        poses_list.append(origin)
     
-    o3d.visualization.draw_geometries(poses_list + pcd_list)
+    app = o3d.visualization.gui.Application.instance
+    app.initialize()
+    vis = o3d.visualization.O3DVisualizer()
+    vis.show_skybox(False)
+    for i, obj in enumerate(pcd_list):
+        vis.add_geometry(f"pcd-{i}", obj)
+    for label in label_list:
+        vis.add_3d_label(*label)
+    for i, obj in enumerate(poses_list):
+        vis.add_geometry(f"pose-{i}", obj)
+
+    K = np.array([[200, 0, 200],
+                [0, 200, 200],
+                [0, 0, 1]]).astype(np.float64)
+    if not args.no_orig:
+        T_inv = np.array([[1,   0,  0, 0],
+                        [0,   0,  1, -5],
+                        [0,   -1, 0, 0],
+                        [0,   0,  0, 1]]).astype(np.float64)
+    else:
+        mean_position = np.mean(displayed_positions, axis=0)
+        T_inv = np.array([[1,   0,  0, 0],
+                        [0,   -1,  0, 0],
+                        [0,   0, -1, 20],
+                        [0,   0,  0, 1]]).astype(np.float64)
+        T_inv[:3,3] += mean_position
+    T = np.linalg.inv(T_inv)
+    vis.setup_camera(K, T, 400, 400)
+    app.add_window(vis)
+    app.run()
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument('pickle_file', type=str, help='Path to pickle file', nargs=1)
+    parser.add_argument('--no-text', action='store_true', help='Do not display text labels')
+    parser.add_argument('--no-orig', action='store_true', help='Do not display origin')
+    parser.add_argument('-t', '--time-range', type=float, nargs=2, help='Time range to display')
     args = parser.parse_args()
 
     main(args, filter_viz=False)
