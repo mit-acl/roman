@@ -24,8 +24,7 @@ from segment_track.tracker import Tracker
 from object_map_registration.object.ellipsoid import Ellipsoid
 from object_map_registration.object.object import Object
 from object_map_registration.object.pointcloud_object import PointCloudObject
-from object_map_registration.register.dist_feature_sim_reg import DistOnlyReg, DistVolReg, DistFeaturePCAReg, DistCustomFeatureComboReg
-# from object_map_registration.register.dist_min_max_sim_reg import DistCustomFeatureComboReg
+from object_map_registration.register.dist_min_max_sim_reg import DistOnlyReg, DistVolReg, DistMinMaxPCAReg, DistCustomFeatureComboReg
 from object_map_registration.register.ransac_reg import RansacReg
 from object_map_registration.register.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
 from object_map_registration.register.object_registration import InsufficientAssociationsException
@@ -321,11 +320,11 @@ def main(args):
 
     # Registration method
     if args.fusion_method == 'geometric_mean':
-        sim_fusion_method = clipperpy.invariants.DistanceFeatureSimilarity.GEOMETRIC_MEAN
+        sim_fusion_method = clipperpy.invariants.DistancePairwiseAndSingle.GEOMETRIC_MEAN
     elif args.fusion_method == 'arithmetic_mean':
-        sim_fusion_method = clipperpy.invariants.DistanceFeatureSimilarity.ARITHMETIC_MEAN
+        sim_fusion_method = clipperpy.invariants.DistancePairwiseAndSingle.ARITHMETIC_MEAN
     elif args.fusion_method == 'product':
-        sim_fusion_method = clipperpy.invariants.DistanceFeatureSimilarity.PRODUCT
+        sim_fusion_method = clipperpy.invariants.DistancePairwiseAndSingle.PRODUCT
         
 
     if args.method == 'standard':
@@ -354,7 +353,7 @@ def main(args):
         registration = DistRegWithPruning(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim, use_gravity=True)
     elif args.method == 'distfeatpca':
         method_name = f'Gravity Constrained PCA feature-based Registration (eps_pca={args.epsilon_pca})'
-        registration = DistFeaturePCAReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca, pt_dim=args.dim, use_gravity=True,
+        registration = DistMinMaxPCAReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca, pt_dim=args.dim, use_gravity=True,
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'pcavolgrav':
         method_name = f'Gravity Guided PCA feature-based Volume Registration (eps_pca={args.epsilon_pca})'
@@ -530,7 +529,7 @@ if __name__ == '__main__':
     parser.add_argument('--mindist', type=float, default=0.2)
     parser.add_argument('--epsilon-volume', type=float, default=0.0)
     parser.add_argument('--epsilon-pca', type=float, nargs=1, default=0.0, help="Epsilon for PCA feature")
-    parser.add_argument('--distance-weight', type=float, default=3.0, help="Weight for distance in similarity fusion")
+    parser.add_argument('--distance-weight', type=float, default=1.0, help="Weight for distance in similarity fusion")
     parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
 
     args = parser.parse_args()
