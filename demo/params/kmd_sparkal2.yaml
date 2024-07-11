@@ -1,6 +1,13 @@
 # time:
-#   t0: 830 #13:50
-#   tf: 930 #15:30
+#   t0: 850 #13:50
+#   tf: 870 #15:30
+#   t0: 580
+#   tf: 720
+#   relative: True
+
+# time:
+#   t0: 600 # 10:00
+#   tf: 680 # 11:20
 #   relative: True
 
 img_data:
@@ -29,14 +36,20 @@ pose_data:
   T_postmultiply: "T_FLURDF"
   time_tol: 10.0
 
+# pose_data:
+#   file_type: bag
+#   path: $KMD_VIO_PATH/sparkal2.bag
+#   topic: /sparkal2/kimera_vio_ros/odometry
+#   time_tol: 10.0
+
 fastsam:
   weights: "$FASTSAM_WEIGHTS_PATH"
-  imgsz: 256
+  imgsz: [256, 256]
   device: "cuda"
-  ignore_people: True
+  ignore_labels: ['person']
 
 segment_tracking:
-  min_sightings: 5 
+  min_sightings: 4 
   pixel_std_dev: 20.0
   min_iou: 0.25
   max_t_no_sightings: 0.25

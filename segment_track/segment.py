@@ -91,6 +91,8 @@ class Segment():
         self.reset_obb() # reset bbox
         if segment.num_points > 0:
             self._add_points(segment.points)
+        else: # TODO: not sure how this is reached?
+            self.points = segment.points
 
     def _add_points(self, points):
         assert points.shape[1] == 3
@@ -107,11 +109,40 @@ class Segment():
             pcd = o3d.geometry.PointCloud()
             pcd.points.extend(self.points)
             pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
-            pcd_pruned, _ = pcd_sampled.remove_statistical_outlier(10, 0.1)
+            pcd_pruned, _ = pcd_sampled.remove_statistical_outlier(10, 1.0)
             if pcd_pruned.is_empty():
                 self.points = None
             else:
-                self.points = np.asarray(pcd_pruned.points)    
+                self.points = np.asarray(pcd_pruned.points) 
+                
+    def final_cleanup(self, epsilon=0.25, min_points=10):
+        """
+        Performs DBSCAN clustering on the points of the segment and returns the largest cluster
+
+        Args:
+            epsilon (float, optional): Max distance between two samples to be eligible to be in same cluster. Defaults to 0.25.
+            min_points (int, optional): Number of points needed to form a cluster. Defaults to 10.
+        """
+        if self.points is not None:
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(self.points)
+
+            # Perform DBSCAN clustering
+            labels = np.array(pcd.cluster_dbscan(eps=epsilon, min_points=min_points))
+
+            # Number of clusters, ignoring noise if present
+            max_label = labels.max()
+            
+            # get largest cluster
+            cluster_sizes = np.zeros(max_label + 1)
+            for i in range(max_label + 1):
+                cluster_sizes[i] = np.sum(labels == i)
+            max_cluster = np.argmax(cluster_sizes)
+
+            # Filter out any points not belonging to max cluster
+            filtered_indices = np.where(labels == max_cluster)[0]
+            self.points = self.points[filtered_indices]
+               
 
     @property
     def num_points(self):
@@ -181,11 +212,17 @@ class Segment():
         return mask
     
     def reprojected_bbox(self, pose):
+        if self.points is None:
+            return None
         points_c = transform(np.linalg.inv(pose), self.points, axis=0)
         points_c = points_c[points_c[:,2] >= 0]
         if len(points_c) == 0:
             return None
         pixels = xyz_2_pixel(points_c, self.camera_params.K)
+        pixels = pixels[np.bitwise_and(pixels[:,0] >= 0, pixels[:,0] < self.camera_params.width), :]
+        pixels = pixels[np.bitwise_and(pixels[:,1] >= 0, pixels[:,1] < self.camera_params.height), :]
+        if len(pixels) == 0:
+            return None
         upper_left = np.max([np.min(pixels, axis=0).astype(int), [0, 0]], axis=0)
         lower_right = np.min([np.max(pixels, axis=0).astype(int), 
                                 [self.camera_params.width, self.camera_params.height]], axis=0)
