@@ -71,7 +71,7 @@ def draw(t, img, pose, tracker, observations, reprojected_bboxs, ax):
             colored_mask = colored_mask.astype(np.uint8)
             img_fastsam = cv.addWeighted(img_fastsam, 1.0, colored_mask, 0.5, 0)
             mass_x, mass_y = np.where(segment.last_mask >= 1)
-            img_fastsam = cv.putText(img_fastsam, str(segment.id), (int(np.mean(mass_x)), int(np.mean(mass_y))), 
+            img_fastsam = cv.putText(img_fastsam, str(segment.id), (int(np.mean(mass_y)), int(np.mean(mass_x))), 
                     cv.FONT_HERSHEY_SIMPLEX, 0.5, rand_color.tolist(), 2)
     
     for obs in observations:
@@ -111,7 +111,7 @@ def update_fastsam(t, img_data, depth_data, pose_data, fastsam):
     observations = fastsam.run(t, pose, img, img_depth=img_depth)
     return observations, pose, img
 
-def update_segment_track(t, observations, pose, img, tracker, ax, poses_history): 
+def update_segment_track(t, observations, pose, img, tracker, ax, poses_history, times_history): 
 
     # collect reprojected masks
     if ax is not None:
@@ -136,6 +136,7 @@ def update_segment_track(t, observations, pose, img, tracker, ax, poses_history)
         draw(t, img, pose, tracker, observations, reprojected_bboxs, ax)
 
     poses_history.append(pose)
+    times_history.append(t)
 
     return
     
@@ -184,6 +185,18 @@ def main(args):
         params['fastsam']['erosion_size'] = 3
     if 'max_depth' not in params['fastsam']:
         params['fastsam']['max_depth'] = 8.0
+    if 'ignore_labels' not in params['fastsam']:
+        params['fastsam']['ignore_labels'] = []
+    if 'use_keep_labels' not in params['fastsam']:
+        params['fastsam']['use_keep_labels'] = False
+    if 'keep_labels' not in params['fastsam']:
+        params['fastsam']['keep_labels'] = []
+    if 'keep_labels_option' not in params['fastsam']:
+        params['fastsam']['keep_labels_option'] = None
+    if 'plane_filter_params' not in params['fastsam']:
+        params['fastsam']['plane_filter_params'] = np.array([3.0, 1.0, 0.2])
+    if 'yolo' not in params:
+        params['yolo'] = {'imgsz': params['fastsam']['imgsz']}
         
     # IMG_DATA PARAMS TODO: cleanup
     if 'depth_scale' not in params['img_data']:
@@ -308,7 +321,8 @@ def main(args):
         max_depth=params['fastsam']['max_depth'],
         depth_scale=params['img_data']['depth_scale'],
         voxel_size=0.05,
-        erosion_size=params['fastsam']['erosion_size']
+        erosion_size=params['fastsam']['erosion_size'],
+        plane_filter_params=params['fastsam']['plane_filter_params']
     )
     img_area = img_data.camera_params.width * img_data.camera_params.height
     fastsam.setup_filtering(
@@ -318,7 +332,7 @@ def main(args):
         keep_labels_option=params['fastsam']['keep_labels_option'],
         yolo_det_img_size=params['yolo']['imgsz'],
         allow_tblr_edges=[True, True, True, True],
-        area_bounds=[img_area / (params['fastsam']['min_mask_len_div']**2), img_area / (params['fastsam']['max_mask_len_div']**2)]
+        area_bounds=[img_area / (params['fastsam']['min_mask_len_div']**2), img_area / (params['fastsam']['max_mask_len_div']**2)],
     )
 
     print("Setting up segment tracker...")
@@ -338,10 +352,11 @@ def main(args):
         fig = None
         ax = None
     poses_history = []
+    times_history = []
     def update_wrapper(t): 
         observations, pose, img = update_fastsam(t, img_data, depth_data, pose_data, fastsam)
         if observations is not None and pose is not None and img is not None:
-            update_segment_track(t, observations, pose, img, tracker, ax, poses_history)
+            update_segment_track(t, observations, pose, img, tracker, ax, poses_history, times_history)
             # t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history)
         print(f"t: {t - t0:.2f} = {t}")
         # fig.suptitle(f"t: {t - t0:.2f}")
@@ -352,7 +367,7 @@ def main(args):
             plt.show()
         else:
             video_file = os.path.expanduser(os.path.expandvars(args.output)) + ".mp4"
-            fps = int(np.max([1., .5*1/params['segment_tracking']['dt']]))
+            fps = int(np.max([1., args.vid_rate*1/params['segment_tracking']['dt']]))
             writervideo = FFMpegWriter(fps=fps)
             ani.save(video_file, writer=writervideo)          
     else:
@@ -404,7 +419,7 @@ def main(args):
         pkl_path = os.path.expanduser(os.path.expandvars(args.output)) + ".pkl"
         pkl_file = open(pkl_path, 'wb')
         tracker.make_pickle_compatible()
-        pickle.dump([tracker, poses_history, np.arange(t0, tf, params['segment_tracking']['dt'])], pkl_file, -1)
+        pickle.dump([tracker, poses_history, times_history], pkl_file, -1)
         logging.info(f"Saved tracker, poses_history to file: {pkl_path}.")
         pkl_file.close()
 
@@ -436,6 +451,7 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output', type=str, help='Path to output file', required=False, default=None)
     parser.add_argument('--no-vid', action='store_true', help='Do not show or save video')
     parser.add_argument('--no-o3d', action='store_true', help='Do not show o3d visualization')
+    parser.add_argument('--vid-rate', type=float, help='Video playback rate', default=1.0)
     args = parser.parse_args()
 
     main(args)

@@ -29,14 +29,20 @@ pose_data:
   T_postmultiply: "T_FLURDF"
   time_tol: 10.0
 
+# pose_data:
+#   file_type: bag
+#   path: $KMD_VIO_PATH/acl_jackal2.bag
+#   topic: /acl_jackal2/kimera_vio_ros/odometry
+#   time_tol: 10.0
+
 fastsam:
   weights: "$FASTSAM_WEIGHTS_PATH"
-  imgsz: 256
+  imgsz: [256, 256]
   device: "cuda"
-  ignore_people: True
+  ignore_labels: ['person']
 
 segment_tracking:
-  min_sightings: 5 
+  min_sightings: 4 
   pixel_std_dev: 20.0
   min_iou: 0.25
   max_t_no_sightings: 0.25

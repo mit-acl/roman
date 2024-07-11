@@ -11,10 +11,12 @@ import clipperpy
 import time
 import json
 from copy import deepcopy
+import yaml
 
 from robot_utils.robot_data.pose_data import PoseData
 from robot_utils.transform import transform_2_xytheta
 from robot_utils.geometry import circle_intersection
+from robot_utils.transform import T_FLURDF, T_RDFFLU
 
 from segment_track.segment import Segment
 from segment_track.tracker import Tracker
@@ -22,7 +24,7 @@ from segment_track.tracker import Tracker
 from object_map_registration.object.ellipsoid import Ellipsoid
 from object_map_registration.object.object import Object
 from object_map_registration.object.pointcloud_object import PointCloudObject
-from object_map_registration.register.dist_feature_sim_reg import DistOnlyReg, DistVolReg, DistFeaturePCAReg, DistCustomFeatureComboReg
+from object_map_registration.register.dist_min_max_sim_reg import DistOnlyReg, DistVolReg, DistMinMaxPCAReg, DistCustomFeatureComboReg
 from object_map_registration.register.ransac_reg import RansacReg
 from object_map_registration.register.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
 from object_map_registration.register.object_registration import InsufficientAssociationsException
@@ -39,22 +41,24 @@ def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[fl
     Returns:
         np.array, shape=(3,n)]: List of submap centers
     """
+    assert times is None or len(poses) == len(times)
     centers = []
     center_times = []
     for i, (pose, t) in enumerate(zip(poses, times)):
         if i == 0:
-            centers.append(pose[:-1,-1])
+            centers.append(pose)
             if times is not None:
                 center_times.append(t)
         else:
-            if np.linalg.norm(pose[:-1,-1] - centers[-1]) > dist:
-                centers.append(pose[:-1,-1])
+            if np.linalg.norm(pose[:-1,-1] - centers[-1][:-1,-1]) > dist:
+                centers.append(pose)
                 if times is not None:
                     center_times.append(t)
     np.array(centers)
     return centers, center_times
 
-def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius: float, center_times: List[float]=None, time_threshold: float=0.0):
+def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius: float, 
+                      center_times: List[float]=None, time_threshold: float=0.0, gt_pose_data: PoseData=None):
     """
     From a list of objects and a list of centers, generate a list of submaps centered at the centers.
 
@@ -66,6 +70,16 @@ def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius:
     Returns:
         List[List[Object]]: List of submaps
     """
+    
+    # # gt_pose_data.T_postmultiply = np.eye(4)
+    # vio_pd = PoseData.from_times_and_poses(center_times, centers, T_premultiply=gt_pose_data.pose(center_times[0]) @ np.linalg.inv(centers[0]))
+
+    # fig, ax = plt.subplots()
+    # vio_pd.plot2d(ax=ax, trajectory=False, pose=True, t=vio_pd.times)
+    # gt_pose_data.plot2d(ax=ax, trajectory=True, pose=True, t=center_times)
+    # plt.show()
+    # exit(0)
+    
     submaps = []
     for i, center in enumerate(centers):
         if center_times is not None:
@@ -77,24 +91,81 @@ def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius:
             meets_time_thresh = lambda obj: True
         # submaps is originally a collection of objects that are within a radius from the center
         submap = [obj.copy() for obj in object_map if \
-                  np.linalg.norm(obj.center.flatten()[:2] - center[:2]) < radius \
+                  np.linalg.norm(obj.center.flatten()[:2] - center[:2,3]) < radius \
                   and meets_time_thresh(obj)]
+        
+        # Rotate objects to be aligned with the ground truth frame
+        if gt_pose_data is not None:
+            T_odom_center = center
+            T_world_center = gt_pose_data.pose(center_times[i])
+            T_world_odom = T_world_center @ np.linalg.inv(T_odom_center)
+            for obj in submap:
+                obj.transform(T_world_odom)
+        
         
         # Transform objects to be centered at the submap center
         T_submap_world = np.eye(4) # transformation to move submap from world frame to centered submap frame
-        T_submap_world[:args.dim, 3] = -center[:args.dim]
+        T_submap_world[:args.dim, 3] = -center[:args.dim,3] if gt_pose_data is None else -T_world_center[:args.dim,3]
         for obj in submap:
             obj.transform(T_submap_world)
+            
+        # # Rotate objects to be aligned with the ground truth rotation
+        # if gt_pose_data is not None:
+        #     R_odom_center = center[:3,:3] @ T_RDFFLU[:3,:3]
+        #     R_world_center = Rot.from_quat(gt_pose_data.orientation(center_times[i])).as_matrix() @ T_RDFFLU[:3,:3]
+        #     R_odom_center = Rot.from_euler('Z', Rot.from_matrix(R_odom_center).as_euler('ZYX')[0]).as_matrix()
+        #     R_world_center = Rot.from_euler('Z', Rot.from_matrix(R_world_center).as_euler('ZYX')[0]).as_matrix()
+
+        #     R_world_odom = R_world_center @ R_odom_center.T
+        #     T_world_odom = np.eye(4)
+        #     T_world_odom[:3,:3] = R_world_odom
+        #     for obj in submap:
+        #         obj.transform(T_world_odom)
+                
+        # # if i == 65:
+        # # if i == 40:
+        # if i == 36 or i == 68:
+        # # if i == 36:
+        #     fig, ax = plt.subplots()
+        #     for obj in submap:
+        #         obj.plot2d(ax, color='blue')
+            
+        #     bounds = object_list_bounds(submap)
+        #     if len(bounds) == 3:
+        #         xlim, ylim, _ = bounds
+        #     else:
+        #         xlim, ylim = bounds
+
+        #     ax.set_aspect('equal')
+            
+        #     ax.set_xlim(xlim)
+        #     ax.set_ylim(ylim)
+
+        #     plt.show()
 
         submaps.append(submap)
     return submaps
 
-def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_dist: float, show_maps=False):
+def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_dist: float, show_maps=False, gt_yaml=None):    
     colors = ['maroon', 'blue']
     poses = []
     times = []
     trackers = []
     object_maps = [[], []]
+    gt_pose_data = [None, None]
+    
+    # load ground truth pose data
+    for i, yaml_file in enumerate(gt_yaml):
+        if yaml_file is not None:
+            # load yaml file
+            with open(os.path.expanduser(yaml_file), 'r') as f:
+                gt_pose_args = yaml.safe_load(f)
+            if gt_pose_args['type'] == 'bag':
+                gt_pose_data[i] = PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
+            elif gt_pose_args['type'] == 'csv':
+                gt_pose_data[i] = PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
+            else:
+                raise ValueError("Invalid pose data type")
     
     # extract pickled data
     for pickle_file in pickle_files:
@@ -112,11 +183,11 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
     # create objects from segments
     for i, tracker in enumerate(trackers):
         segment: Segment
-        for segment in tracker.segments + tracker.segment_graveyard:
+        for segment in tracker.segments + tracker.inactive_segments + tracker.segment_graveyard:
             if segment.points is not None and len(segment.points) > 0:
                 # new_obj = PointCloudObject(np.mean(segment.points, axis=0), np.eye(3), segment.points - np.mean(segment.points, axis=0), dim=3)
                 new_obj = PointCloudObject(np.zeros(3), np.eye(3), segment.points, dim=3, id=segment.id)
-                new_obj.use_bottom_median_as_center()
+                # new_obj.use_bottom_median_as_center()
                 # find volume once for each object so does not have to be recomputed each time
                 new_obj.volume
                 new_obj.first_seen = segment.first_seen
@@ -128,7 +199,9 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
         submap_centers, submap_times = zip(*[submap_centers_from_poses(pose_list, submap_center_dist, ts) for pose_list, ts in zip(poses, times)])
     else:
         submap_centers, submap_times = [submap_centers_from_poses(pose_list, submap_center_dist) for pose_list in poses]
-    submaps = [submaps_from_maps(object_map, center_list, submap_radius, time_list, args.submap_time_threshold) for object_map, center_list, time_list in zip(object_maps, submap_centers, submap_times)]
+    submaps = [submaps_from_maps(object_map, center_list, submap_radius, time_list, args.submap_time_threshold, gtpd) \
+        for object_map, center_list, time_list, gtpd \
+        in zip(object_maps, submap_centers, submap_times, gt_pose_data)]
     
     # plot maps
     if show_maps:
@@ -146,7 +219,7 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
             
             # ax.plot([position[0] for position in submap_centers[i]], [position[1] for position in submap_centers[i]], 'o', color='black')
             for center in submap_centers[i]:
-                ax.add_patch(plt.Circle(center[:2], submap_radius, color='black', fill=False))
+                ax.add_patch(plt.Circle(center[:2,3], submap_radius, color='black', fill=False))
             ax.set_aspect('equal')
             
             ax.set_xlim(xlim)
@@ -154,6 +227,15 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
 
         plt.show()
         exit(0)
+        
+    # if gt data is available, return gt submap location for evaluation
+    if gt_pose_data != [None, None]:
+        new_submap_centers = [[], []]
+        for i, (gtpd, st) in enumerate(zip(gt_pose_data, submap_times)):
+            for j in range(len(st)):
+                new_submap_centers[i].append(gtpd.pose(st[j]))
+        submap_centers = new_submap_centers
+        
     return submap_centers, submaps
 
 def load_segment_slam_submaps(json_files: List[str], show_maps=False):
@@ -173,12 +255,14 @@ def load_segment_slam_submaps(json_files: List[str], show_maps=False):
                 objs[seg['segment_index']] = new_obj
                 
             for submap in data['submaps']:
-                center = np.array([submap['T_odom_submap']['tx'], submap['T_odom_submap']['ty'], submap['T_odom_submap']['tz']])
+                center = np.eye(4)
+                center[:3,3] = np.array([submap['T_odom_submap']['tx'], submap['T_odom_submap']['ty'], submap['T_odom_submap']['tz']])
+                center[:3,:3] = Rot.from_quat([submap['T_odom_submap']['qx'], submap['T_odom_submap']['qy'], submap['T_odom_submap']['qz'], submap['T_odom_submap']['qw']]).as_matrix()
                 sm = [deepcopy(objs[idx]) for idx in submap['segment_indices']]
 
                 # Transform objects to be centered at the submap center
                 T_submap_world = np.eye(4) # transformation to move submap from world frame to centered submap frame
-                T_submap_world[:args.dim, 3] = -center[:args.dim]
+                T_submap_world[:args.dim, 3] = -center[:args.dim, 3]
                 for obj in sm:
                     obj.transform(T_submap_world)
 
@@ -213,7 +297,7 @@ def load_segment_slam_submaps(json_files: List[str], show_maps=False):
 
 def main(args):
     if not args.segment_slam:
-        submap_centers, submaps = create_submaps(args.input, args.submap_radius, args.submap_center_dist, show_maps=args.show_maps)
+        submap_centers, submaps = create_submaps(args.input, args.submap_radius, args.submap_center_dist, show_maps=args.show_maps, gt_yaml=args.gt_yaml)
     else:
         submap_centers, submaps = load_segment_slam_submaps(args.input, show_maps=args.show_maps)
 
@@ -236,11 +320,11 @@ def main(args):
 
     # Registration method
     if args.fusion_method == 'geometric_mean':
-        sim_fusion_method = clipperpy.invariants.DistanceFeatureSimilarity.GEOMETRIC_MEAN
+        sim_fusion_method = clipperpy.invariants.DistancePairwiseAndSingle.GEOMETRIC_MEAN
     elif args.fusion_method == 'arithmetic_mean':
-        sim_fusion_method = clipperpy.invariants.DistanceFeatureSimilarity.ARITHMETIC_MEAN
+        sim_fusion_method = clipperpy.invariants.DistancePairwiseAndSingle.ARITHMETIC_MEAN
     elif args.fusion_method == 'product':
-        sim_fusion_method = clipperpy.invariants.DistanceFeatureSimilarity.PRODUCT
+        sim_fusion_method = clipperpy.invariants.DistancePairwiseAndSingle.PRODUCT
         
 
     if args.method == 'standard':
@@ -269,7 +353,7 @@ def main(args):
         registration = DistRegWithPruning(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim, use_gravity=True)
     elif args.method == 'distfeatpca':
         method_name = f'Gravity Constrained PCA feature-based Registration (eps_pca={args.epsilon_pca})'
-        registration = DistFeaturePCAReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca, pt_dim=args.dim, use_gravity=True,
+        registration = DistMinMaxPCAReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca, pt_dim=args.dim, use_gravity=True,
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'pcavolgrav':
         method_name = f'Gravity Guided PCA feature-based Volume Registration (eps_pca={args.epsilon_pca})'
@@ -277,6 +361,7 @@ def main(args):
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'extentvolgrav':
         method_name = f'Gravity Guided Extent-based Volume Registration'
+        # sim_fusion_method = clipperpy.invariants.DistanceMinMaxSimilarity.GEOMETRIC_MEAN
         registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, volume_epsilon=args.epsilon_volume, extent_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, extent=True, volume=True,
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'ransac':
@@ -290,7 +375,7 @@ def main(args):
         for j in (range(len(submaps[1]))):
             
             submap_intersection = circle_intersection(
-                center1=submap_centers[0][i][:2], center2=submap_centers[1][j][:2], radius1=args.submap_radius, radius2=args.submap_radius
+                center1=submap_centers[0][i][:2,3], center2=submap_centers[1][j][:2,3], radius1=args.submap_radius, radius2=args.submap_radius
             )
             submap_area = np.pi*args.submap_radius**2
             robots_nearby_mat[i, j] = submap_intersection/submap_area
@@ -303,8 +388,8 @@ def main(args):
             submap_j = submaps[1][j]
 
             # determine correct T_ij
-            T_wi = np.eye(4); T_wi[:args.dim, 3] = submap_centers[0][i][:args.dim]
-            T_wj = np.eye(4); T_wj[:args.dim, 3] = submap_centers[1][j][:args.dim]
+            T_wi = np.eye(4); T_wi[:args.dim, 3] = submap_centers[0][i][:args.dim,3]
+            T_wj = np.eye(4); T_wj[:args.dim, 3] = submap_centers[1][j][:args.dim,3]
             T_ij = np.linalg.inv(T_wi) @ T_wj
                 
             # register the submaps (run multiple times if ambiguity is set)
@@ -426,10 +511,11 @@ if __name__ == '__main__':
     parser.add_argument('--method', '-m', type=str, default='standard', help="Method to use for registration: standard, gravity, distvol, distvolgrav, prunevol, prunevolgrav, prunegrav")
     parser.add_argument('--fusion-method', type=str, default='geometric_mean', help="Method to use for similarity fusion: geometric_mean, arithmetic_mean, product")
     parser.add_argument('--show-false-positives', '-s', action='store_true', help="Run alignment for submaps that do not overlap")
-    parser.add_argument('-r', '--submap-radius', type=float, default=15.0, help="Radius of submaps")
-    parser.add_argument('-c', '--submap-center-dist', type=float, default=15.0, help="Distance between submap centers")
+    parser.add_argument('-r', '--submap-radius', type=float, default=20.0, help="Radius of submaps")
+    parser.add_argument('-c', '--submap-center-dist', type=float, default=10.0, help="Distance between submap centers")
     parser.add_argument('--ambiguity', '-a', action='store_true', help="Create ambiguity matrix plot")
     parser.add_argument('--submaps-idx', type=int, nargs=4, default=None, help="Specify submap indices to use")
+    parser.add_argument('--gt-yaml', type=str, default=[None, None], help="Path to ground truth yaml file", nargs=2)
 
     # output files
     parser.add_argument('--output', '-o', type=str, default=None, help="Path to save output plot")
@@ -443,7 +529,7 @@ if __name__ == '__main__':
     parser.add_argument('--mindist', type=float, default=0.2)
     parser.add_argument('--epsilon-volume', type=float, default=0.0)
     parser.add_argument('--epsilon-pca', type=float, nargs=1, default=0.0, help="Epsilon for PCA feature")
-    parser.add_argument('--distance-weight', type=float, default=3.0, help="Weight for distance in similarity fusion")
+    parser.add_argument('--distance-weight', type=float, default=1.0, help="Weight for distance in similarity fusion")
     parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
 
     args = parser.parse_args()
