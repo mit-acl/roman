@@ -12,13 +12,14 @@ import sys
 import open3d as o3d
 import logging
 import os
+from os.path import expandvars
 from threading import Thread
 
-from robot_utils.robot_data.img_data import ImgData
-from robot_utils.robot_data.pose_data import PoseData
-from robot_utils.transform import transform, T_RDFFLU, T_FLURDF
-from robot_utils.robot_data.general_data import GeneralData
-from robot_utils.robot_data.robot_data import NoDataNearTimeException
+from robotdatapy.data.img_data import ImgData
+from robotdatapy.data.pose_data import PoseData
+from robotdatapy.transform import transform, T_RDFFLU, T_FLURDF
+from robotdatapy.data.general_data import GeneralData
+from robotdatapy.data.robot_data import NoDataNearTimeException
 
 from plot_utils import remove_ticks
 
@@ -29,73 +30,77 @@ from segment_track.segment import Segment
 from segment_track.tracker import Tracker
 from segment_track.fastsam_wrapper import FastSAMWrapper
 
-def draw(t, img, pose, tracker, observations, reprojected_bboxs, ax):
-    for axi in ax:
-        axi.clear()
-        remove_ticks(axi)
+def draw(t, img, pose, tracker, observations, reprojected_bboxs, viz_bbox=False, viz_mask=False):
 
-    img_fastsam = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-    img_fastsam = np.concatenate([img_fastsam[...,None]]*3, axis=2)
+    if viz_mask:
+        img_fastsam = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        img_fastsam = np.concatenate([img_fastsam[...,None]]*3, axis=2)
 
-    segment: Segment
-    for i, segment in enumerate(tracker.segments + tracker.inactive_segments + tracker.segment_graveyard):
-        # only draw segments seen in the last however many seconds
-        if segment.last_seen < t - tracker.segment_graveyard_time - 10:
-            continue
-        bbox = segment.reprojected_bbox(pose)
-        if bbox is None:
-            continue
-        if i < len(tracker.segments):
-            color = (0, 255, 0)
-        elif i < len(tracker.segments) + len(tracker.inactive_segments):
-            color = (255, 0, 0)
-        else:
-            color = (180, 0, 180)
-        img = cv.rectangle(img, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
-                    np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=color, thickness=2)
-        img = cv.putText(img, str(segment.id), (np.array(bbox[0]) + np.array([10., 10.])).astype(np.int32), 
-                         cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+    if viz_bbox:
+        segment: Segment
+        for i, segment in enumerate(tracker.segments + tracker.inactive_segments + tracker.segment_graveyard):
+            # only draw segments seen in the last however many seconds
+            if segment.last_seen < t - tracker.segment_graveyard_time - 10:
+                continue
+            bbox = segment.reprojected_bbox(pose)
+            if bbox is None:
+                continue
+            if i < len(tracker.segments):
+                color = (0, 255, 0)
+            elif i < len(tracker.segments) + len(tracker.inactive_segments):
+                color = (255, 0, 0)
+            else:
+                color = (180, 0, 180)
+            img = cv.rectangle(img, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
+                        np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=color, thickness=2)
+            img = cv.putText(img, str(segment.id), (np.array(bbox[0]) + np.array([10., 10.])).astype(np.int32), 
+                            cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
-    matched_masks = []
-    for segment in tracker.segments:
-        if segment.last_seen == t:
-            colored_mask = np.zeros_like(img)
-            np.random.seed(segment.id)
+    if viz_mask:
+        matched_masks = []
+        for segment in tracker.segments:
+            if segment.last_seen == t:
+                colored_mask = np.zeros_like(img)
+                np.random.seed(segment.id)
+                rand_color = np.random.randint(0, 255, 3)
+                # print(rand_color)
+                matched_masks.append(segment.last_mask)
+                try:
+                    colored_mask = segment.last_mask.astype(np.int32)[..., np.newaxis]*rand_color
+                except:
+                    import ipdb; ipdb.set_trace()
+                colored_mask = colored_mask.astype(np.uint8)
+                img_fastsam = cv.addWeighted(img_fastsam, 1.0, colored_mask, 0.5, 0)
+                mass_x, mass_y = np.where(segment.last_mask >= 1)
+                img_fastsam = cv.putText(img_fastsam, str(segment.id), (int(np.mean(mass_y)), int(np.mean(mass_x))), 
+                        cv.FONT_HERSHEY_SIMPLEX, 0.5, rand_color.tolist(), 2)
+        
+        for obs in observations:
+            alread_shown = False
+            for mask in matched_masks:
+                if np.all(mask == obs.mask):
+                    alread_shown = True
+                    break
+            if alread_shown:
+                continue
+            white_mask = obs.mask.astype(np.int32)[..., np.newaxis]*np.ones(3)*255
+            white_mask = white_mask.astype(np.uint8)
+            img_fastsam = cv.addWeighted(img_fastsam, 1.0, white_mask, 0.5, 0)
+
+        for seg_id, bbox in reprojected_bboxs:
+            np.random.seed(seg_id)
             rand_color = np.random.randint(0, 255, 3)
-            # print(rand_color)
-            matched_masks.append(segment.last_mask)
-            try:
-                colored_mask = segment.last_mask.astype(np.int32)[..., np.newaxis]*rand_color
-            except:
-                import ipdb; ipdb.set_trace()
-            colored_mask = colored_mask.astype(np.uint8)
-            img_fastsam = cv.addWeighted(img_fastsam, 1.0, colored_mask, 0.5, 0)
-            mass_x, mass_y = np.where(segment.last_mask >= 1)
-            img_fastsam = cv.putText(img_fastsam, str(segment.id), (int(np.mean(mass_y)), int(np.mean(mass_x))), 
-                    cv.FONT_HERSHEY_SIMPLEX, 0.5, rand_color.tolist(), 2)
-    
-    for obs in observations:
-        alread_shown = False
-        for mask in matched_masks:
-            if np.all(mask == obs.mask):
-                alread_shown = True
-                break
-        if alread_shown:
-            continue
-        white_mask = obs.mask.astype(np.int32)[..., np.newaxis]*np.ones(3)*255
-        white_mask = white_mask.astype(np.uint8)
-        img_fastsam = cv.addWeighted(img_fastsam, 1.0, white_mask, 0.5, 0)
-
-    for seg_id, bbox in reprojected_bboxs:
-        np.random.seed(seg_id)
-        rand_color = np.random.randint(0, 255, 3)
-        cv.rectangle(img_fastsam, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
-                     np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=rand_color.tolist(), thickness=2)
+            cv.rectangle(img_fastsam, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
+                        np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=rand_color.tolist(), thickness=2)
             
-
-    ax[0].imshow(img[...,::-1])
-    ax[1].imshow(img_fastsam)
-    return
+    # concatenate images
+    if viz_bbox and viz_mask:
+        img_ret = np.concatenate([img, img_fastsam], axis=1)
+    elif viz_bbox:
+        img_ret = img
+    elif viz_mask:
+        img_ret = img_fastsam
+    return img_ret
 
 
 def update_fastsam(t, img_data, depth_data, pose_data, fastsam):
@@ -111,11 +116,13 @@ def update_fastsam(t, img_data, depth_data, pose_data, fastsam):
     observations = fastsam.run(t, pose, img, img_depth=img_depth)
     return observations, pose, img
 
-def update_segment_track(t, observations, pose, img, tracker, ax, poses_history, times_history): 
+def update_segment_track(t, observations, pose, img, tracker, 
+                         poses_history, times_history, viz_bbox=False, viz_mask=False): 
 
     # collect reprojected masks
-    if ax is not None:
-        reprojected_bboxs = []
+    reprojected_bboxs = []
+    img_ret = None
+    if viz_mask:
         segment: Segment
         for i, segment in enumerate(tracker.segments + tracker.inactive_segments):
             bbox = segment.reprojected_bbox(pose)
@@ -132,13 +139,13 @@ def update_segment_track(t, observations, pose, img, tracker, ax, poses_history,
         for seg in tracker.segments:
             print("seg id={}, num_points={}".format(seg.id, seg.num_points))
 
-    if ax is not None:
-        draw(t, img, pose, tracker, observations, reprojected_bboxs, ax)
+    if viz_bbox or viz_mask:
+        img_ret = draw(t, img, pose, tracker, observations, reprojected_bboxs, viz_bbox, viz_mask)
 
     poses_history.append(pose)
     times_history.append(t)
 
-    return
+    return img_ret
     
 
 def main(args):
@@ -222,10 +229,10 @@ def main(args):
     if use_kitti:
         time_range = [params['time']['t0'], params['time']['tf']]
     else:
-        img_file_path = os.path.expanduser(os.path.expandvars(params["img_data"]["path"]))
+        img_file_path = os.path.expanduser(expandvars(params["img_data"]["path"]))
         if 'time' in params:
             if 'relative' in params['time'] and params['time']['relative']:
-                topic_t0 = ImgData.topic_t0(img_file_path, params["img_data"]["img_topic"])
+                topic_t0 = ImgData.topic_t0(img_file_path, expandvars(params["img_data"]["img_topic"]))
                 time_range = [topic_t0 + params['time']['t0'], topic_t0 + params['time']['tf']]
             else:
                 time_range = [params['time']['t0'], params['time']['tf']]
@@ -239,11 +246,11 @@ def main(args):
     else:
         img_data = ImgData.from_bag(
             path=img_file_path,
-            topic=params["img_data"]["img_topic"],
+            topic=expandvars(params["img_data"]["img_topic"]),
             time_tol=.02,
             time_range=time_range
         )
-        img_data.extract_params(params['img_data']['cam_info_topic'])
+        img_data.extract_params(expandvars(params['img_data']['cam_info_topic']))
 
     t0 = img_data.t0
     tf = img_data.tf
@@ -255,13 +262,13 @@ def main(args):
     else:
         depth_data = ImgData.from_bag(
             path=img_file_path,
-            topic=params['img_data']['depth_img_topic'],
+            topic=expandvars(params['img_data']['depth_img_topic']),
             time_tol=.02,
             time_range=time_range,
             compressed=params['img_data']['depth_compressed'],
             compressed_rvl=params['img_data']['depth_compressed_rvl'],
         )
-        depth_data.extract_params(params['img_data']['depth_cam_info_topic'])
+        depth_data.extract_params(expandvars(params['img_data']['depth_cam_info_topic']))
 
     print("Loading pose data...")
     if not use_kitti:
@@ -269,7 +276,7 @@ def main(args):
         pose_file_type = params['pose_data']['file_type']
         pose_time_tol = params['pose_data']['time_tol']
         if pose_file_type == 'bag':
-            pose_topic = params['pose_data']['topic']
+            pose_topic = expandvars(params['pose_data']['topic'])
             csv_options = None
         else:
             pose_topic = None
@@ -287,14 +294,17 @@ def main(args):
             T_postmultiply = T_RDFFLU
     if 'tf_to_cam' in params['pose_data']:
         T_postmultiply = PoseData.static_tf_from_bag(
-            os.path.expanduser(img_file_path), params['pose_data']['tf_to_cam']['parent'], params['pose_data']['tf_to_cam']['child'])
+            os.path.expanduser(img_file_path), 
+            expandvars(params['pose_data']['tf_to_cam']['parent']), 
+            expandvars(params['pose_data']['tf_to_cam']['child'])
+        )
     
     if use_kitti:
         pose_data = PoseData.from_kitti(params['pose_data']['base_path'])
     elif pose_file_type == 'bag':
         pose_data = PoseData.from_bag(
             path=os.path.expanduser(pose_file_path),
-            topic=pose_topic,
+            topic=expandvars(pose_topic),
             time_tol=pose_time_tol,
             interp=True,
             T_postmultiply=T_postmultiply
@@ -311,7 +321,7 @@ def main(args):
     ### Set up FastSAM
     print("Setting up FastSAM...")
     fastsam = FastSAMWrapper(
-        weights=os.path.expanduser(os.path.expandvars(params['fastsam']['weights'])),
+        weights=os.path.expanduser(expandvars(params['fastsam']['weights'])),
         imgsz=params['fastsam']['imgsz'],
         device=params['fastsam']['device'],
         mask_downsample_factor=params['segment_tracking']['mask_downsample_factor']
@@ -346,33 +356,31 @@ def main(args):
 
     print("Running segment tracking! Start time {:.1f}, end time {:.1f}".format(t0, tf))
     wc_t0 = time.time()
-    if not args.no_vid:
-        fig, ax = plt.subplots(1, 2, dpi=400, layout='tight')
-    else:
-        fig = None
-        ax = None
     poses_history = []
     times_history = []
-    def update_wrapper(t): 
-        observations, pose, img = update_fastsam(t, img_data, depth_data, pose_data, fastsam)
-        if observations is not None and pose is not None and img is not None:
-            update_segment_track(t, observations, pose, img, tracker, ax, poses_history, times_history)
-            # t, img_data, depth_data, pose_data, fastsam, tracker, ax, poses_history)
-        print(f"t: {t - t0:.2f} = {t}")
-        # fig.suptitle(f"t: {t - t0:.2f}")
+
 
     if not args.no_vid:
-        ani = FuncAnimation(fig, update_wrapper, frames=tqdm.tqdm(np.arange(t0, tf, params['segment_tracking']['dt'])), interval=10, repeat=False)
-        if not args.output:
-            plt.show()
-        else:
-            video_file = os.path.expanduser(os.path.expandvars(args.output)) + ".mp4"
-            fps = int(np.max([1., args.vid_rate*1/params['segment_tracking']['dt']]))
-            writervideo = FFMpegWriter(fps=fps)
-            ani.save(video_file, writer=writervideo)          
-    else:
-        for t in np.arange(t0, tf, params['segment_tracking']['dt']):
-            update_wrapper(t)
+        fc = cv.VideoWriter_fourcc(*"mp4v")
+        video_file = os.path.expanduser(expandvars(args.output)) + ".mp4"
+        fps = int(np.max([1., args.vid_rate*1/params['segment_tracking']['dt']]))
+        video = cv.VideoWriter(video_file, fc, fps, 
+                               (img_data.camera_params.width*(2 if not args.vid_bbox_only else 1), 
+                                img_data.camera_params.height))
+
+    def update_wrapper(t): 
+        print(f"t: {t - t0:.2f} = {t}")
+        observations, pose, img = update_fastsam(t, img_data, depth_data, pose_data, fastsam)
+        if observations is not None and pose is not None and img is not None:
+            return update_segment_track(t, observations, pose, img, tracker, poses_history, 
+                                        times_history, viz_bbox=not args.no_vid, 
+                                        viz_mask=not args.no_vid and not args.vid_bbox_only)
+
+    for t in np.arange(t0, tf, params['segment_tracking']['dt']):
+        img_t = update_wrapper(t)
+        if not args.no_vid and img_t is not None:
+            video.write(img_t)
+            
         # observations, reprojected_bboxs, pose, img = None, None, None, None
         # new_observations, new_reprojected_bboxs, new_pose, new_img = None, None, None, None
         # def fastsam_update_wrapper(t, img_data, depth_data, pose_data, fastsam, tracker, results):
@@ -408,6 +416,9 @@ def main(args):
         #         new_observations, new_reprojected_bboxs, new_pose, new_img = results
         #     else: # last iteration
         #         break
+    if not args.no_vid:
+        video.release()
+        cv.destroyAllWindows()
 
     print(f"Segment tracking took {time.time() - wc_t0:.2f} seconds")
     print(f"Run duration was {tf - t0:.2f} seconds")
@@ -416,7 +427,7 @@ def main(args):
     print(f"Number of poses: {len(poses_history)}.")
 
     if args.output:
-        pkl_path = os.path.expanduser(os.path.expandvars(args.output)) + ".pkl"
+        pkl_path = os.path.expanduser(expandvars(args.output)) + ".pkl"
         pkl_file = open(pkl_path, 'wb')
         tracker.make_pickle_compatible()
         pickle.dump([tracker, poses_history, times_history], pkl_file, -1)
@@ -452,6 +463,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-vid', action='store_true', help='Do not show or save video')
     parser.add_argument('--no-o3d', action='store_true', help='Do not show o3d visualization')
     parser.add_argument('--vid-rate', type=float, help='Video playback rate', default=1.0)
+    parser.add_argument('--vid-bbox-only', action='store_true', help='Only show bounding boxes in video')
     args = parser.parse_args()
 
     main(args)

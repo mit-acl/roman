@@ -118,6 +118,7 @@ submap1_offset = np.asarray(args.offset)
 
 ocd_list_0, label_list_0 = create_ptcld_geometries(submap_0, red_color, include_label=not args.no_text)
 ocd_list_1, label_list_1 = create_ptcld_geometries(submap_1, blue_color, submap1_offset, include_label=not args.no_text)
+origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
 
 for obj_idx_0, obj_idx_1 in association:
     print(f'Add edge between {obj_idx_0} and {obj_idx_1}.')
@@ -139,6 +140,7 @@ for i, geom in enumerate(ocd_list_0 + ocd_list_1 + edges):
     vis.add_geometry(f"geom-{i}", geom)
 for label in label_list_0 + label_list_1:
     vis.add_3d_label(*label)
+vis.add_geometry("origin", origin)
 
 vis.reset_camera_to_default()
 app.add_window(vis)

@@ -13,10 +13,11 @@ import json
 from copy import deepcopy
 import yaml
 
-from robot_utils.robot_data.pose_data import PoseData
-from robot_utils.transform import transform_2_xytheta
-from robot_utils.geometry import circle_intersection
-from robot_utils.transform import T_FLURDF, T_RDFFLU
+from robotdatapy.data.pose_data import PoseData
+from robotdatapy.transform import transform_2_xytheta
+from robotdatapy.geometry import circle_intersection
+from robotdatapy.transform import T_FLURDF, T_RDFFLU
+from robotdatapy import transform
 
 from segment_track.segment import Segment
 from segment_track.tracker import Tracker
@@ -86,18 +87,22 @@ def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius:
             t = center_times[i]
             tm1 = center_times[i-1] if i > 0 else center_times[i]
             tp1 = center_times[i+1] if i < len(centers) - 1 else center_times[i]
-            meets_time_thresh = lambda obj: not (obj.first_seen > tp1 + t or obj.last_seen < tm1 - time_threshold)
+            meets_time_thresh = lambda obj: not (obj.first_seen > tp1 + time_threshold or obj.last_seen < tm1 - time_threshold)
         else:
             meets_time_thresh = lambda obj: True
         # submaps is originally a collection of objects that are within a radius from the center
-        submap = [obj.copy() for obj in object_map if \
+        submap = [deepcopy(obj) for obj in object_map if \
                   np.linalg.norm(obj.center.flatten()[:2] - center[:2,3]) < radius \
                   and meets_time_thresh(obj)]
         
         # Rotate objects to be aligned with the ground truth frame
         if gt_pose_data is not None:
-            T_odom_center = center
-            T_world_center = gt_pose_data.pose(center_times[i])
+            # only rotate objects about yaw - want to preserve the gravity direction
+            # small time difference can cause small tilt angles if we don't just use yaw
+            T_odom_center = center @ T_RDFFLU
+            T_odom_center[:3,:3] = Rot.from_euler('z', Rot.from_matrix(T_odom_center[:3,:3]).as_euler('ZYX')[0]).as_matrix()
+            T_world_center = gt_pose_data.pose(center_times[i]) @ T_RDFFLU
+            T_world_center[:3,:3] = Rot.from_euler('z', Rot.from_matrix(T_world_center[:3,:3]).as_euler('ZYX')[0]).as_matrix()
             T_world_odom = T_world_center @ np.linalg.inv(T_odom_center)
             for obj in submap:
                 obj.transform(T_world_odom)
@@ -108,40 +113,6 @@ def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius:
         T_submap_world[:args.dim, 3] = -center[:args.dim,3] if gt_pose_data is None else -T_world_center[:args.dim,3]
         for obj in submap:
             obj.transform(T_submap_world)
-            
-        # # Rotate objects to be aligned with the ground truth rotation
-        # if gt_pose_data is not None:
-        #     R_odom_center = center[:3,:3] @ T_RDFFLU[:3,:3]
-        #     R_world_center = Rot.from_quat(gt_pose_data.orientation(center_times[i])).as_matrix() @ T_RDFFLU[:3,:3]
-        #     R_odom_center = Rot.from_euler('Z', Rot.from_matrix(R_odom_center).as_euler('ZYX')[0]).as_matrix()
-        #     R_world_center = Rot.from_euler('Z', Rot.from_matrix(R_world_center).as_euler('ZYX')[0]).as_matrix()
-
-        #     R_world_odom = R_world_center @ R_odom_center.T
-        #     T_world_odom = np.eye(4)
-        #     T_world_odom[:3,:3] = R_world_odom
-        #     for obj in submap:
-        #         obj.transform(T_world_odom)
-                
-        # # if i == 65:
-        # # if i == 40:
-        # if i == 36 or i == 68:
-        # # if i == 36:
-        #     fig, ax = plt.subplots()
-        #     for obj in submap:
-        #         obj.plot2d(ax, color='blue')
-            
-        #     bounds = object_list_bounds(submap)
-        #     if len(bounds) == 3:
-        #         xlim, ylim, _ = bounds
-        #     else:
-        #         xlim, ylim = bounds
-
-        #     ax.set_aspect('equal')
-            
-        #     ax.set_xlim(xlim)
-        #     ax.set_ylim(ylim)
-
-        #     plt.show()
 
         submaps.append(submap)
     return submaps
@@ -329,7 +300,7 @@ def main(args):
 
     if args.method == 'standard':
         method_name = f'{args.dim}D Point CLIPPER'
-        registration = DistOnlyReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pt_dim=args.dim)
+        registration = DistOnlyReg(clipperpy.invariants.DistanceMinMaxSimilarity, sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pt_dim=args.dim)
     elif args.method == 'gravity':
         method_name = 'Gravity Guided CLIPPER'
         registration = DistOnlyReg(sigma=args.sigma, mindist=args.mindist, epsilon=args.epsilon, use_gravity=True,
@@ -364,6 +335,10 @@ def main(args):
         # sim_fusion_method = clipperpy.invariants.DistanceMinMaxSimilarity.GEOMETRIC_MEAN
         registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, volume_epsilon=args.epsilon_volume, extent_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, extent=True, volume=True,
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
+    elif args.method == 'drift':
+        method_name = 'Drift-Aware, Gravity-Guided, Extent-based Volume Registration'
+        registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, volume_epsilon=args.epsilon_volume, extent_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, extent=True, volume=True,
+                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight, drift_aware=True, drift_scale=args.drift_scale, drift_scale_sigma=True)
     elif args.method == 'ransac':
         method_name = 'RANSAC'
         registration = RansacReg(dim=args.dim, max_iteration=args.ransac_iter)
@@ -501,6 +476,10 @@ def main(args):
             f.write(f"Total time: {np.sum(timing_list):.4f} seconds\n")
             f.write(f"Total number of objects: {np.sum([len(submap) for submap in submaps[0] + submaps[1]])}\n")
             f.write(f"Average number of obects per map: {np.mean([len(submap) for submap in submaps[0] + submaps[1]]):.2f}\n")
+    
+    if args.output_params:
+        with open(args.output_params, 'w') as f:
+            f.write(f"{args}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -522,6 +501,8 @@ if __name__ == '__main__':
     parser.add_argument('--matrix-file', type=str, default=None, help="Path to save matrix pickle file")
     parser.add_argument('--output-viz', type=str, default=None, help="Path to save output visualization file")
     parser.add_argument('--output-timing', type=str, default=None, help="Path to save output timing file")
+    parser.add_argument('--output-params', type=str, default=None, help="Path to save output parameters file")
+    parser.add_argument('--all-output-prefix', type=str, default=None, help="Prefix for all output files")
     
     # registration params
     parser.add_argument('--sigma', type=float, default=0.3)
@@ -530,24 +511,22 @@ if __name__ == '__main__':
     parser.add_argument('--epsilon-volume', type=float, default=0.0)
     parser.add_argument('--epsilon-pca', type=float, nargs=1, default=0.0, help="Epsilon for PCA feature")
     parser.add_argument('--distance-weight', type=float, default=1.0, help="Weight for distance in similarity fusion")
+    parser.add_argument('--drift-scale', type=float, default=0.05, help="Scale for drift relaxation of epsilon/sigma")
     parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
 
     args = parser.parse_args()
 
-    # constant params
-    # args.submap_radius = 15. # 20.0 for kimera multi data?
-    # args.submap_center_dist = 15.0
-
     if args.submaps_idx is not None:
         args.submaps_idx = [args.submaps_idx[:2], args.submaps_idx[2:]]
-    # args.submaps_idx = None
-    # args.submaps_idx = [[32, 42], [45, 55], ]
-    # args.submaps_idx = [[38, 52], [20, 35],] # sparkal2/1 opposite direction
-    # args.submaps_idx = [[0, 20], [0, 20],] # sparkal2/1 same direction
-    # args.submaps_idx = [[4, 18], [13, 28]] # acl_jackal2/sparkal1 same direction
-    # args.submaps_idx = [[4, 11], [60, 67]] # acl_jackal2/sparkal1 90 degrees crossed
     args.submap_overlap_threshold = 0.1
     args.submap_time_threshold = 60 # seconds # segments must be seen within this time of the 
                                               # submap center's time to be included in the submap
+                                              
+    if args.all_output_prefix:
+        args.output = f"{args.all_output_prefix}.png"
+        args.matrix_file = f"{args.all_output_prefix}.pkl"
+        args.output_viz = f"{args.all_output_prefix}.viz.pkl"
+        args.output_timing = f"{args.all_output_prefix}.timing.txt"
+        args.output_params = f"{args.all_output_prefix}.params.txt"
     
     main(args)

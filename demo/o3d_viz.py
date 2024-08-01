@@ -56,7 +56,7 @@ def main(args, filter_viz=False):
 
     displayed_positions = []
     for i, Twb in enumerate(poses_history):
-        if filter_viz and np.any(Twb[:3,3] < points_bounds[:,0]) or np.any(Twb[:3,3] > points_bounds[:,1]):
+        if filter_viz and (np.any(Twb[:3,3] < points_bounds[:,0]) or np.any(Twb[:3,3] > points_bounds[:,1])):
             continue
         if args.time_range is not None:
             if times is not None:
@@ -68,7 +68,7 @@ def main(args, filter_viz=False):
         pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
         pose_obj.transform(Twb)
         poses_list.append(pose_obj)
-    
+
     if not args.no_orig:
         origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
         poses_list.append(origin)
@@ -83,8 +83,13 @@ def main(args, filter_viz=False):
     app.initialize()
     vis = o3d.visualization.O3DVisualizer()
     vis.show_skybox(False)
+
+    mat = o3d.visualization.rendering.MaterialRecord()
+    mat.shader = 'defaultUnlit'
+    mat.point_size = 5.0
+
     for i, obj in enumerate(pcd_list):
-        vis.add_geometry(f"pcd-{i}", obj)
+        vis.add_geometry(f"pcd-{i}", obj, mat)
     for label in label_list:
         vis.add_3d_label(*label)
     for i, obj in enumerate(poses_list):
