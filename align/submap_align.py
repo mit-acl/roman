@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+from numpy.linalg import inv, norm
 from scipy.spatial.transform import Rotation as Rot
 import pickle
 import matplotlib.pyplot as plt
@@ -14,7 +15,7 @@ from copy import deepcopy
 import yaml
 
 from robotdatapy.data.pose_data import PoseData
-from robotdatapy.transform import transform_2_xytheta
+from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat
 from robotdatapy.geometry import circle_intersection
 from robotdatapy.transform import T_FLURDF, T_RDFFLU
 from robotdatapy import transform
@@ -45,21 +46,22 @@ def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[fl
     assert times is None or len(poses) == len(times)
     centers = []
     center_times = []
+    center_idxs = []
+
     for i, (pose, t) in enumerate(zip(poses, times)):
-        if i == 0:
+        if i == 0 or np.linalg.norm(pose[:-1,-1] - centers[-1][:-1,-1]) > dist:
             centers.append(pose)
+            center_idxs.append(i)
             if times is not None:
                 center_times.append(t)
-        else:
-            if np.linalg.norm(pose[:-1,-1] - centers[-1][:-1,-1]) > dist:
-                centers.append(pose)
-                if times is not None:
-                    center_times.append(t)
-    np.array(centers)
-    return centers, center_times
+    return centers, center_times, center_idxs
+
+def transform_rm_roll_pitch(T):
+    T[:3,:3] = Rot.from_euler('z', Rot.from_matrix(T[:3,:3]).as_euler('ZYX')[0]).as_matrix()
+    return T
 
 def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius: float, 
-                      center_times: List[float]=None, time_threshold: float=0.0, gt_pose_data: PoseData=None):
+                      center_times: List[float]=None, time_threshold: float=0.0, gt_pose_data: PoseData=None, rot_maps_to_gt=False):
     """
     From a list of objects and a list of centers, generate a list of submaps centered at the centers.
 
@@ -96,47 +98,37 @@ def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius:
                   and meets_time_thresh(obj)]
         
         # Rotate objects to be aligned with the ground truth frame
-        if gt_pose_data is not None:
-            # only rotate objects about yaw - want to preserve the gravity direction
-            # small time difference can cause small tilt angles if we don't just use yaw
-            T_odom_center = center @ T_RDFFLU
-            T_odom_center[:3,:3] = Rot.from_euler('z', Rot.from_matrix(T_odom_center[:3,:3]).as_euler('ZYX')[0]).as_matrix()
-            T_world_center = gt_pose_data.pose(center_times[i]) @ T_RDFFLU
-            T_world_center[:3,:3] = Rot.from_euler('z', Rot.from_matrix(T_world_center[:3,:3]).as_euler('ZYX')[0]).as_matrix()
-            T_world_odom = T_world_center @ np.linalg.inv(T_odom_center)
+        if rot_maps_to_gt:
+            if gt_pose_data is not None:
+                # only rotate objects about yaw - want to preserve the gravity direction
+                # small time difference can cause small tilt angles if we don't just use yaw
+                T_odom_center = transform_rm_roll_pitch(center @ T_RDFFLU)
+                T_world_center = transform_rm_roll_pitch(gt_pose_data.pose(center_times[i]) @ T_RDFFLU)
+                T_world_odom = T_world_center @ np.linalg.inv(T_odom_center)
+                for obj in submap:
+                    obj.transform(T_world_odom)
+            
+            # Transform objects to be centered at the submap center
+            T_submap_world = np.eye(4) # transformation to move submap from world frame to centered submap frame
+            T_submap_world[:args.dim, 3] = -center[:args.dim,3] if gt_pose_data is None else -T_world_center[:args.dim,3]
             for obj in submap:
-                obj.transform(T_world_odom)
-        
-        
-        # Transform objects to be centered at the submap center
-        T_submap_world = np.eye(4) # transformation to move submap from world frame to centered submap frame
-        T_submap_world[:args.dim, 3] = -center[:args.dim,3] if gt_pose_data is None else -T_world_center[:args.dim,3]
-        for obj in submap:
-            obj.transform(T_submap_world)
+                obj.transform(T_submap_world)
+
+        else: # transform objects to be in the robot frame (of the submap center)
+            T_odom_center = transform_rm_roll_pitch(center @ T_RDFFLU)
+            T_center_odom = np.linalg.inv(T_odom_center)
+            for obj in submap:
+                obj.transform(T_center_odom)
 
         submaps.append(submap)
     return submaps
 
-def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_dist: float, show_maps=False, gt_yaml=None):    
+def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_dist: float, show_maps=False, gt_pose_data=[None, None], rot_maps_to_gt=False):    
     colors = ['maroon', 'blue']
     poses = []
     times = []
     trackers = []
     object_maps = [[], []]
-    gt_pose_data = [None, None]
-    
-    # load ground truth pose data
-    for i, yaml_file in enumerate(gt_yaml):
-        if yaml_file is not None:
-            # load yaml file
-            with open(os.path.expanduser(yaml_file), 'r') as f:
-                gt_pose_args = yaml.safe_load(f)
-            if gt_pose_args['type'] == 'bag':
-                gt_pose_data[i] = PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
-            elif gt_pose_args['type'] == 'csv':
-                gt_pose_data[i] = PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
-            else:
-                raise ValueError("Invalid pose data type")
     
     # extract pickled data
     for pickle_file in pickle_files:
@@ -167,10 +159,10 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
 
     # create submaps
     if times is not None:
-        submap_centers, submap_times = zip(*[submap_centers_from_poses(pose_list, submap_center_dist, ts) for pose_list, ts in zip(poses, times)])
+        submap_centers, submap_times, submap_idxs = zip(*[submap_centers_from_poses(pose_list, submap_center_dist, ts) for pose_list, ts in zip(poses, times)])
     else:
-        submap_centers, submap_times = [submap_centers_from_poses(pose_list, submap_center_dist) for pose_list in poses]
-    submaps = [submaps_from_maps(object_map, center_list, submap_radius, time_list, args.submap_time_threshold, gtpd) \
+        submap_centers, submap_times, submap_idxs = [submap_centers_from_poses(pose_list, submap_center_dist) for pose_list in poses]
+    submaps = [submaps_from_maps(object_map, center_list, submap_radius, time_list, args.submap_time_threshold, gtpd, rot_maps_to_gt=rot_maps_to_gt) \
         for object_map, center_list, time_list, gtpd \
         in zip(object_maps, submap_centers, submap_times, gt_pose_data)]
     
@@ -200,14 +192,14 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
         exit(0)
         
     # if gt data is available, return gt submap location for evaluation
-    if gt_pose_data != [None, None]:
+    if gt_pose_data != [None, None] and rot_maps_to_gt:
         new_submap_centers = [[], []]
         for i, (gtpd, st) in enumerate(zip(gt_pose_data, submap_times)):
             for j in range(len(st)):
                 new_submap_centers[i].append(gtpd.pose(st[j]))
         submap_centers = new_submap_centers
         
-    return submap_centers, submaps
+    return submap_centers, submaps, poses, times, submap_idxs
 
 def load_segment_slam_submaps(json_files: List[str], show_maps=False):
     submaps = []
@@ -267,8 +259,25 @@ def load_segment_slam_submaps(json_files: List[str], show_maps=False):
         
 
 def main(args):
+    assert not (args.rotate_maps_to_gt and args.output_g2o), "Cannot provide g2o output when rotating maps to ground truth"
+
+    gt_pose_data = [None, None]
+    
+    # load ground truth pose data
+    for i, yaml_file in enumerate(args.gt_yaml):
+        if yaml_file is not None:
+            # load yaml file
+            with open(os.path.expanduser(yaml_file), 'r') as f:
+                gt_pose_args = yaml.safe_load(f)
+            if gt_pose_args['type'] == 'bag':
+                gt_pose_data[i] = PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
+            elif gt_pose_args['type'] == 'csv':
+                gt_pose_data[i] = PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
+            else:
+                raise ValueError("Invalid pose data type")
+    
     if not args.segment_slam:
-        submap_centers, submaps = create_submaps(args.input, args.submap_radius, args.submap_center_dist, show_maps=args.show_maps, gt_yaml=args.gt_yaml)
+        submap_centers, submaps, poses, times, submap_idxs = create_submaps(args.input, args.submap_radius, args.submap_center_dist, show_maps=args.show_maps, gt_pose_data=gt_pose_data, rot_maps_to_gt=args.rotate_maps_to_gt)
     else:
         submap_centers, submaps = load_segment_slam_submaps(args.input, show_maps=args.show_maps)
 
@@ -363,9 +372,20 @@ def main(args):
             submap_j = submaps[1][j]
 
             # determine correct T_ij
-            T_wi = np.eye(4); T_wi[:args.dim, 3] = submap_centers[0][i][:args.dim,3]
-            T_wj = np.eye(4); T_wj[:args.dim, 3] = submap_centers[1][j][:args.dim,3]
-            T_ij = np.linalg.inv(T_wi) @ T_wj
+            if args.rotate_maps_to_gt:
+                T_wi = np.eye(4); T_wi[:args.dim, 3] = submap_centers[0][i][:args.dim,3]
+                T_wj = np.eye(4); T_wj[:args.dim, 3] = submap_centers[1][j][:args.dim,3]
+                T_ij = np.linalg.inv(T_wi) @ T_wj
+            else:
+                if gt_pose_data[0] is not None:
+                    T_wi = transform_rm_roll_pitch(gt_pose_data[0].pose(times[0][submap_idxs[0][i]]) @ T_RDFFLU)
+                else:
+                    T_wi = transform_rm_roll_pitch(submap_centers[0][i] @ T_RDFFLU)
+                if gt_pose_data[1] is not None:
+                    T_wj = transform_rm_roll_pitch(gt_pose_data[1].pose(times[1][submap_idxs[1][j]]) @ T_RDFFLU)
+                else:
+                    T_wj = transform_rm_roll_pitch(submap_centers[1][j] @ T_RDFFLU)
+                T_ij = np.linalg.inv(T_wi) @ T_wj
                 
             # register the submaps (run multiple times if ambiguity is set)
             if args.ambiguity:
@@ -382,7 +402,7 @@ def main(args):
                 if args.dim == 2:
                     T_ij_hat = registration.T_align(submap_i, submap_j, associations)
                     T_error = np.linalg.inv(T_ij_hat) @ T_ij
-                    _, _, theta = transform_2_xytheta(T_error)
+                    _, _, theta = transform_to_xytheta(T_error)
                     dist = np.linalg.norm(T_error[:args.dim, 3])
 
                 elif args.dim == 3:
@@ -481,6 +501,45 @@ def main(args):
         with open(args.output_params, 'w') as f:
             f.write(f"{args}")
 
+    if args.output_g2o:
+        I_t = 1 / (args.t_std**2)
+        I_r = 1 / (args.r_std**2)
+        I = np.diag([I_t, I_t, I_t, I_r, I_r, I_r])
+
+        with open(args.output_g2o, 'w') as f:
+            for i in range(len(submaps[0])):
+                for j in range(len(submaps[1])):
+                    if clipper_num_associations[i, j] < args.g2o_thresh:
+                        continue
+                    if (np.abs(times[0][submap_idxs[0][i]] - times[1][submap_idxs[1][j]]) < 
+                        args.self_lc_time_thresh):
+                        continue
+                    T_ci_cj = T_ij_hat_mat[i, j] # transform from center_j to center_i
+                    T_odomi_ci = transform_rm_roll_pitch(submap_centers[0][i] @ T_RDFFLU)
+                    T_odomj_cj = transform_rm_roll_pitch(submap_centers[1][j] @ T_RDFFLU)
+                    T_odomi_pi = submap_centers[0][i] # pose i in odom frame
+                    T_odomj_pj = submap_centers[1][j] # pose j in odom frame
+                    T_pi_pj = ( # pose j in pose i frame, the desired format for our loop closure
+                        np.linalg.inv(T_odomi_pi) @ T_odomi_ci @ T_ci_cj @ np.linalg.inv(T_odomj_cj) @ T_odomj_pj
+                    )
+                    t, q = transform_to_xyz_quat(T_pi_pj, separate=True)
+
+                    print(clipper_num_associations[i, j])
+                    f.write(f"# LC: {int(clipper_num_associations[i, j])}\n")
+                    f.write(f"EDGE_SE3:QUAT a{submap_idxs[0][i]} b{submap_idxs[1][j]} \t")
+                    f.write(f"{t[0]} {t[1]} {t[2]} \t")
+                    f.write(f"{q[0]} {q[1]} {q[2]} {q[3]} \t")
+                    for ii in range(6):
+                        for jj in range(6):
+                            if jj < ii:
+                                continue
+                            f.write(f"{I[ii, jj]} ")
+                        f.write("\t")
+                    f.write("\n")
+            f.close()
+
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('input', nargs=2)
@@ -495,6 +554,8 @@ if __name__ == '__main__':
     parser.add_argument('--ambiguity', '-a', action='store_true', help="Create ambiguity matrix plot")
     parser.add_argument('--submaps-idx', type=int, nargs=4, default=None, help="Specify submap indices to use")
     parser.add_argument('--gt-yaml', type=str, default=[None, None], help="Path to ground truth yaml file", nargs=2)
+    parser.add_argument('--rotate-maps-to-gt', action='store_true', help="Rotate maps to ground truth frame, previous method for validating map alignment")
+    parser.add_argument('--self-lc-time-thresh', type=float, default=0.0, help="Time threshold for self loop closure")
 
     # output files
     parser.add_argument('--output', '-o', type=str, default=None, help="Path to save output plot")
@@ -502,6 +563,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-viz', type=str, default=None, help="Path to save output visualization file")
     parser.add_argument('--output-timing', type=str, default=None, help="Path to save output timing file")
     parser.add_argument('--output-params', type=str, default=None, help="Path to save output parameters file")
+    parser.add_argument('--output-g2o', type=str, default=None, help="Path to save output g2o file")
     parser.add_argument('--all-output-prefix', type=str, default=None, help="Prefix for all output files")
     
     # registration params
@@ -513,6 +575,7 @@ if __name__ == '__main__':
     parser.add_argument('--distance-weight', type=float, default=1.0, help="Weight for distance in similarity fusion")
     parser.add_argument('--drift-scale', type=float, default=0.05, help="Scale for drift relaxation of epsilon/sigma")
     parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
+    parser.add_argument('--g2o-thresh', type=int, default=5, help="Association quantity threshold for g2o edge creation")
 
     args = parser.parse_args()
 
@@ -528,5 +591,9 @@ if __name__ == '__main__':
         args.output_viz = f"{args.all_output_prefix}.viz.pkl"
         args.output_timing = f"{args.all_output_prefix}.timing.txt"
         args.output_params = f"{args.all_output_prefix}.params.txt"
+        args.output_g2o = f"{args.all_output_prefix}.g2o"
+
+    args.t_std = 1.0
+    args.r_std = np.deg2rad(5)
     
     main(args)
