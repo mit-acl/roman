@@ -16,19 +16,45 @@ def format_g2o_line(data):
     ret += f'{data[30]}'
     return ret
 
-def reformat_g2o_lines(lc_file, letter1, letter2, thresh=None, lc=False, self_lc=False):
+def reformat_g2o_vertex_lines(file, letter):
     output_lines = []
 
-    with open(lc_file, 'r') as f:
+    with open(file, 'r') as f:
         lines = f.readlines()
         for i in range(len(lines)):
             line = lines[i].strip()
             if line.startswith('#') or line == '':
                 continue
             line = line.split()
-            if len(line) != 31:
-                assert False, f"Invalid line: {line}"
-            assert line[0] == 'EDGE_SE3:QUAT', f"Invalid line: {line}"
+            
+            assert (line[0] == 'EDGE_SE3:QUAT' and len(line) == 31) or \
+                    (line[0] == 'VERTEX_SE3:QUAT' and len(line) == 9), f"Invalid line: {line}"
+            if line[0] == 'EDGE_SE3:QUAT':
+                continue
+
+            line[1] = ''.join(ch for ch in line[1] if ch.isdigit())
+            line[1] = str(gtsam.symbol(letter, int(line[1])))
+            output_lines.append(' '.join(line))
+            
+    return output_lines
+            
+
+def reformat_g2o_edge_lines(file, letter1, letter2, thresh=None, lc=False, self_lc=False):
+    output_lines = []
+
+    with open(file, 'r') as f:
+        lines = f.readlines()
+        for i in range(len(lines)):
+            line = lines[i].strip()
+            if line.startswith('#') or line == '':
+                continue
+            line = line.split()
+            assert (line[0] == 'EDGE_SE3:QUAT' and len(line) == 31) or \
+                    (line[0] == 'VERTEX_SE3:QUAT' and len(line) == 9), f"Invalid line: {line}"
+                    
+            if line[0] == 'VERTEX_SE3:QUAT':
+                continue
+            
             if self_lc: # make sure we only add self loop closures once
                 if line[1] >= line[2]:
                     continue
@@ -61,19 +87,21 @@ def main(args):
     for odom_config in config['odometry']:
         odom_file = odom_config['file']
         letter = robot_letters[odom_config['robot']]
-        output_lines += reformat_g2o_lines(odom_file, letter, letter, args.thresh, lc=False)
+        output_lines += reformat_g2o_edge_lines(odom_file, letter, letter, args.thresh, lc=False)
+        output_lines += reformat_g2o_vertex_lines(odom_file, letter)
+        
         
     # add single robot loop closures
     for single_lc_config in config['single_lc']:
         lc_file = single_lc_config['file']
         letter = robot_letters[single_lc_config['robot']]
-        output_lines += reformat_g2o_lines(lc_file, letter, letter, args.thresh, lc=True, self_lc=True)
+        output_lines += reformat_g2o_edge_lines(lc_file, letter, letter, args.thresh, lc=True, self_lc=True)
 
     # add multi robot loop closures
     for multi_lc_config in config['multi_lc']:
         lc_file = multi_lc_config['file']
         letters = [robot_letters[multi_lc_config['robot1']], robot_letters[multi_lc_config['robot2']]]
-        output_lines += reformat_g2o_lines(lc_file, letters[0], letters[1], args.thresh, lc=True)
+        output_lines += reformat_g2o_edge_lines(lc_file, letters[0], letters[1], args.thresh, lc=True)
 
     with open(args.output, 'w') as f:
         for line in output_lines:

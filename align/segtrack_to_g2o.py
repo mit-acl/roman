@@ -19,9 +19,9 @@ def main(args):
             _, poses, _ = pickle_data
 
     with open(os.path.expanduser(args.output), 'w') as f:
-        # for i, pose in enumerate(poses):
-        #     t, q = transform.transform_2_xyz_quat(pose, separate=True)
-        #     f.write(f"VERTEX_SE3:QUAT {i} {t[0]}, {t[1]}, {t[2]} {q[0]}, {q[1]}, {q[2]}, {q[3]}")
+        for i, pose in enumerate(poses):
+            t, q = transform.transform_to_xyz_quat(pose, separate=True)
+            f.write(f"VERTEX_SE3:QUAT {i} {t[0]} {t[1]} {t[2]} {q[0]} {q[1]} {q[2]} {q[3]}\n")
 
         for i in range(len(poses) - 1):
             T_w1 = poses[i]
