@@ -358,8 +358,12 @@ def main(args):
     for i in tqdm(range(len(submaps[0]))):
         for j in (range(len(submaps[1]))):
             
+            if gt_pose_data != [None, None]:
+                sc_gt = [gt_pose_data[0].pose(times[0][submap_idxs[0][i]]), gt_pose_data[1].pose(times[1][submap_idxs[1][j]])]
+            else:
+                sc_gt = [submap_centers[0][i], submap_centers[1][j]]
             submap_intersection = circle_intersection(
-                center1=submap_centers[0][i][:2,3], center2=submap_centers[1][j][:2,3], radius1=args.submap_radius, radius2=args.submap_radius
+                center1=sc_gt[0][:2,3], center2=sc_gt[1][:2,3], radius1=args.submap_radius, radius2=args.submap_radius
             )
             submap_area = np.pi*args.submap_radius**2
             robots_nearby_mat[i, j] = submap_intersection/submap_area
@@ -524,7 +528,6 @@ def main(args):
                     )
                     t, q = transform_to_xyz_quat(T_pi_pj, separate=True)
 
-                    print(clipper_num_associations[i, j])
                     f.write(f"# LC: {int(clipper_num_associations[i, j])}\n")
                     f.write(f"EDGE_SE3:QUAT a{submap_idxs[0][i]} b{submap_idxs[1][j]} \t")
                     f.write(f"{t[0]} {t[1]} {t[2]} \t")
