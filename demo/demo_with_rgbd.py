@@ -15,11 +15,17 @@ import os
 from os.path import expandvars
 from threading import Thread
 
-from robotdatapy.data.img_data import ImgData
-from robotdatapy.data.pose_data import PoseData
-from robotdatapy.transform import transform, T_RDFFLU, T_FLURDF
-from robotdatapy.data.general_data import GeneralData
-from robotdatapy.data.robot_data import NoDataNearTimeException
+# from robotdatapy.data.img_data import ImgData
+# from robotdatapy.data.pose_data import PoseData
+# from robotdatapy.transform import transform, T_RDFFLU, T_FLURDF
+# from robotdatapy.data.general_data import GeneralData
+# from robotdatapy.data.robot_data import NoDataNearTimeException
+from robot_utils.robot_data.img_data import ImgData
+from robot_utils.robot_data.pose_data import PoseData
+from robot_utils.transform import transform, T_RDFFLU, T_FLURDF
+from robot_utils.robot_data.general_data import GeneralData
+from robot_utils.robot_data.robot_data import NoDataNearTimeException
+
 
 from plot_utils import remove_ticks
 
@@ -343,6 +349,9 @@ def main(args):
         yolo_det_img_size=params['yolo']['imgsz'],
         allow_tblr_edges=[True, True, True, True],
         area_bounds=[img_area / (params['fastsam']['min_mask_len_div']**2), img_area / (params['fastsam']['max_mask_len_div']**2)],
+        clip_embedding=True,
+        clip_model='ViT-B/32',
+        device='cuda'
     )
 
     print("Setting up segment tracker...")

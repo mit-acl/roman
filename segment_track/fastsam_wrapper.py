@@ -6,13 +6,14 @@ import cv2 as cv
 import numpy as np
 import open3d as o3d
 import copy
+import torch
 from yolov7_package import Yolov7Detector
 import math
 import time
-
+from PIL import Image
 from fastsam import FastSAMPrompt
 from fastsam import FastSAM
-
+import clip
 from segment_track.observation import Observation
 import logging
 
@@ -150,6 +151,9 @@ class FastSAMWrapper():
         area_bounds=np.array([0, np.inf]),
         allow_tblr_edges = [True, True, True, True],
         keep_mask_minimal_intersection=0.3,
+        clip_embedding=False,
+        clip_model='ViT-L/14',
+        device='cpu'
     ):
         """
         Filtering setup function
@@ -178,7 +182,10 @@ class FastSAMWrapper():
         self.allow_tblr_edges= allow_tblr_edges
         self.keep_mask_minimal_intersection = keep_mask_minimal_intersection
         self.run_yolo = len(ignore_labels) > 0 or use_keep_labels
-
+        self.clip_embedding = clip_embedding
+        if clip_embedding:
+            self.clip_model, self.clip_preprocess = clip.load(clip_model, device=device)
+            self.device = device
     def setup_rgbd_params(
         self, 
         depth_cam_params, 
@@ -316,8 +323,19 @@ class FastSAMWrapper():
                 interpolation=cv.INTER_NEAREST
             )).astype('uint8')
 
-            self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
+            if self.clip_embedding:
+                print("Img size: ", img.shape)
+                print("Mask shape: ", mask.shape)
+                # print("Masked image: ", cv.bitwise_and(img, img, mask = mask.astype('uint8')).shape)
+                pre_processed_img = self.clip_preprocess(Image.fromarray(cv.bitwise_and(img, img, mask = mask.astype('uint8')))).to(self.device)
+                clip_embedding = self.clip_model.encode_image(pre_processed_img.unsqueeze(dim=0))
+                print("Clip embedding shape: ", clip_embedding.shape)
+                clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
+                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=clip_embedding))
+            else:
+                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
 
+        
         return self.observations
     
     def compute_orb(self, img, num_final=10, num_initial=100):

@@ -16,6 +16,7 @@ class Observation():
     point_cloud: np.ndarray = None  # n-by-3 matrix. Each row is a 3D point.
     keypoints: List[cv.KeyPoint] = None
     descriptors: np.ndarray = None
+    clip_embedding: np.ndarray = None
 
     def copy(self, include_mask: bool = True, include_ptcld = False):
         ptcld_copy = None
