@@ -15,8 +15,9 @@ def main(args):
         pickle_data = pickle.load(f)
         if len(pickle_data) == 2:
             _, poses, = pickle_data
+            times = None
         else:
-            _, poses, _ = pickle_data
+            _, poses, times = pickle_data
 
     with open(os.path.expanduser(args.output), 'w') as f:
         for i, pose in enumerate(poses):
@@ -41,7 +42,19 @@ def main(args):
     
         f.close()
 
-    print(f"Saved to {args.output}")
+    print(f"Saved g2o to {os.path.abspath(args.output)}")
+    
+    if args.output_time is None:
+        return
+    
+    assert times is not None, "No time data found in pickle file."
+    
+    with open(os.path.expanduser(args.time_file), 'w') as f:
+        for i, time in enumerate(times):
+            f.write(f"{args.robot_id} {i} {int(time*1e9)} xxx\n")
+        f.close()
+        
+    print(f"Saved time data to {os.path.abspath(args.time_file)}")
 
 
     
@@ -50,9 +63,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Convert SegTrack to g2o format.')
     parser.add_argument('input', type=str, help='Input SegTrack file.')
     parser.add_argument('output', type=str, help='Output g2o file.')
+    parser.add_argument('-t', '--output-time', action='store_true', help='Output timing information.')
+    parser.add_argument('-f', '--time-file', type=str, default=None, 
+                        help='Time file. Saves with same name as g2o file with time.txt extension if this is not set.')
+    parser.add_argument('-n', '--robot-id', type=int, default=0, help='Robot ID.')
     args = parser.parse_args()
 
     args.t_std = .01
     args.r_std = np.deg2rad(.02)
+    
+    if args.time_file is None and args.output_time:
+        args.time_file = args.output.replace('.g2o', '_time.txt')
     
     main(args)
