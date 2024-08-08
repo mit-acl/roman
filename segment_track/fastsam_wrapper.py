@@ -114,6 +114,37 @@ def ssc(keypoints, num_ret_points, tolerance, cols, rows):
         selected_keypoints.append(keypoints[result_list[i]])
 
     return selected_keypoints
+'''
+Helper function from Annika
+'''
+# my function to calculate a boounding box around a mask
+def mask_bounding_box(mask):
+    # Find the indices of the True values
+    true_indices = np.argwhere(mask)
+
+    if len(true_indices) == 0:
+        # No True values found, return None or an appropriate response
+        return None
+
+    # Calculate the mean of the indices
+    mean_coords = np.mean(true_indices, axis=0)
+
+    # print(mean_coords)
+
+    # Calculate the width and height based on the min and max indices in each dimension
+    min_row, min_col = np.min(true_indices, axis=0)
+    max_row, max_col = np.max(true_indices, axis=0)
+
+    width = max_col - min_col + 1
+    height = max_row - min_row + 1
+
+    # Define a bounding box around the mean coordinates with the calculated width and height
+    min_row = int(max(mean_coords[0] - height // 2, 0))
+    max_row = int(min(mean_coords[0] + height // 2, mask.shape[0] - 1))
+    min_col = int(max(mean_coords[1] - width // 2, 0))
+    max_col = int(min(mean_coords[1] + width // 2, mask.shape[1] - 1))
+
+    return (min_col, min_row, max_col, max_row,)
 
 class FastSAMWrapper():
 
@@ -323,14 +354,23 @@ class FastSAMWrapper():
             )).astype('uint8')
 
             if self.clip_embedding:
-                print("Img size: ", img.shape)
-                print("Mask shape: ", mask.shape)
-                # print("Masked image: ", cv.bitwise_and(img, img, mask = mask.astype('uint8')).shape)
-                pre_processed_img = self.clip_preprocess(Image.fromarray(cv.bitwise_and(img, img, mask = mask.astype('uint8')))).to(self.device)
-                clip_embedding = self.clip_model.encode_image(pre_processed_img.unsqueeze(dim=0))
-                print("Clip embedding shape: ", clip_embedding.shape)
+                ### Use masked image
+                # print("Img size: ", img.shape)
+                # print("Mask shape: ", mask.shape)
+                # # print("Masked image: ", cv.bitwise_and(img, img, mask = mask.astype('uint8')).shape)
+                # pre_processed_img = self.clip_preprocess(Image.fromarray(cv.bitwise_and(img, img, mask = mask.astype('uint8')))).to(self.device)
+                # clip_embedding = self.clip_model.encode_image(pre_processed_img.unsqueeze(dim=0))
+                # print("Clip embedding shape: ", clip_embedding.shape)
+                # clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
+
+                ### Use bounding box
+                min_col, min_row, max_col, max_row = mask_bounding_box(mask_downsampled)
+                img_bbox = img[min_row:max_row, min_col:max_col]
+                processed_img = self.clip_preprocess(Image.fromarray(img_bbox)).to(self.device)
+                clip_embedding = self.clip_model.encode_image(processed_img.unsqueeze(dim=0))
                 clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
                 self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=clip_embedding))
+                
             else:
                 self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
 
