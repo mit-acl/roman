@@ -153,7 +153,6 @@ class FastSAMWrapper():
         keep_mask_minimal_intersection=0.3,
         clip_embedding=False,
         clip_model='ViT-L/14',
-        device='cpu'
     ):
         """
         Filtering setup function
@@ -184,8 +183,8 @@ class FastSAMWrapper():
         self.run_yolo = len(ignore_labels) > 0 or use_keep_labels
         self.clip_embedding = clip_embedding
         if clip_embedding:
-            self.clip_model, self.clip_preprocess = clip.load(clip_model, device=device)
-            self.device = device
+            self.clip_model, self.clip_preprocess = clip.load(clip_model, device=self.device)
+            
     def setup_rgbd_params(
         self, 
         depth_cam_params, 
