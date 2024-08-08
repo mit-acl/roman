@@ -90,7 +90,7 @@ class Tracker():
             self.segments[seg_idx].update(observations[obs_idx], integrate_points=True)
         for seg_idx, obs_idx in pairs_nursery:
             # forcing add does not try to reconstruct the segment
-            self.segment_nursery[seg_idx].update(observations[obs_idx], force=True, integrate_points=True)
+            self.segment_nursery[seg_idx].update(observations[obs_idx], integrate_points=True)
 
         # delete masks for segments that were not seen in this frame
         for seg in self.segments:
@@ -248,7 +248,6 @@ class Tracker():
         # segments inthe graveyard. Heuristic for merging involves either projected IOU or 
         # 3D IOU. Should look into more.
 
-        max_time_passed_merge = 10.0
         max_iter = 100
         n = 0
         edited = True
@@ -266,9 +265,6 @@ class Tracker():
                     if i >= j:
                         continue
 
-                    # TODO: merging needs to be faster, this may not be the right way to do it.
-                    # if np.abs(seg2.last_seen - seg1.last_seen) > max_time_passed_merge:
-                    #     continue
                     # if segments are very far away, don't worry about doing extra checking
                     if np.mean(seg1.points) - np.mean(seg2.points) > \
                         .5 * (np.max(seg1.extent) + np.max(seg2.extent)):
@@ -290,13 +286,7 @@ class Tracker():
                     iou2d = intersection2d / union2d
 
                     if iou3d > self.merge_objects_iou_3d or iou2d > self.merge_objects_iou_2d:
-                        for obs in seg2.observations:
-                            # none of the observations will have masks, so need to update with 
-                            # the last_observation copy (which will have a mask) instead
-                            if obs.time == seg2.last_seen:
-                                obs = seg2.last_observation
-                            seg1.update(obs, integrate_points=False)
-                        seg1.integrate_points_from_segment(seg2)
+                        seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if j < len(self.segments):
                             self.segments.pop(j)
