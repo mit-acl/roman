@@ -356,6 +356,9 @@ def main(args):
 
     print("Running segment tracking! Start time {:.1f}, end time {:.1f}".format(t0, tf))
     wc_t0 = time.time()
+    seg_track_times = []
+    fastsam_times = []
+    total_times = []
     poses_history = []
     times_history = []
 
@@ -370,11 +373,21 @@ def main(args):
 
     def update_wrapper(t): 
         print(f"t: {t - t0:.2f} = {t}")
+        img_output = None
+        update_t0 = time.time()
+
         observations, pose, img = update_fastsam(t, img_data, depth_data, pose_data, fastsam)
+        update_t1 = time.time()
         if observations is not None and pose is not None and img is not None:
-            return update_segment_track(t, observations, pose, img, tracker, poses_history, 
+            img_output = update_segment_track(t, observations, pose, img, tracker, poses_history, 
                                         times_history, viz_bbox=not args.no_vid, 
                                         viz_mask=not args.no_vid and not args.vid_bbox_only)
+        update_t2 = time.time()
+        seg_track_times.append(update_t2 - update_t1)
+        fastsam_times.append(update_t1 - update_t0)
+        total_times.append(update_t2 - update_t0)
+
+        return img_output
 
     for t in np.arange(t0, tf, params['segment_tracking']['dt']):
         img_t = update_wrapper(t)
@@ -433,6 +446,16 @@ def main(args):
         pickle.dump([tracker, poses_history, times_history], pkl_file, -1)
         logging.info(f"Saved tracker, poses_history to file: {pkl_path}.")
         pkl_file.close()
+
+        timing_file = os.path.expanduser(expandvars(args.output)) + ".time.txt"
+        with open(timing_file, 'w') as f:
+            f.write(f"dt: {params['segment_tracking']['dt']}\n\n")
+            f.write(f"AVERAGE TIMES\n")
+            f.write(f"fastsam: {np.mean(fastsam_times):.3f}\n")
+            f.write(f"segment_track: {np.mean(seg_track_times):.3f}\n")
+            f.write(f"total: {np.mean(total_times):.3f}\n")
+            f.write(f"TOTAL TIMES\n")
+            f.write(f"total: {np.sum(total_times):.2f}\n")
 
     if not args.no_o3d:
         poses_list = []
