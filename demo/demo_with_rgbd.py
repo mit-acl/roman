@@ -345,7 +345,6 @@ def main(args):
         area_bounds=[img_area / (params['fastsam']['min_mask_len_div']**2), img_area / (params['fastsam']['max_mask_len_div']**2)],
         clip_embedding=True,
         clip_model='ViT-B/32',
-        device='cuda'
     )
 
     print("Setting up segment tracker...")
