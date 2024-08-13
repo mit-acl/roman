@@ -15,10 +15,8 @@ For now, activate your favorite virtual environment and `cd` into this repo and 
 ```
 mkdir dependencies
 cd dependencies
-git clone git@github.com:mbpeterson70/plot_utils.git
-git clone git@github.com:mbpeterson70/robot_utils.git
-pip install ./plot_utils/
-pip install ./robot_utils/
+git clone git@github.com:mbpeterson70/robotdatapy.git
+pip install ./robotdatapy/
 ```
 
 # Demo
@@ -30,5 +28,5 @@ export WEST_POINT_2023_PATH=<path>
 export FASTSAM_WEIGHTS_PATH=<path>
 ```
 
-2. `cd` into `./demo` and run `python3 ./demo.py -p <params file>`
+2. `cd` into `./demo` and run `python3 ./demo.py -p <params file> -o <output prefix (without file extensions)`
 
