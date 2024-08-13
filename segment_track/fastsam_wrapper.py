@@ -119,6 +119,7 @@ Helper function from Annika
 '''
 # my function to calculate a boounding box around a mask
 def mask_bounding_box(mask):
+    print("Mask shape: ", mask.shape)
     # Find the indices of the True values
     true_indices = np.argwhere(mask)
 
@@ -129,12 +130,12 @@ def mask_bounding_box(mask):
     # Calculate the mean of the indices
     mean_coords = np.mean(true_indices, axis=0)
 
-    # print(mean_coords)
+    print("Mean coord: ", mean_coords)
 
     # Calculate the width and height based on the min and max indices in each dimension
     min_row, min_col = np.min(true_indices, axis=0)
     max_row, max_col = np.max(true_indices, axis=0)
-
+    print("Before processing: ", min_row, max_row, min_col, max_col)
     width = max_col - min_col + 1
     height = max_row - min_row + 1
 
@@ -143,6 +144,7 @@ def mask_bounding_box(mask):
     max_row = int(min(mean_coords[0] + height // 2, mask.shape[0] - 1))
     min_col = int(max(mean_coords[1] - width // 2, 0))
     max_col = int(min(mean_coords[1] + width // 2, mask.shape[1] - 1))
+    print("After processing: ", min_row, max_row, min_col, max_col)
 
     return (min_col, min_row, max_col, max_row,)
 
@@ -364,12 +366,19 @@ class FastSAMWrapper():
                 # clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
 
                 ### Use bounding box
-                min_col, min_row, max_col, max_row = mask_bounding_box(mask_downsampled)
-                img_bbox = img[min_row:max_row, min_col:max_col]
-                processed_img = self.clip_preprocess(Image.fromarray(img_bbox)).to(self.device)
-                clip_embedding = self.clip_model.encode_image(processed_img.unsqueeze(dim=0))
-                clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
-                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=clip_embedding))
+                bbox = mask_bounding_box(mask.astype('uint8'))
+                if bbox is None:
+                    self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
+                else:
+                    min_col, min_row, max_col, max_row = bbox
+                    print("Img shape: ", img.shape)
+                    print("Bbox: ", min_row, max_row, min_col, max_col)
+                    img_bbox = img[min_row:max_row, min_col:max_col]
+                    img_bbox = cv.cvtColor(img_bbox, cv.COLOR_BGR2RGB)
+                    processed_img = self.clip_preprocess(Image.fromarray(img_bbox, mode='RGB')).to(self.device)
+                    clip_embedding = self.clip_model.encode_image(processed_img.unsqueeze(dim=0))
+                    clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
+                    self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=clip_embedding))
                 
             else:
                 self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
