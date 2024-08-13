@@ -2,6 +2,7 @@ import numpy as np
 import argparse
 import gtsam
 import yaml
+import os
 
 def format_g2o_line(data):
     ret = data[0]
@@ -19,7 +20,7 @@ def format_g2o_line(data):
 def reformat_g2o_vertex_lines(file, letter):
     output_lines = []
 
-    with open(file, 'r') as f:
+    with open(os.path.expandvars(file), 'r') as f:
         lines = f.readlines()
         for i in range(len(lines)):
             line = lines[i].strip()
@@ -42,7 +43,7 @@ def reformat_g2o_vertex_lines(file, letter):
 def reformat_g2o_edge_lines(file, letter1, letter2, thresh=None, lc=False, self_lc=False):
     output_lines = []
 
-    with open(file, 'r') as f:
+    with open(os.path.expandvars(file), 'r') as f:
         lines = f.readlines()
         for i in range(len(lines)):
             line = lines[i].strip()
