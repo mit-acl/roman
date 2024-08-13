@@ -61,7 +61,8 @@ def transform_rm_roll_pitch(T):
     return T
 
 def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius: float, 
-                      center_times: List[float]=None, time_threshold: float=0.0, gt_pose_data: PoseData=None, rot_maps_to_gt=False):
+                      center_times: List[float]=None, time_threshold: float=0.0, 
+                      gt_pose_data: PoseData=None, rot_maps_to_gt=False, max_submap_size=None):
     """
     From a list of objects and a list of centers, generate a list of submaps centered at the centers.
 
@@ -120,10 +121,14 @@ def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius:
             for obj in submap:
                 obj.transform(T_center_odom)
 
+        if max_submap_size is not None:
+            submap_sorted_by_dist = sorted(submap, key=lambda obj: np.linalg.norm(obj.center.flatten()[:2]))
+            submap = submap_sorted_by_dist[:max_submap_size]
+
         submaps.append(submap)
     return submaps
 
-def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_dist: float, show_maps=False, gt_pose_data=[None, None], rot_maps_to_gt=False):    
+def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_dist: float, show_maps=False, gt_pose_data=[None, None], rot_maps_to_gt=False, max_submap_size=None):    
     colors = ['maroon', 'blue']
     poses = []
     times = []
@@ -162,7 +167,7 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
         submap_centers, submap_times, submap_idxs = zip(*[submap_centers_from_poses(pose_list, submap_center_dist, ts) for pose_list, ts in zip(poses, times)])
     else:
         submap_centers, submap_times, submap_idxs = [submap_centers_from_poses(pose_list, submap_center_dist) for pose_list in poses]
-    submaps = [submaps_from_maps(object_map, center_list, submap_radius, time_list, args.submap_time_threshold, gtpd, rot_maps_to_gt=rot_maps_to_gt) \
+    submaps = [submaps_from_maps(object_map, center_list, submap_radius, time_list, args.submap_time_threshold, gtpd, rot_maps_to_gt=rot_maps_to_gt, max_submap_size=max_submap_size) \
         for object_map, center_list, time_list, gtpd \
         in zip(object_maps, submap_centers, submap_times, gt_pose_data)]
     
@@ -277,7 +282,11 @@ def main(args):
                 raise ValueError("Invalid pose data type")
     
     if not args.segment_slam:
-        submap_centers, submaps, poses, times, submap_idxs = create_submaps(args.input, args.submap_radius, args.submap_center_dist, show_maps=args.show_maps, gt_pose_data=gt_pose_data, rot_maps_to_gt=args.rotate_maps_to_gt)
+        submap_centers, submaps, poses, times, submap_idxs = \
+            create_submaps(args.input, args.submap_radius, args.submap_center_dist, 
+                           show_maps=args.show_maps, gt_pose_data=gt_pose_data, 
+                           rot_maps_to_gt=args.rotate_maps_to_gt, 
+                           max_submap_size=args.max_map_size)
     else:
         submap_centers, submaps = load_segment_slam_submaps(args.input, show_maps=args.show_maps)
 
@@ -309,7 +318,7 @@ def main(args):
 
     if args.method == 'standard':
         method_name = f'{args.dim}D Point CLIPPER'
-        registration = DistOnlyReg(clipperpy.invariants.DistanceMinMaxSimilarity, sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pt_dim=args.dim)
+        registration = DistOnlyReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pt_dim=args.dim)
     elif args.method == 'gravity':
         method_name = 'Gravity Guided CLIPPER'
         registration = DistOnlyReg(sigma=args.sigma, mindist=args.mindist, epsilon=args.epsilon, use_gravity=True,
@@ -579,6 +588,7 @@ if __name__ == '__main__':
     parser.add_argument('--drift-scale', type=float, default=0.05, help="Scale for drift relaxation of epsilon/sigma")
     parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
     parser.add_argument('--g2o-thresh', type=int, default=5, help="Association quantity threshold for g2o edge creation")
+    parser.add_argument('--max-map-size', '-n', type=int, default=40, help="Maximum number of objects in a submap")
 
     args = parser.parse_args()
 
