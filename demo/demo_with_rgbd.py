@@ -21,10 +21,6 @@ from robotdatapy.transform import transform, T_RDFFLU, T_FLURDF
 from robotdatapy.data.general_data import GeneralData
 from robotdatapy.data.robot_data import NoDataNearTimeException
 
-from plot_utils import remove_ticks
-
-from img_utils import draw_cylinder
-
 from segment_track.observation import Observation
 from segment_track.segment import Segment
 from segment_track.tracker import Tracker
