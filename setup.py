@@ -16,7 +16,8 @@ setup(
         'gtsam',
         'scikit-image',
         'open3d',
-        'yolov7-package'
+        'yolov7-package',
+        'fastsam'
     ],
 )
 
