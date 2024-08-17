@@ -17,7 +17,7 @@ from segment_track.observation import Observation
 import logging
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.WARN)
 
 def ssc(keypoints, num_ret_points, tolerance, cols, rows):
     exp1 = rows + cols + 2 * num_ret_points
@@ -122,8 +122,22 @@ class FastSAMWrapper():
         iou=.9,
         imgsz=(1024, 1024),
         device='cuda',
-        mask_downsample_factor=1
+        mask_downsample_factor=1,
+        rotate_img=None,
     ):
+        """Wrapper for running FastSAM on images (especially RGB/depth pairs)
+
+        Args:
+            weights (str): Path to FastSAM weights.
+            conf (float, optional): FastSAM confidence threshold. Defaults to .5.
+            iou (float, optional): FastSAM IOU threshold. Defaults to .9.
+            imgsz (tuple, optional): Image size to feed into FastSAM. Defaults to (1024, 1024).
+            device (str, optional): 'cuda' or 'cpu. Defaults to 'cuda'.
+            mask_downsample_factor (int, optional): For creating smaller data observations. 
+                Defaults to 1.
+            rotate_img (_type_, optional): 'CW', 'CCW', or '180' for rotating image before 
+                feeding into FastSAM. Defaults to None.
+        """
         # parameters
         self.weights = weights
         self.conf = conf
@@ -131,6 +145,7 @@ class FastSAMWrapper():
         self.device = device
         self.imgsz = imgsz
         self.mask_downsample_factor = mask_downsample_factor
+        self.rotate_img = rotate_img
 
         # member variables
         self.observations = []
@@ -140,6 +155,10 @@ class FastSAMWrapper():
 
         self.orb_num_initial = 100
         self.orb_num_final = 10
+        
+        assert self.device == 'cuda' or self.device == 'cpu', "Device should be 'cuda' or 'cpu'."
+        assert self.rotate_img is None or self.rotate_img == 'CW' or self.rotate_img == 'CCW' \
+            or self.rotate_img == '180', "Invalid rotate_img option."
             
     def setup_filtering(self,
         ignore_labels = [],
@@ -236,6 +255,9 @@ class FastSAMWrapper():
             self.observations (list): list of Observations
         """
         self.observations = []
+        
+        # rotate image
+        img = self.apply_rotation(img)
 
         if self.run_yolo:
             ignore_mask, keep_mask = self._create_mask(img)
@@ -243,14 +265,12 @@ class FastSAMWrapper():
             ignore_mask = None
             keep_mask = None
         
-        # TODO: we need to revisit the logic for keep_mask - 
-        # we don't easily have an option to still accept all masks, so for now 
-        # do not use the keep_mask
-        
         # run fastsam
         masks = self._process_img(img, ignore_mask=ignore_mask, keep_mask=keep_mask)
         
         for mask in masks:
+            
+            mask = self.unapply_rotation(mask)
             # kp, des = self.compute_orb(img[y0:y1, x0:x1], 
             #     num_final=self.orb_num_final, num_initial=self.orb_num_initial)
             # Extract point cloud of object from RGBD
@@ -320,6 +340,25 @@ class FastSAMWrapper():
 
         return self.observations
     
+    def apply_rotation(self, img, unrotate=False):
+        if self.rotate_img is None:
+            result = img
+        elif self.rotate_img == 'CW':
+            result = cv.rotate(img, cv.ROTATE_90_CLOCKWISE 
+                               if not unrotate else cv.ROTATE_90_COUNTERCLOCKWISE)
+        elif self.rotate_img == 'CCW':
+            result = cv.rotate(img, cv.ROTATE_90_COUNTERCLOCKWISE 
+                               if not unrotate else cv.ROTATE_90_CLOCKWISE)
+        elif self.rotate_img == '180':
+            result = cv.rotate(img, cv.ROTATE_180)
+        else:
+            raise Exception("Invalid rotate_img option.")
+        return result
+        
+    def unapply_rotation(self, img):
+        return self.apply_rotation(img, unrotate=True)
+    
+    
     def compute_orb(self, img, num_final=10, num_initial=100):
         # partially borrowed from: https://docs.opencv.org/4.x/dc/dc3/tutorial_py_matcher.html
         
@@ -349,6 +388,9 @@ class FastSAMWrapper():
         return kp_sel, des
 
     def _create_mask(self, img):
+        
+        if len(img.shape) == 2: # image is mono
+            img = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
         classes, boxes, scores = self.yolov7_det.detect(img)
         ignore_boxes = []
         keep_boxes = []
