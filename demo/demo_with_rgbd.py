@@ -21,10 +21,6 @@ from robotdatapy.transform import transform, T_RDFFLU, T_FLURDF
 from robotdatapy.data.general_data import GeneralData
 from robotdatapy.data.robot_data import NoDataNearTimeException
 
-from plot_utils import remove_ticks
-
-from img_utils import draw_cylinder
-
 from segment_track.observation import Observation
 from segment_track.segment import Segment
 from segment_track.tracker import Tracker
@@ -343,8 +339,7 @@ def main(args):
         yolo_det_img_size=params['yolo']['imgsz'],
         allow_tblr_edges=[True, True, True, True],
         area_bounds=[img_area / (params['fastsam']['min_mask_len_div']**2), img_area / (params['fastsam']['max_mask_len_div']**2)],
-        clip_embedding=True,
-        clip_model='ViT-B/32',
+        clip_embedding=True
     )
 
     print("Setting up segment tracker...")

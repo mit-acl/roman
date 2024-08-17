@@ -27,7 +27,6 @@ from object_map_registration.object.ellipsoid import Ellipsoid
 from object_map_registration.object.object import Object
 from object_map_registration.object.pointcloud_object import PointCloudObject
 from object_map_registration.register.dist_min_max_sim_reg import DistOnlyReg, DistVolReg, DistMinMaxPCAReg, DistCustomFeatureComboReg
-from object_map_registration.register.dist_semantic_sim_reg import DistSemanticSimReg
 from object_map_registration.register.ransac_reg import RansacReg
 from object_map_registration.register.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
 from object_map_registration.register.object_registration import InsufficientAssociationsException
@@ -62,7 +61,8 @@ def transform_rm_roll_pitch(T):
     return T
 
 def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius: float, 
-                      center_times: List[float]=None, time_threshold: float=0.0, gt_pose_data: PoseData=None, rot_maps_to_gt=False):
+                      center_times: List[float]=None, time_threshold: float=0.0, 
+                      gt_pose_data: PoseData=None, rot_maps_to_gt=False, max_submap_size=None):
     """
     From a list of objects and a list of centers, generate a list of submaps centered at the centers.
 
@@ -121,10 +121,14 @@ def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius:
             for obj in submap:
                 obj.transform(T_center_odom)
 
+        if max_submap_size is not None:
+            submap_sorted_by_dist = sorted(submap, key=lambda obj: np.linalg.norm(obj.center.flatten()[:2]))
+            submap = submap_sorted_by_dist[:max_submap_size]
+
         submaps.append(submap)
     return submaps
 
-def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_dist: float, show_maps=False, gt_pose_data=[None, None], rot_maps_to_gt=False, submap_time_threshold=60.0):    
+def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_dist: float, show_maps=False, gt_pose_data=[None, None], rot_maps_to_gt=False, max_submap_size=None):    
     colors = ['maroon', 'blue']
     poses = []
     times = []
@@ -154,8 +158,6 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
                 # new_obj.use_bottom_median_as_center()
                 # find volume once for each object so does not have to be recomputed each time
                 new_obj.volume
-                new_obj.semantic_descriptor = segment.semantic_descriptor
-                # print("Semantic Descriptor Shape: ", segment.semantic_descriptor.shape)
                 new_obj.first_seen = segment.first_seen
                 new_obj.last_seen = segment.last_seen
                 object_maps[i].append(new_obj)
@@ -165,7 +167,7 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
         submap_centers, submap_times, submap_idxs = zip(*[submap_centers_from_poses(pose_list, submap_center_dist, ts) for pose_list, ts in zip(poses, times)])
     else:
         submap_centers, submap_times, submap_idxs = [submap_centers_from_poses(pose_list, submap_center_dist) for pose_list in poses]
-    submaps = [submaps_from_maps(object_map, center_list, submap_radius, time_list, submap_time_threshold, gtpd, rot_maps_to_gt=rot_maps_to_gt) \
+    submaps = [submaps_from_maps(object_map, center_list, submap_radius, time_list, args.submap_time_threshold, gtpd, rot_maps_to_gt=rot_maps_to_gt, max_submap_size=max_submap_size) \
         for object_map, center_list, time_list, gtpd \
         in zip(object_maps, submap_centers, submap_times, gt_pose_data)]
     
@@ -192,7 +194,7 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
             ax.set_ylim(ylim)
 
         plt.show()
-        # exit(0)
+        exit(0)
         
     # if gt data is available, return gt submap location for evaluation
     if gt_pose_data != [None, None] and rot_maps_to_gt:
@@ -280,7 +282,11 @@ def main(args):
                 raise ValueError("Invalid pose data type")
     
     if not args.segment_slam:
-        submap_centers, submaps, poses, times, submap_idxs = create_submaps(args.input, args.submap_radius, args.submap_center_dist, show_maps=args.show_maps, gt_pose_data=gt_pose_data, rot_maps_to_gt=args.rotate_maps_to_gt)
+        submap_centers, submaps, poses, times, submap_idxs = \
+            create_submaps(args.input, args.submap_radius, args.submap_center_dist, 
+                           show_maps=args.show_maps, gt_pose_data=gt_pose_data, 
+                           rot_maps_to_gt=args.rotate_maps_to_gt, 
+                           max_submap_size=args.max_map_size)
     else:
         submap_centers, submaps = load_segment_slam_submaps(args.input, show_maps=args.show_maps)
 
@@ -309,7 +315,7 @@ def main(args):
     elif args.fusion_method == 'product':
         sim_fusion_method = clipperpy.invariants.DistancePairwiseAndSingle.PRODUCT
         
-    print("Using method: ", args.method)
+
     if args.method == 'standard':
         method_name = f'{args.dim}D Point CLIPPER'
         registration = DistOnlyReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pt_dim=args.dim)
@@ -340,32 +346,17 @@ def main(args):
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'pcavolgrav':
         method_name = f'Gravity Guided PCA feature-based Volume Registration (eps_pca={args.epsilon_pca})'
-        registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca, volume_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, pca=True, volume=True,
+        registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca[0], volume_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, pca=True, volume=True,
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'extentvolgrav':
         method_name = f'Gravity Guided Extent-based Volume Registration'
         # sim_fusion_method = clipperpy.invariants.DistanceMinMaxSimilarity.GEOMETRIC_MEAN
         registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, volume_epsilon=args.epsilon_volume, extent_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, extent=True, volume=True,
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
-    # elif args.method == 'drift':
-    #     method_name = 'Drift-Aware, Gravity-Guided, Extent-based Volume Registration'
-    #     registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, volume_epsilon=args.epsilon_volume, extent_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, extent=True, volume=True,
-    #                                      sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight, drift_aware=True, drift_scale=args.drift_scale, drift_scale_sigma=True)
-    elif args.method == 'semantic':
-        method_name = 'CLIP Semantic'
-        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=512, mindist=args.mindist, cosine_min=0.5, cosine_max=0.9)
-    elif args.method == 'semanticgrav':
-        method_name = 'CLIP Semantic with Gravity'
-        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=512, mindist=args.mindist, use_gravity=True)
-    elif args.method == 'semanticvolextent':
-        method_name = 'CLIP Semantic with Extent'
-        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=512, mindist=args.mindist, extent=True)
-    elif args.method == 'semanticvolgrav':
-        method_name = 'CLIP Semantic with Volume'
-        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=512, mindist=args.mindist, volume=True, use_gravity=True,  cosine_min=0.5, cosine_max=0.9)
-    elif args.method == 'semanticvolextentgrav':
-        method_name = 'CLIP Semantic with Extent and Gravity'
-        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=512, mindist=args.mindist, extent=True, use_gravity=True)
+    elif args.method == 'drift':
+        method_name = 'Drift-Aware, Gravity-Guided, Extent-based Volume Registration'
+        registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, volume_epsilon=args.epsilon_volume, extent_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, extent=True, volume=True,
+                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight, drift_aware=True, drift_scale=args.drift_scale, drift_scale_sigma=True)
     elif args.method == 'ransac':
         method_name = 'RANSAC'
         registration = RansacReg(dim=args.dim, max_iteration=args.ransac_iter)
@@ -596,7 +587,8 @@ if __name__ == '__main__':
     parser.add_argument('--distance-weight', type=float, default=1.0, help="Weight for distance in similarity fusion")
     parser.add_argument('--drift-scale', type=float, default=0.05, help="Scale for drift relaxation of epsilon/sigma")
     parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
-    parser.add_argument('--g2o-thresh', type=int, default=5, help="Association quantity threshold for g2o edge creation")
+    parser.add_argument('--g2o-thresh', type=int, default=4, help="Association quantity threshold for g2o edge creation")
+    parser.add_argument('--max-map-size', '-n', type=int, default=40, help="Maximum number of objects in a submap")
 
     args = parser.parse_args()
 

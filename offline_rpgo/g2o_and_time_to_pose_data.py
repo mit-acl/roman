@@ -4,6 +4,20 @@ from typing import List, Tuple, Dict
 
 from robotdatapy.data.pose_data import PoseData
 
+def time_vertex_mapping(time_file: int, robot_id: int = None, use_gtsam_idx: bool = False) -> Dict[int, float]:
+    with open(time_file, 'r') as f:
+        time_lines = f.readlines()
+    time_lines = [line.strip().split() for line in time_lines]
+    # map each index to a time for the desired robot
+    times = {
+                int(line[1]) if not use_gtsam_idx else 
+                gtsam.symbol(chr(int(line[0]) + ord('a')), int(line[1])): 
+                float(line[2])*1e-9 for line in time_lines
+                if (int(line[0]) == robot_id or robot_id is None)
+            }
+    return times
+
+
 def g2o_and_time_to_pose_data(g2o_file: str, time_file: str, robot_id: int = None) -> PoseData:
     with open(g2o_file, 'r') as f:
         lines = f.readlines()
@@ -27,12 +41,7 @@ def g2o_and_time_to_pose_data(g2o_file: str, time_file: str, robot_id: int = Non
 
     assert len(positions) > 0, "No vertices found in g2o file"
 
-    with open(time_file, 'r') as f:
-        time_lines = f.readlines()
-    time_lines = [line.strip().split() for line in time_lines]
-    # map each index to a time for the desired robot
-    times = {int(line[1]): float(line[2])*1e-9 for line in time_lines \
-        if (int(line[0]) == robot_id or robot_id is None)}
+    times = time_vertex_mapping(time_file, robot_id)
     
     indices = sorted(list(times.keys()))
     assert indices == sorted(list(positions.keys())), "Indices in time file and g2o file do not match"

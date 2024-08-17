@@ -1,7 +1,7 @@
-# time:
-#   t0: 100
-#   tf: 120
-#   relative: True
+time:
+  t0: 500
+  tf: 1115
+  relative: True
 
 img_data:
   path: "$BAG_DIR/$ROBOT.bag"
@@ -28,5 +28,5 @@ segment_tracking:
   min_sightings: 4
   min_iou: 0.25
   max_t_no_sightings: 0.25
-  dt: 0.166666666666666667
+  dt: 0.25
   mask_downsample_factor: 8
