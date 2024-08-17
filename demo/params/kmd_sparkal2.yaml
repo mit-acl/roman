@@ -6,9 +6,21 @@
 #   relative: True
 
 # time:
-#   t0: 600 # 10:00
-#   tf: 680 # 11:20
+#   t0: 450 # 10:00
+#   tf: 700 # 11:20
 #   relative: True
+
+# time:
+#   t0: 0 # 10:00
+#   tf: 450 # 11:20
+#   relative: True
+
+time:
+  t0: 700 # 10:00
+  tf: 1115 # 11:20
+  relative: True
+
+
 
 img_data:
   path: "$KMD_BAGS_PATH/sparkal2.bag"
