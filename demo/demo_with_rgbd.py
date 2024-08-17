@@ -26,12 +26,19 @@ from segment_track.segment import Segment
 from segment_track.tracker import Tracker
 from segment_track.fastsam_wrapper import FastSAMWrapper
 
-def draw(t, img, pose, tracker, observations, reprojected_bboxs, viz_bbox=False, viz_mask=False):
+def draw(t, img, pose, tracker, fastsam, observations, reprojected_bboxs, viz_bbox=False, viz_mask=False):
 
     if viz_mask:
-        img_fastsam = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        if len(img.shape) == 3 and img.shape[2] == 3:
+            img_fastsam = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        else:
+            img_fastsam = img.copy()
         img_fastsam = np.concatenate([img_fastsam[...,None]]*3, axis=2)
-
+        print(img_fastsam.shape)
+    
+    if len(img.shape) == 2:
+        img = np.concatenate([img[...,None]]*3, axis=2)
+        
     if viz_bbox:
         segment: Segment
         for i, segment in enumerate(tracker.segments + tracker.inactive_segments + tracker.segment_graveyard):
@@ -89,6 +96,10 @@ def draw(t, img, pose, tracker, observations, reprojected_bboxs, viz_bbox=False,
             cv.rectangle(img_fastsam, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
                         np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=rand_color.tolist(), thickness=2)
             
+    # rotate images
+    img = fastsam.apply_rotation(img)
+    img_fastsam = fastsam.apply_rotation(img_fastsam)
+            
     # concatenate images
     if viz_bbox and viz_mask:
         img_ret = np.concatenate([img, img_fastsam], axis=1)
@@ -112,7 +123,7 @@ def update_fastsam(t, img_data, depth_data, pose_data, fastsam):
     observations = fastsam.run(t, pose, img, img_depth=img_depth)
     return observations, pose, img
 
-def update_segment_track(t, observations, pose, img, tracker, 
+def update_segment_track(t, observations, pose, img, tracker, fastsam,
                          poses_history, times_history, viz_bbox=False, viz_mask=False): 
 
     # collect reprojected masks
@@ -136,7 +147,7 @@ def update_segment_track(t, observations, pose, img, tracker,
             print("seg id={}, num_points={}".format(seg.id, seg.num_points))
 
     if viz_bbox or viz_mask:
-        img_ret = draw(t, img, pose, tracker, observations, reprojected_bboxs, viz_bbox, viz_mask)
+        img_ret = draw(t, img, pose, tracker, fastsam, observations, reprojected_bboxs, viz_bbox, viz_mask)
 
     poses_history.append(pose)
     times_history.append(t)
@@ -164,6 +175,8 @@ def main(args):
         assert params['img_data']['path'] is not None, "bag must be specified in params"
         assert params['img_data']['img_topic'] is not None, "img_topic must be specified in params"
         assert params['img_data']['cam_info_topic'] is not None, "cam_info_topic must be specified in params"
+        if 'color_compressed' not in params['img_data']:
+            params['img_data']['color_compressed'] = True
         if 'depth_compressed_rvl' not in params['img_data']:
             params['img_data']['depth_compressed_rvl'] = False
         assert not (('T_body_cam' in params['pose_data'] or 'T_body_odom' in params['pose_data']) \
@@ -198,6 +211,8 @@ def main(args):
         params['fastsam']['keep_labels_option'] = None
     if 'plane_filter_params' not in params['fastsam']:
         params['fastsam']['plane_filter_params'] = np.array([3.0, 1.0, 0.2])
+    if 'rotate_img' not in params['fastsam']:
+        params['fastsam']['rotate_img'] = None
     if 'yolo' not in params:
         params['yolo'] = {'imgsz': params['fastsam']['imgsz']}
         
@@ -244,7 +259,8 @@ def main(args):
             path=img_file_path,
             topic=expandvars(params["img_data"]["img_topic"]),
             time_tol=.02,
-            time_range=time_range
+            time_range=time_range,
+            compressed=params['img_data']['color_compressed']
         )
         img_data.extract_params(expandvars(params['img_data']['cam_info_topic']))
 
@@ -320,7 +336,8 @@ def main(args):
         weights=os.path.expanduser(expandvars(params['fastsam']['weights'])),
         imgsz=params['fastsam']['imgsz'],
         device=params['fastsam']['device'],
-        mask_downsample_factor=params['segment_tracking']['mask_downsample_factor']
+        mask_downsample_factor=params['segment_tracking']['mask_downsample_factor'],
+        rotate_img=params['fastsam']['rotate_img']
     )
     fastsam.setup_rgbd_params(
         depth_cam_params=depth_data.camera_params, 
@@ -363,9 +380,14 @@ def main(args):
         fc = cv.VideoWriter_fourcc(*"mp4v")
         video_file = os.path.expanduser(expandvars(args.output)) + ".mp4"
         fps = int(np.max([1., args.vid_rate*1/params['segment_tracking']['dt']]))
+        if params['fastsam']['rotate_img'] not in ['CCW', 'CW']:
+            width = img_data.camera_params.width 
+            height = img_data.camera_params.height
+        else:
+            width = img_data.camera_params.height
+            height = img_data.camera_params.width
         video = cv.VideoWriter(video_file, fc, fps, 
-                               (img_data.camera_params.width*(2 if not args.vid_bbox_only else 1), 
-                                img_data.camera_params.height))
+                               (width*(2 if not args.vid_bbox_only else 1), height))
 
     def update_wrapper(t): 
         print(f"t: {t - t0:.2f} = {t}")
@@ -375,7 +397,7 @@ def main(args):
         observations, pose, img = update_fastsam(t, img_data, depth_data, pose_data, fastsam)
         update_t1 = time.time()
         if observations is not None and pose is not None and img is not None:
-            img_output = update_segment_track(t, observations, pose, img, tracker, poses_history, 
+            img_output = update_segment_track(t, observations, pose, img, tracker, fastsam, poses_history, 
                                         times_history, viz_bbox=not args.no_vid, 
                                         viz_mask=not args.no_vid and not args.vid_bbox_only)
         update_t2 = time.time()
