@@ -587,7 +587,7 @@ if __name__ == '__main__':
     parser.add_argument('--distance-weight', type=float, default=1.0, help="Weight for distance in similarity fusion")
     parser.add_argument('--drift-scale', type=float, default=0.05, help="Scale for drift relaxation of epsilon/sigma")
     parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
-    parser.add_argument('--g2o-thresh', type=int, default=5, help="Association quantity threshold for g2o edge creation")
+    parser.add_argument('--g2o-thresh', type=int, default=4, help="Association quantity threshold for g2o edge creation")
     parser.add_argument('--max-map-size', '-n', type=int, default=40, help="Maximum number of objects in a submap")
 
     args = parser.parse_args()

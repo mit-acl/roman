@@ -43,7 +43,7 @@ def main(args):
             p1 = positions_by_idx[v1]
             p2 = positions_by_idx[v2]
             d = np.linalg.norm(p2 - p1)
-            inlier = d < 30.0
+            inlier = d < 10.0
             if args.inliers_only and not inlier:
                 continue
             if args.outliers_only and inlier:

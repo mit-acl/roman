@@ -65,7 +65,7 @@ def extract_additional_lc(
     extra_lc = []
     for pd in list(pd_ref.values()) + list(pd_elc.values()):
         pd.interp = True
-        pd.time_tol = 10.0
+        pd.time_tol = 700.0
     for pd in pd_ref.values():
         pd.times = np.array(pd.times[1:])
         pd.positions = pd.positions[1:]
@@ -83,26 +83,37 @@ def extract_additional_lc(
             t0 = lc.vertex_time(i)
             # try:
             t_near = pd_ref[robot].nearest_time(t0) # nearest time in reference
-            # except NoDataNearTimeException as e:
-            #     if e.t_desired < pd_ref[robot].t0 and np.abs(e.t_desired - pd_ref[robot].t0) < 10.0:
-            #         t_near = pd_ref[robot].t0
             times_ref.append(t_near)
             vxs_ref.append(tv_ref[robot][t_near])
 
             # 3b: Find the transform between the timestamp from the second g2o file and the nearest
             # vertex from the first g2o file (could average from the two PoseData objects)
 
-            T_odom_t0_e = pd_elc[robot].pose(t0)
+            try:
+                T_odom_t0_e = pd_elc[robot].pose(t0)
+            except ValueError as e:
+                # problem with vertex 0 and 1 having same timestamp (data problem, handle here)
+                if set(pd_elc[robot].idx(t0)) == set([0, 1]):
+                    position = pd_elc[robot].positions[0]
+                    orientation = pd_elc[robot].orientations[0]
+                    T_odom_t0_e = transform.xyz_quat_to_transform(position, orientation)
+                else:
+                    raise e
+
+            # use only extra loop closure data to get the transform since this is likely
+            # a finer pose representation (in terms of time)
             T_odom_tnear_e = pd_elc[robot].pose(t_near)
-            T_odom_t0_r = pd_ref[robot].pose(t0)
-            T_odom_tnear_r = pd_ref[robot].pose(t_near)
+            # T_odom_t0_r = pd_ref[robot].pose(t0)
+            # T_odom_tnear_r = pd_ref[robot].pose(t_near)
 
             T_t0_tnear_elc = inv(T_odom_t0_e) @ T_odom_tnear_e
-            T_t0_tnear_ref = inv(T_odom_t0_r) @ T_odom_tnear_r
+            # T_t0_tnear_ref = inv(T_odom_t0_r) @ T_odom_tnear_r
 
-            T_t0_tnear.append(transform.mean([
-                T_t0_tnear_elc, T_t0_tnear_ref
-            ]))
+            # T_t0_tnear.append(transform.mean([
+            #     T_t0_tnear_elc, T_t0_tnear_ref
+            # ]))
+
+            T_t0_tnear.append(T_t0_tnear_elc)
 
         # 3c: Transform the loop closure into the frame of the first g2o file
         T_p0e_p1e = lc.transform() # pose of vertex 1 in the frame of vertex 0
