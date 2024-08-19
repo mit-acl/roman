@@ -34,7 +34,6 @@ def draw(t, img, pose, tracker, fastsam, observations, reprojected_bboxs, viz_bb
         else:
             img_fastsam = img.copy()
         img_fastsam = np.concatenate([img_fastsam[...,None]]*3, axis=2)
-        print(img_fastsam.shape)
     
     if len(img.shape) == 2:
         img = np.concatenate([img[...,None]]*3, axis=2)
@@ -66,7 +65,6 @@ def draw(t, img, pose, tracker, fastsam, observations, reprojected_bboxs, viz_bb
                 colored_mask = np.zeros_like(img)
                 np.random.seed(segment.id)
                 rand_color = np.random.randint(0, 255, 3)
-                # print(rand_color)
                 matched_masks.append(segment.last_mask)
                 try:
                     colored_mask = segment.last_mask.astype(np.int32)[..., np.newaxis]*rand_color
@@ -139,12 +137,12 @@ def update_segment_track(t, observations, pose, img, tracker, fastsam,
     if len(observations) > 0:
         tracker.update(t, pose, observations)
 
-    print("t={}, num_obs={}, num_seg={}, num_nurse={}".format(
-        t, len(observations), len(tracker.segments), len(tracker.segment_nursery))
-    )
-    if len(tracker.segments) > 0:
-        for seg in tracker.segments:
-            print("seg id={}, num_points={}".format(seg.id, seg.num_points))
+    # print("t={}, num_obs={}, num_seg={}, num_nurse={}".format(
+    #     t, len(observations), len(tracker.segments), len(tracker.segment_nursery))
+    # )
+    # if len(tracker.segments) > 0:
+    #     for seg in tracker.segments:
+    #         print("seg id={}, num_points={}".format(seg.id, seg.num_points))
 
     if viz_bbox or viz_mask:
         img_ret = draw(t, img, pose, tracker, fastsam, observations, reprojected_bboxs, viz_bbox, viz_mask)
@@ -356,6 +354,7 @@ def main(args):
         yolo_det_img_size=params['yolo']['imgsz'],
         allow_tblr_edges=[True, True, True, True],
         area_bounds=[img_area / (params['fastsam']['min_mask_len_div']**2), img_area / (params['fastsam']['max_mask_len_div']**2)],
+        clip_embedding=True
     )
 
     print("Setting up segment tracker...")

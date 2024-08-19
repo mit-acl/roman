@@ -1,4 +1,5 @@
 import numpy as np
+from numpy.linalg import norm
 import gtsam
 import cv2 as cv
 from typing import List
@@ -32,10 +33,12 @@ class Segment():
         self.voxel_grid = dict()
         self.last_propagated_mask = None
         self.last_propagated_time = None
+        self.semantic_descriptor = None
+        self.semantic_descriptor_cnt = 0
         
-        self.integrate_points_from_observation(observation)
+        self._integrate_points_from_observation(observation)
 
-    def update(self, observation: Observation, force=False, integrate_points=True):
+    def update(self, observation: Observation, integrate_points=True):
         """Update a 3D segment with a new observation
 
         Args:
@@ -54,7 +57,8 @@ class Segment():
             
         # Integrate point measurements
         if integrate_points:
-            self.integrate_points_from_observation(observation)
+            self._integrate_points_from_observation(observation)
+            self._add_semantic_descriptor(observation.clip_embedding)
 
         self.num_sightings += 1
         if observation.time > self.last_seen:
@@ -63,8 +67,18 @@ class Segment():
             self.last_observation = observation.copy(include_mask=True)
         else:
             self.observations.append(observation.copy(include_mask=False))
+            
+    def update_from_segment(self, segment):
+        for obs in segment.observations:
+            # none of the observations will have masks, so need to update with 
+            # the last_observation copy (which will have a mask) instead
+            if obs.time == segment.last_seen:
+                obs = segment.last_observation
+            self.update(obs, integrate_points=False)
+        self._integrate_points_from_segment(segment)
+        self._add_semantic_descriptor(segment.semantic_descriptor, segment.semantic_descriptor_cnt)
     
-    def integrate_points_from_observation(self, observation: Observation):
+    def _integrate_points_from_observation(self, observation: Observation):
         """Integrate point cloud in the input observation object
 
         Args:
@@ -83,7 +97,7 @@ class Segment():
         points_obs_world = Rwb @ points_obs_body + np.repeat(twb, num_points_obs, axis=1)
         self._add_points(points_obs_world.T)
 
-    def integrate_points_from_segment(self, segment):
+    def _integrate_points_from_segment(self, segment):
         """Integrate the points from another segment into this segment.
         Both segments are assumed to be in the same reference frame
 
@@ -286,3 +300,18 @@ class Segment():
         self.last_propagated_mask = mask
         self.last_propagated_time = t
         return mask
+    
+    def _add_semantic_descriptor(self, descriptor: np.ndarray, cnt: int = 1):
+        if self.semantic_descriptor is None:
+            assert cnt == 1, "Multiple Initialization of Semantic Descriptor"
+            self.semantic_descriptor = descriptor / norm(descriptor)
+            self.semantic_descriptor_cnt = cnt
+        else:
+            self.semantic_descriptor = (
+                self.semantic_descriptor * self.semantic_descriptor_cnt
+                / (self.semantic_descriptor_cnt + cnt) 
+                + descriptor * cnt / norm(descriptor)
+                / (self.semantic_descriptor_cnt + cnt)
+            )
+            self.semantic_descriptor_cnt += cnt
+        self.semantic_descriptor /= norm(self.semantic_descriptor) # renormalize
