@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import cv2 as cv
 import open3d as o3d
 
-from robot_utils.robot_data.img_data import CameraParams
+from robotdatapy.data.img_data import CameraParams
 
 from segment_track.segment import Segment
 from segment_track.observation import Observation
@@ -69,10 +69,10 @@ class Tracker():
         self.last_pose = pose.copy()
         
         # associate observations with segments
-        mask_similarity = lambda seg, obs: max(self.mask_similarity(seg, obs, projected=False), 
-                                               self.mask_similarity(seg, obs, projected=True))
+        # mask_similarity = lambda seg, obs: max(self.mask_similarity(seg, obs, projected=False), 
+        #                                        self.mask_similarity(seg, obs, projected=True))
         associated_pairs = global_nearest_neighbor(
-            self.segments + self.segment_nursery, observations, mask_similarity, self.min_iou
+            self.segments + self.segment_nursery, observations, self.voxel_grid_similarity, self.min_iou
         )
         # associated_pairs = global_nearest_neighbor(
         #     self.segments + self.segment_nursery, observations, 
@@ -133,13 +133,24 @@ class Tracker():
         new_observations = [obs for idx, obs in enumerate(observations) \
                             if idx not in associated_obs]
         for obs in new_observations:
-            self.segment_nursery.append(
-                Segment(obs, self.camera_params, self.id_counter))
+            new_seg = Segment(obs, self.camera_params, self.id_counter)
+            if new_seg.num_points == 0: # guard from observations coming in with no points
+                continue
+            self.segment_nursery.append(new_seg)
             self.id_counter += 1
 
         self.merge()
             
         return
+    
+    def voxel_grid_similarity(self, segment: Segment, observation: Observation):
+        """
+        Compute the similarity between the voxel grids of a segment and an observation
+        """
+        voxel_size = 0.1
+        segment_voxel_grid = segment.get_voxel_grid(voxel_size)
+        observation_voxel_grid = observation.get_voxel_grid(voxel_size)
+        return segment_voxel_grid.iou(observation_voxel_grid)
 
     def mask_similarity(self, segment: Segment, observation: Observation, projected: bool = False):
         """
@@ -273,21 +284,14 @@ class Tracker():
                     if np.mean(seg1.points) - np.mean(seg2.points) > \
                         .5 * (np.max(seg1.extent) + np.max(seg2.extent)):
                         continue 
-                    
-                    combined_pts = np.vstack([seg1.points, seg2.points])
-                    if combined_pts.shape[0] < 4:
-                        iou3d = 0.0
-                    else:
-                        union_obb = o3d.geometry.OrientedBoundingBox.create_from_points(
-                                    o3d.utility.Vector3dVector(combined_pts))
-                        intersection3d = seg1.volume() + seg2.volume() - union_obb.volume()
-                        iou3d = intersection3d / union_obb.volume()
 
                     maks1 = seg1.reconstruct_mask(self.last_pose)
                     maks2 = seg2.reconstruct_mask(self.last_pose)
                     intersection2d = np.logical_and(maks1, maks2).sum()
                     union2d = np.logical_or(maks1, maks2).sum()
                     iou2d = intersection2d / union2d
+
+                    iou3d = seg1.get_voxel_grid(0.1).iou(seg2.get_voxel_grid(0.1))
 
                     if iou3d > self.merge_objects_iou_3d or iou2d > self.merge_objects_iou_2d:
                         for obs in seg2.observations:

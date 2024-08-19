@@ -3,12 +3,13 @@ import gtsam
 import cv2 as cv
 from typing import List
 
-from robot_utils.robot_data.img_data import CameraParams
-from robot_utils.transform import transform, aruns
-from robot_utils.camera import xyz_2_pixel, pixel_depth_2_xyz
+from robotdatapy.data.img_data import CameraParams
+from robotdatapy.transform import transform, aruns
+from robotdatapy.camera import xyz_2_pixel, pixel_depth_2_xyz
 
 import open3d as o3d
 from segment_track.observation import Observation
+from segment_track.voxel_grid import VoxelGrid
 
 class Segment():
 
@@ -28,6 +29,7 @@ class Segment():
         self.points = None
         self.voxel_size = voxel_size  # voxel size used for maintaining point clouds
         self._obb = None
+        self.voxel_grid = dict()
         self.last_propagated_mask = None
         self.last_propagated_time = None
         
@@ -153,6 +155,7 @@ class Segment():
         
     def reset_obb(self):
         self._obb = None
+        self.voxel_grid = dict()
         
     def volume(self):
         if self.num_points > 4: # 4 is the minimum number of points needed to define a 3D box
@@ -174,6 +177,13 @@ class Segment():
             return extent
         else:
             return np.zeros(3)
+        
+    def get_voxel_grid(self, voxel_size: float) -> VoxelGrid:
+        if self.num_points > 0:
+            if voxel_size not in self.voxel_grid:
+                self.voxel_grid[voxel_size] = VoxelGrid.from_points(self.points, voxel_size)
+            return self.voxel_grid[voxel_size]
+        raise ValueError("No points in segment")
         
     def aabb_volume(self):
         """Return the volume of the 3D axis-aligned bounding box
