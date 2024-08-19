@@ -379,7 +379,7 @@ def main(args):
     if not args.no_vid:
         fc = cv.VideoWriter_fourcc(*"mp4v")
         video_file = os.path.expanduser(expandvars(args.output)) + ".mp4"
-        fps = int(np.max([1., args.vid_rate*1/params['segment_tracking']['dt']]))
+        fps = int(np.max([5., args.vid_rate*1/params['segment_tracking']['dt']]))
         if params['fastsam']['rotate_img'] not in ['CCW', 'CW']:
             width = img_data.camera_params.width 
             height = img_data.camera_params.height
