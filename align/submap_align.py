@@ -27,6 +27,7 @@ from object_map_registration.object.ellipsoid import Ellipsoid
 from object_map_registration.object.object import Object
 from object_map_registration.object.pointcloud_object import PointCloudObject
 from object_map_registration.register.dist_min_max_sim_reg import DistOnlyReg, DistVolReg, DistMinMaxPCAReg, DistCustomFeatureComboReg
+from object_map_registration.register.dist_semantic_sim_reg import DistSemanticSimReg
 from object_map_registration.register.ransac_reg import RansacReg
 from object_map_registration.register.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
 from object_map_registration.register.object_registration import InsufficientAssociationsException
@@ -136,17 +137,26 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
     object_maps = [[], []]
     
     # extract pickled data
-    for pickle_file in pickle_files:
+    poses_1 = []
+    times_1 = []
+    poses_2 = []
+    times_2 = []
+    # for pickle_file in pickle_files:
+    for i, pickle_file in enumerate(pickle_files):
         with open(os.path.expanduser(pickle_file), 'rb') as f:
             pickle_data = pickle.load(f)
-            if len(pickle_data) == 2:
-                tr, p, = pickle_data
-                times = None
+            
+            tr, p, t = pickle_data
+            if i < len(pickle_files) / 2.0:
+                times_1.extend(t)
+                poses_1.extend(p)
             else:
-                tr, p, t = pickle_data
-                times.append(t)
-            poses.append(p)
+                times_2.extend(t)
+                poses_2.extend(p)
             trackers.append(tr)
+
+    poses = [poses_1, poses_2]
+    times = [times_1, times_2]
 
     # create objects from segments
     for i, tracker in enumerate(trackers):
@@ -160,7 +170,13 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
                 new_obj.volume
                 new_obj.first_seen = segment.first_seen
                 new_obj.last_seen = segment.last_seen
-                object_maps[i].append(new_obj)
+
+                new_obj.semantic_descriptor = segment.semantic_descriptor
+
+                if i < len(pickle_files) / 2.0:
+                    object_maps[0].append(new_obj)
+                else:
+                    object_maps[1].append(new_obj)
 
     # create submaps
     if times is not None:
@@ -206,61 +222,61 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
         
     return submap_centers, submaps, poses, times, submap_idxs
 
-def load_segment_slam_submaps(json_files: List[str], show_maps=False):
-    submaps = []
-    submap_centers = []
-    for json_file in json_files:
-        with open(json_file, 'r') as f:
-            smcs = []
-            sms = []
-            objs = {}
+# def load_segment_slam_submaps(json_files: List[str], show_maps=False):
+#     submaps = []
+#     submap_centers = []
+#     for json_file in json_files:
+#         with open(json_file, 'r') as f:
+#             smcs = []
+#             sms = []
+#             objs = {}
             
-            data = json.load(f)
-            for seg in data['segments']:
-                centroid = np.array([seg['centroid_odom']['x'], seg['centroid_odom']['y'], seg['centroid_odom']['z']])[:args.dim]
-                new_obj = Object(centroid, id=seg['segment_index'])
-                new_obj.set_volume(seg['volume'])
-                objs[seg['segment_index']] = new_obj
+#             data = json.load(f)
+#             for seg in data['segments']:
+#                 centroid = np.array([seg['centroid_odom']['x'], seg['centroid_odom']['y'], seg['centroid_odom']['z']])[:args.dim]
+#                 new_obj = Object(centroid, id=seg['segment_index'])
+#                 new_obj.set_volume(seg['volume'])
+#                 objs[seg['segment_index']] = new_obj
                 
-            for submap in data['submaps']:
-                center = np.eye(4)
-                center[:3,3] = np.array([submap['T_odom_submap']['tx'], submap['T_odom_submap']['ty'], submap['T_odom_submap']['tz']])
-                center[:3,:3] = Rot.from_quat([submap['T_odom_submap']['qx'], submap['T_odom_submap']['qy'], submap['T_odom_submap']['qz'], submap['T_odom_submap']['qw']]).as_matrix()
-                sm = [deepcopy(objs[idx]) for idx in submap['segment_indices']]
+#             for submap in data['submaps']:
+#                 center = np.eye(4)
+#                 center[:3,3] = np.array([submap['T_odom_submap']['tx'], submap['T_odom_submap']['ty'], submap['T_odom_submap']['tz']])
+#                 center[:3,:3] = Rot.from_quat([submap['T_odom_submap']['qx'], submap['T_odom_submap']['qy'], submap['T_odom_submap']['qz'], submap['T_odom_submap']['qw']]).as_matrix()
+#                 sm = [deepcopy(objs[idx]) for idx in submap['segment_indices']]
 
-                # Transform objects to be centered at the submap center
-                T_submap_world = np.eye(4) # transformation to move submap from world frame to centered submap frame
-                T_submap_world[:args.dim, 3] = -center[:args.dim, 3]
-                for obj in sm:
-                    obj.transform(T_submap_world)
+#                 # Transform objects to be centered at the submap center
+#                 T_submap_world = np.eye(4) # transformation to move submap from world frame to centered submap frame
+#                 T_submap_world[:args.dim, 3] = -center[:args.dim, 3]
+#                 for obj in sm:
+#                     obj.transform(T_submap_world)
 
-                smcs.append(center)
-                sms.append(sm)
+#                 smcs.append(center)
+#                 sms.append(sm)
                 
-            submap_centers.append(smcs)
-            submaps.append(sms)
-    if show_maps:
-        for i in range(2):
-            for submap in submaps[i]:
-                fig, ax = plt.subplots()
-                for obj in submap:
-                    obj.plot2d(ax, color='blue')
+#             submap_centers.append(smcs)
+#             submaps.append(sms)
+#     if show_maps:
+#         for i in range(2):
+#             for submap in submaps[i]:
+#                 fig, ax = plt.subplots()
+#                 for obj in submap:
+#                     obj.plot2d(ax, color='blue')
                 
-                bounds = object_list_bounds(submap)
-                if len(bounds) == 3:
-                    xlim, ylim, _ = bounds
-                else:
-                    xlim, ylim = bounds
+#                 bounds = object_list_bounds(submap)
+#                 if len(bounds) == 3:
+#                     xlim, ylim, _ = bounds
+#                 else:
+#                     xlim, ylim = bounds
 
-                # ax.plot([position[0] for position in submap_centers[i]], [position[1] for position in submap_centers[i]], 'o', color='black')
-                ax.set_aspect('equal')
+#                 # ax.plot([position[0] for position in submap_centers[i]], [position[1] for position in submap_centers[i]], 'o', color='black')
+#                 ax.set_aspect('equal')
                 
-                ax.set_xlim(xlim)
-                ax.set_ylim(ylim)
+#                 ax.set_xlim(xlim)
+#                 ax.set_ylim(ylim)
 
-            plt.show()
-        exit(0)
-    return submap_centers, submaps
+#             plt.show()
+#         exit(0)
+#     return submap_centers, submaps
         
 
 def main(args):
@@ -360,8 +376,22 @@ def main(args):
     elif args.method == 'ransac':
         method_name = 'RANSAC'
         registration = RansacReg(dim=args.dim, max_iteration=args.ransac_iter)
+
+    elif args.method == 'semantic':
+        method_name = 'CLIP Semantic'
+        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max)
+    elif args.method == 'semanticgrav':
+        method_name = 'CLIP Semantic with Gravity'
+        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, use_gravity=True)
+    elif args.method == 'semanticvol':
+        method_name = 'CLIP Semantic with Volume'
+        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, volume=True)
+    elif args.method == 'semanticvolgrav':
+        method_name = 'CLIP Semantic with Volume'
+        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, volume=True, use_gravity=True)
     else:
         assert False, "Invalid method"
+
 
     # iterate over pairs of submaps and create registration results
     for i in tqdm(range(len(submaps[0]))):
@@ -554,7 +584,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('input', nargs=2)
+    parser.add_argument('input', nargs=4)
     parser.add_argument('--segment-slam', action='store_true', help="Use online mapped segment_slam data")
     parser.add_argument('--show-maps', action='store_true', help="Shows the submaps plotted as 2D points to help with submap sizing")
     parser.add_argument('--dim', '-d', type=int, default=3, help="2 or 3 - desired dimension to use for object alignment")
@@ -587,6 +617,8 @@ if __name__ == '__main__':
     parser.add_argument('--distance-weight', type=float, default=1.0, help="Weight for distance in similarity fusion")
     parser.add_argument('--drift-scale', type=float, default=0.05, help="Scale for drift relaxation of epsilon/sigma")
     parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
+    parser.add_argument('--cosine_min', type=float, default=0.7)
+    parser.add_argument('--cosine_max', type=float, default=0.95)
     parser.add_argument('--g2o-thresh', type=int, default=4, help="Association quantity threshold for g2o edge creation")
     parser.add_argument('--max-map-size', '-n', type=int, default=40, help="Maximum number of objects in a submap")
 
