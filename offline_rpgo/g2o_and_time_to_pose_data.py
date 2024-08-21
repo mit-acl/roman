@@ -44,7 +44,11 @@ def g2o_and_time_to_pose_data(g2o_file: str, time_file: str, robot_id: int = Non
     times = time_vertex_mapping(time_file, robot_id)
     
     indices = sorted(list(times.keys()))
-    assert indices == sorted(list(positions.keys())), "Indices in time file and g2o file do not match"
+    assert indices == sorted(list(positions.keys())), \
+        f"Indices in time file and g2o file do not match: \n" + \
+        f"g2o file: {g2o_file}, time file: {time_file} \n" + \
+        f"{indices[:10]} {indices[-10:]} \n" + \
+        f"{sorted(list(positions.keys()))[:10]} {sorted(list(positions.keys()))[-10:]}"
     
     return PoseData(
         times=[times[i] for i in indices],

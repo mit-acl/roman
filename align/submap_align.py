@@ -15,10 +15,10 @@ from copy import deepcopy
 import yaml
 
 from robotdatapy.data.pose_data import PoseData
-from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat
+from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat, \
+    transform_to_xyzrpy
 from robotdatapy.geometry import circle_intersection
 from robotdatapy.transform import T_FLURDF, T_RDFFLU
-from robotdatapy import transform
 
 from segment_track.segment import Segment
 from segment_track.tracker import Tracker
@@ -315,6 +315,8 @@ def main(args):
     clipper_dist_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     clipper_num_associations = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     robots_nearby_mat = np.empty((len(submaps[0]), len(submaps[1])))
+    clipper_percent_associations = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
+    submap_yaw_diff_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     timing_list = []
     if args.ambiguity:
         ambiguity_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
@@ -429,6 +431,9 @@ def main(args):
                 else:
                     T_wj = transform_rm_roll_pitch(submap_centers[1][j] @ T_RDFFLU)
                 T_ij = np.linalg.inv(T_wi) @ T_wj
+                if robots_nearby_mat[i, j] > args.submap_overlap_threshold:
+                    relative_yaw_angle = transform_to_xyzrpy(T_ij)[5]
+                    submap_yaw_diff_mat[i, j] = np.abs(np.rad2deg(relative_yaw_angle))
                 
             # register the submaps (run multiple times if ambiguity is set)
             if args.ambiguity:
@@ -471,6 +476,7 @@ def main(args):
                 clipper_dist_mat[i, j] = np.nan
 
             clipper_num_associations[i, j] = len(associations)
+            clipper_percent_associations[i, j] = len(associations) / np.mean([len(submap_i), len(submap_j)])
             
             if args.output_viz:
                 T_ij_mat[i, j] = T_ij
@@ -479,9 +485,9 @@ def main(args):
 
     # Create plots
     if args.ambiguity:
-        fig, ax = plt.subplots(1, 5, figsize=(25, 5))
+        fig, ax = plt.subplots(1, 5, figsize=(25, 5), dpi=500)
     else:
-        fig, ax = plt.subplots(1, 4, figsize=(20, 5))
+        fig, ax = plt.subplots(1, 5, figsize=(20, 5), dpi=500)
     fig.subplots_adjust(wspace=.3)
     fig.suptitle(method_name)
 
@@ -501,10 +507,18 @@ def main(args):
     fig.colorbar(mp, fraction=0.03, pad=0.04)
     ax[3].set_title("Number of CLIPPER Associations")
 
-    if args.ambiguity:
-        mp = ax[4].imshow(ambiguity_mat, vmin=0, vmax=1.0)
-        fig.colorbar(mp, fraction=0.03, pad=0.04)
-        ax[4].set_title("Ambiguity")
+    # mp = ax[4].imshow(clipper_percent_associations, vmin=0)
+    # fig.colorbar(mp, fraction=0.04, pad=0.04)
+    # ax[4].set_title("Percent CLIPPER Associations")
+    
+    mp = ax[4].imshow(submap_yaw_diff_mat, vmin=0)
+    fig.colorbar(mp, fraction=0.04, pad=0.04)
+    ax[4].set_title("Submap Yaw Difference (deg)")
+
+    # if args.ambiguity:
+    #     mp = ax[4].imshow(ambiguity_mat, vmin=0, vmax=1.0)
+    #     fig.colorbar(mp, fraction=0.03, pad=0.04)
+    #     ax[4].set_title("Ambiguity")
 
     for i in range(len(ax)):
         ax[i].set_xlabel("submap index (robot 2)")
@@ -519,7 +533,7 @@ def main(args):
     if args.matrix_file:
         pkl_file = open(args.matrix_file, 'wb')
         if not args.ambiguity:
-            pickle.dump([robots_nearby_mat, clipper_angle_mat, clipper_dist_mat, clipper_num_associations], pkl_file)
+            pickle.dump([robots_nearby_mat, clipper_angle_mat, clipper_dist_mat, clipper_num_associations, submap_yaw_diff_mat], pkl_file)
         else:
             pickle.dump([robots_nearby_mat, clipper_angle_mat, clipper_dist_mat, clipper_num_associations, ambiguity_mat], pkl_file)
         pkl_file.close()
