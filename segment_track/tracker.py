@@ -88,9 +88,13 @@ class Tracker():
         # update segments with associated observations
         for seg_idx, obs_idx in pairs_existing:
             self.segments[seg_idx].update(observations[obs_idx], integrate_points=True)
+            # if self.segments[seg_idx].num_points == 0:
+            #     self.segments.pop(seg_idx)
         for seg_idx, obs_idx in pairs_nursery:
             # forcing add does not try to reconstruct the segment
             self.segment_nursery[seg_idx].update(observations[obs_idx], integrate_points=True)
+            # if self.segment_nursery[seg_idx].num_points == 0:
+            #     self.segment_nursery.pop(seg_idx)
 
         # delete masks for segments that were not seen in this frame
         for seg in self.segments:
@@ -99,8 +103,12 @@ class Tracker():
 
         # handle moving existing segments to inactive
         to_rm = [seg for seg in self.segments \
-                    if t - seg.last_seen > self.max_t_no_sightings]
+                    if t - seg.last_seen > self.max_t_no_sightings \
+                        or seg.num_points == 0]
         for seg in to_rm:
+            if seg.num_points == 0:
+                self.segments.remove(seg)
+                continue
             try:
                 seg.final_cleanup()
                 self.inactive_segments.append(seg)
@@ -117,7 +125,8 @@ class Tracker():
             self.inactive_segments.remove(seg)
 
         to_rm = [seg for seg in self.segment_nursery \
-                    if t - seg.last_seen > self.max_t_no_sightings]
+                    if t - seg.last_seen > self.max_t_no_sightings \
+                        or seg.num_points == 0]
         for seg in to_rm:
             self.segment_nursery.remove(seg)
 
@@ -292,7 +301,9 @@ class Tracker():
                     if iou3d > self.merge_objects_iou_3d or iou2d > self.merge_objects_iou_2d:
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
-                        if j < len(self.segments):
+                        if seg1.num_points == 0:
+                            self.segments.pop(i)
+                        elif j < len(self.segments):
                             self.segments.pop(j)
                         else:
                             self.inactive_segments.pop(j - len(self.segments))
