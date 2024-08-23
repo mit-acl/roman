@@ -47,9 +47,10 @@ def main(args, filter_viz=False):
             pcd.colors = o3d.utility.Vector3dVector(rand_color)
             pcd_list.append(pcd)
             if not args.no_text:
-                label = [f"id: {seg.id}", f"volume: {seg.volume():.2f}", 
-                        f"extent: [{seg.extent[0]:.2f}, {seg.extent[1]:.2f}, {seg.extent[2]:.2f}]"]
-                for i in range(3):
+                # label = [f"id: {seg.id}", f"volume: {seg.volume():.2f}", 
+                #         f"extent: [{seg.extent[0]:.2f}, {seg.extent[1]:.2f}, {seg.extent[2]:.2f}]"]
+                label = [f"id: {seg.id}"]
+                for i in range(len(label)):
                     label_list.append((np.median(pcd.points, axis=0) + np.array([0, 0, -0.15*i]), label[i]))
                     
     print(f"Displaying {len(pcd_list)} objects.")
@@ -82,9 +83,9 @@ def main(args, filter_viz=False):
     app = o3d.visualization.gui.Application.instance
     app.initialize()
     vis = o3d.visualization.O3DVisualizer()
-    vis.show_skybox(False)
+    # vis.show_skybox(False)
 
-    mat = o3d.visualization.rendering.MaterialRecord()
+    mat = o3d.visualization.rendering.Material()
     mat.shader = 'defaultUnlit'
     mat.point_size = 5.0
 
@@ -92,8 +93,8 @@ def main(args, filter_viz=False):
         vis.add_geometry(f"pcd-{i}", obj, mat)
     for label in label_list:
         vis.add_3d_label(*label)
-    for i, obj in enumerate(poses_list):
-        vis.add_geometry(f"pose-{i}", obj)
+    # for i, obj in enumerate(poses_list):
+    #     vis.add_geometry(f"pose-{i}", obj)
 
     K = np.array([[200, 0, 200],
                 [0, 200, 200],
