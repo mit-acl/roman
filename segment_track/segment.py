@@ -1,14 +1,16 @@
 import numpy as np
+from numpy.linalg import norm
 import gtsam
 import cv2 as cv
 from typing import List
 
-from robot_utils.robot_data.img_data import CameraParams
-from robot_utils.transform import transform, aruns
-from robot_utils.camera import xyz_2_pixel, pixel_depth_2_xyz
+from robotdatapy.data.img_data import CameraParams
+from robotdatapy.transform import transform, aruns
+from robotdatapy.camera import xyz_2_pixel, pixel_depth_2_xyz
 
 import open3d as o3d
 from segment_track.observation import Observation
+from segment_track.voxel_grid import VoxelGrid
 
 class Segment():
 
@@ -28,12 +30,15 @@ class Segment():
         self.points = None
         self.voxel_size = voxel_size  # voxel size used for maintaining point clouds
         self._obb = None
+        self.voxel_grid = dict()
         self.last_propagated_mask = None
         self.last_propagated_time = None
+        self.semantic_descriptor = None
+        self.semantic_descriptor_cnt = 0
         
-        self.integrate_points_from_observation(observation)
+        self._integrate_points_from_observation(observation)
 
-    def update(self, observation: Observation, force=False, integrate_points=True):
+    def update(self, observation: Observation, integrate_points=True):
         """Update a 3D segment with a new observation
 
         Args:
@@ -52,7 +57,8 @@ class Segment():
             
         # Integrate point measurements
         if integrate_points:
-            self.integrate_points_from_observation(observation)
+            self._integrate_points_from_observation(observation)
+            self._add_semantic_descriptor(observation.clip_embedding)
 
         self.num_sightings += 1
         if observation.time > self.last_seen:
@@ -61,8 +67,18 @@ class Segment():
             self.last_observation = observation.copy(include_mask=True)
         else:
             self.observations.append(observation.copy(include_mask=False))
+            
+    def update_from_segment(self, segment):
+        for obs in segment.observations:
+            # none of the observations will have masks, so need to update with 
+            # the last_observation copy (which will have a mask) instead
+            if obs.time == segment.last_seen:
+                obs = segment.last_observation
+            self.update(obs, integrate_points=False)
+        self._integrate_points_from_segment(segment)
+        self._add_semantic_descriptor(segment.semantic_descriptor, segment.semantic_descriptor_cnt)
     
-    def integrate_points_from_observation(self, observation: Observation):
+    def _integrate_points_from_observation(self, observation: Observation):
         """Integrate point cloud in the input observation object
 
         Args:
@@ -81,7 +97,7 @@ class Segment():
         points_obs_world = Rwb @ points_obs_body + np.repeat(twb, num_points_obs, axis=1)
         self._add_points(points_obs_world.T)
 
-    def integrate_points_from_segment(self, segment):
+    def _integrate_points_from_segment(self, segment):
         """Integrate the points from another segment into this segment.
         Both segments are assumed to be in the same reference frame
 
@@ -153,6 +169,7 @@ class Segment():
         
     def reset_obb(self):
         self._obb = None
+        self.voxel_grid = dict()
         
     def volume(self):
         if self.num_points > 4: # 4 is the minimum number of points needed to define a 3D box
@@ -174,6 +191,13 @@ class Segment():
             return extent
         else:
             return np.zeros(3)
+        
+    def get_voxel_grid(self, voxel_size: float) -> VoxelGrid:
+        if self.num_points > 0:
+            if voxel_size not in self.voxel_grid:
+                self.voxel_grid[voxel_size] = VoxelGrid.from_points(self.points, voxel_size)
+            return self.voxel_grid[voxel_size]
+        raise ValueError("No points in segment")
         
     def aabb_volume(self):
         """Return the volume of the 3D axis-aligned bounding box
@@ -276,3 +300,18 @@ class Segment():
         self.last_propagated_mask = mask
         self.last_propagated_time = t
         return mask
+    
+    def _add_semantic_descriptor(self, descriptor: np.ndarray, cnt: int = 1):
+        if self.semantic_descriptor is None:
+            assert cnt == 1, "Multiple Initialization of Semantic Descriptor"
+            self.semantic_descriptor = descriptor / norm(descriptor)
+            self.semantic_descriptor_cnt = cnt
+        else:
+            self.semantic_descriptor = (
+                self.semantic_descriptor * self.semantic_descriptor_cnt
+                / (self.semantic_descriptor_cnt + cnt) 
+                + descriptor * cnt / norm(descriptor)
+                / (self.semantic_descriptor_cnt + cnt)
+            )
+            self.semantic_descriptor_cnt += cnt
+        self.semantic_descriptor /= norm(self.semantic_descriptor) # renormalize

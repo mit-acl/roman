@@ -1,23 +1,24 @@
 #########################################
-# Authors: Jouko Kinnari, Mason Peterson
+# Authors: Jouko Kinnari, Mason Peterson, Lucas Jia, Annika Thomas
 
 
 import cv2 as cv
 import numpy as np
 import open3d as o3d
 import copy
+import torch
 from yolov7_package import Yolov7Detector
 import math
 import time
-
+from PIL import Image
 from fastsam import FastSAMPrompt
 from fastsam import FastSAM
-
+import clip
 from segment_track.observation import Observation
 import logging
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.WARN)
 
 def ssc(keypoints, num_ret_points, tolerance, cols, rows):
     exp1 = rows + cols + 2 * num_ret_points
@@ -113,6 +114,34 @@ def ssc(keypoints, num_ret_points, tolerance, cols, rows):
         selected_keypoints.append(keypoints[result_list[i]])
 
     return selected_keypoints
+'''
+Helper function from Annika
+'''
+# my function to calculate a boounding box around a mask
+def mask_bounding_box(mask):
+    # Find the indices of the True values
+    true_indices = np.argwhere(mask)
+
+    if len(true_indices) == 0:
+        # No True values found, return None or an appropriate response
+        return None
+
+    # Calculate the mean of the indices
+    mean_coords = np.mean(true_indices, axis=0)
+
+    # Calculate the width and height based on the min and max indices in each dimension
+    min_row, min_col = np.min(true_indices, axis=0)
+    max_row, max_col = np.max(true_indices, axis=0)
+    width = max_col - min_col + 1
+    height = max_row - min_row + 1
+
+    # Define a bounding box around the mean coordinates with the calculated width and height
+    min_row = int(max(mean_coords[0] - height // 2, 0))
+    max_row = int(min(mean_coords[0] + height // 2, mask.shape[0] - 1))
+    min_col = int(max(mean_coords[1] - width // 2, 0))
+    max_col = int(min(mean_coords[1] + width // 2, mask.shape[1] - 1))
+
+    return (min_col, min_row, max_col, max_row,)
 
 class FastSAMWrapper():
 
@@ -122,8 +151,22 @@ class FastSAMWrapper():
         iou=.9,
         imgsz=(1024, 1024),
         device='cuda',
-        mask_downsample_factor=1
+        mask_downsample_factor=1,
+        rotate_img=None,
     ):
+        """Wrapper for running FastSAM on images (especially RGB/depth pairs)
+
+        Args:
+            weights (str): Path to FastSAM weights.
+            conf (float, optional): FastSAM confidence threshold. Defaults to .5.
+            iou (float, optional): FastSAM IOU threshold. Defaults to .9.
+            imgsz (tuple, optional): Image size to feed into FastSAM. Defaults to (1024, 1024).
+            device (str, optional): 'cuda' or 'cpu. Defaults to 'cuda'.
+            mask_downsample_factor (int, optional): For creating smaller data observations. 
+                Defaults to 1.
+            rotate_img (_type_, optional): 'CW', 'CCW', or '180' for rotating image before 
+                feeding into FastSAM. Defaults to None.
+        """
         # parameters
         self.weights = weights
         self.conf = conf
@@ -131,6 +174,7 @@ class FastSAMWrapper():
         self.device = device
         self.imgsz = imgsz
         self.mask_downsample_factor = mask_downsample_factor
+        self.rotate_img = rotate_img
 
         # member variables
         self.observations = []
@@ -140,6 +184,10 @@ class FastSAMWrapper():
 
         self.orb_num_initial = 100
         self.orb_num_final = 10
+        
+        assert self.device == 'cuda' or self.device == 'cpu', "Device should be 'cuda' or 'cpu'."
+        assert self.rotate_img is None or self.rotate_img == 'CW' or self.rotate_img == 'CCW' \
+            or self.rotate_img == '180', "Invalid rotate_img option."
             
     def setup_filtering(self,
         ignore_labels = [],
@@ -150,6 +198,8 @@ class FastSAMWrapper():
         area_bounds=np.array([0, np.inf]),
         allow_tblr_edges = [True, True, True, True],
         keep_mask_minimal_intersection=0.3,
+        clip_embedding=False,
+        clip_model='ViT-L/14',
     ):
         """
         Filtering setup function
@@ -178,7 +228,10 @@ class FastSAMWrapper():
         self.allow_tblr_edges= allow_tblr_edges
         self.keep_mask_minimal_intersection = keep_mask_minimal_intersection
         self.run_yolo = len(ignore_labels) > 0 or use_keep_labels
-
+        self.clip_embedding = clip_embedding
+        if clip_embedding:
+            self.clip_model, self.clip_preprocess = clip.load(clip_model, device=self.device)
+            
     def setup_rgbd_params(
         self, 
         depth_cam_params, 
@@ -236,6 +289,9 @@ class FastSAMWrapper():
             self.observations (list): list of Observations
         """
         self.observations = []
+        
+        # rotate image
+        img = self.apply_rotation(img)
 
         if self.run_yolo:
             ignore_mask, keep_mask = self._create_mask(img)
@@ -243,14 +299,12 @@ class FastSAMWrapper():
             ignore_mask = None
             keep_mask = None
         
-        # TODO: we need to revisit the logic for keep_mask - 
-        # we don't easily have an option to still accept all masks, so for now 
-        # do not use the keep_mask
-        
         # run fastsam
         masks = self._process_img(img, ignore_mask=ignore_mask, keep_mask=keep_mask)
         
         for mask in masks:
+            
+            mask = self.unapply_rotation(mask)
             # kp, des = self.compute_orb(img[y0:y1, x0:x1], 
             #     num_final=self.orb_num_final, num_initial=self.orb_num_initial)
             # Extract point cloud of object from RGBD
@@ -316,9 +370,53 @@ class FastSAMWrapper():
                 interpolation=cv.INTER_NEAREST
             )).astype('uint8')
 
-            self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
+            if self.clip_embedding:
+                ### Use masked image
+                # print("Img size: ", img.shape)
+                # print("Mask shape: ", mask.shape)
+                # # print("Masked image: ", cv.bitwise_and(img, img, mask = mask.astype('uint8')).shape)
+                # pre_processed_img = self.clip_preprocess(Image.fromarray(cv.bitwise_and(img, img, mask = mask.astype('uint8')))).to(self.device)
+                # clip_embedding = self.clip_model.encode_image(pre_processed_img.unsqueeze(dim=0))
+                # print("Clip embedding shape: ", clip_embedding.shape)
+                # clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
 
+                ### Use bounding box
+                bbox = mask_bounding_box(mask.astype('uint8'))
+                if bbox is None:
+                    assert False, "Bounding box is None."
+                    self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
+                else:
+                    min_col, min_row, max_col, max_row = bbox
+                    img_bbox = img[min_row:max_row, min_col:max_col]
+                    img_bbox = cv.cvtColor(img_bbox, cv.COLOR_BGR2RGB)
+                    processed_img = self.clip_preprocess(Image.fromarray(img_bbox, mode='RGB')).to(self.device)
+                    clip_embedding = self.clip_model.encode_image(processed_img.unsqueeze(dim=0))
+                    clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
+                    self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=clip_embedding))
+                
+            else:
+                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
+                
         return self.observations
+    
+    def apply_rotation(self, img, unrotate=False):
+        if self.rotate_img is None:
+            result = img
+        elif self.rotate_img == 'CW':
+            result = cv.rotate(img, cv.ROTATE_90_CLOCKWISE 
+                               if not unrotate else cv.ROTATE_90_COUNTERCLOCKWISE)
+        elif self.rotate_img == 'CCW':
+            result = cv.rotate(img, cv.ROTATE_90_COUNTERCLOCKWISE 
+                               if not unrotate else cv.ROTATE_90_CLOCKWISE)
+        elif self.rotate_img == '180':
+            result = cv.rotate(img, cv.ROTATE_180)
+        else:
+            raise Exception("Invalid rotate_img option.")
+        return result
+        
+    def unapply_rotation(self, img):
+        return self.apply_rotation(img, unrotate=True)
+    
     
     def compute_orb(self, img, num_final=10, num_initial=100):
         # partially borrowed from: https://docs.opencv.org/4.x/dc/dc3/tutorial_py_matcher.html
@@ -349,17 +447,17 @@ class FastSAMWrapper():
         return kp_sel, des
 
     def _create_mask(self, img):
+        
+        if len(img.shape) == 2: # image is mono
+            img = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
         classes, boxes, scores = self.yolov7_det.detect(img)
         ignore_boxes = []
         keep_boxes = []
-        print("All classes: ", classes)
         for i, cl in enumerate(classes[0]):
             if self.yolov7_det.names[cl] in self.ignore_labels:
-                print("Deleted class: ", self.yolov7_det.names[cl])
                 ignore_boxes.append(boxes[0][i])
 
             if self.yolov7_det.names[cl] in self.keep_labels:
-                print("Keep class: ", self.yolov7_det.names[cl])
                 keep_boxes.append(boxes[0][i])
 
         ignore_mask = np.zeros(img.shape[:2]).astype(np.int8)
@@ -459,7 +557,6 @@ class FastSAMWrapper():
 
                 # filter out ignore mask
                 if ignore_mask is not None and np.any(np.bitwise_and(mask_this_id.astype(np.int8), ignore_mask)):
-                    print("Delete maskID: ", maskId)
                     to_delete.append(maskId)
                     continue
 
@@ -470,7 +567,6 @@ class FastSAMWrapper():
                 #     continue
                 # if keep_mask is not None and self.keep_labels_option == 'intersect' and (not np.any(np.bitwise_and(mask_this_id.astype(np.int8), keep_mask))):
                 if keep_mask is not None and self.keep_labels_option == 'intersect' and (np.bitwise_and(mask_this_id.astype(np.int8), keep_mask).sum() < self.keep_mask_minimal_intersection*mask_this_id.astype(np.int8).sum()):
-                    print("Delete maskID (not intersecting keep masks): ", maskId)
                     to_delete.append(maskId)
                     continue
 

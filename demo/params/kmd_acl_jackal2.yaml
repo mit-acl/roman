@@ -1,7 +1,7 @@
-# time:
-#   t0: 465 # 7:45
-#   tf: 555 # 9:15
-#   relative: True
+time:
+  t0: 100 # 7:45
+  tf: 225 # 9:15
+  relative: True
 
 img_data:
   path: "$KMD_BAGS_PATH/acl_jackal2.bag"
