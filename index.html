@@ -121,7 +121,7 @@ Registration of 3D Open-Set Segments</h1>
   </div>
 </section>
 
-<section class="section">
+<!-- <section class="section">
   <div class="container is-max-desktop">
     <!-- Abstract. -->
     <div class="columns is-centered has-text-centered">
@@ -132,7 +132,7 @@ Registration of 3D Open-Set Segments</h1>
           </p>
         </div>
       </div>
-    </div>
+    </div> -->
 
 <section class="hero teaser">
   <div class="container is-max-desktop">
@@ -146,7 +146,7 @@ Registration of 3D Open-Set Segments</h1>
   </div>
 </section>
 
-<section class="hero teaser">
+<!-- <section class="hero teaser">
   <div class="container is-max-desktop">
     <div class="hero-body">
       <div class="video-container">
@@ -159,7 +159,7 @@ Registration of 3D Open-Set Segments</h1>
       </div>
     </div>
   </div>
-</section>
+</section> -->
   
       <!-- Second Video -->
 <!--       <div class="video-container has-text-centered"> -->
@@ -182,38 +182,14 @@ Registration of 3D Open-Set Segments</h1>
         <h2 class="title is-3">Abstract</h2>
         <div class="content has-text-justified">
           <p>
-             We present SOS-Match, a novel framework for detecting and
-             matching objects in unstructured environments. Our system
-             consists of 1) a front-end mapping pipeline using a
-             zero-shot segmentation model to extract object masks from
-             images and track them across frames and 2) a frame
-             alignment pipeline that uses the geometric consistency of
-             object relationships to efficiently localize across a
-             variety of conditions. We evaluate SOS-Match on the Batvik
-             seasonal dataset which includes drone flights collected
-             over a coastal plot of southern Finland during different
-             seasons and lighting conditions. Results show that our
-             approach is more robust to changes in lighting and
-             appearance than classical image feature-based approaches or
-             global descriptor methods, and it provides more viewpoint
-             invariance than learning-based feature detection and
-             description approaches. SOS-Match localizes within a
-             reference map up to 46x faster than other feature-based
-             approaches and has a map size less than 0.5% the size of
-             the most compact other maps. SOS-Match is a promising new
-             approach for landmark detection and correspondence search
-             in unstructured environments that is robust to changes in
-             lighting and appearance and is more computationally
-             efficient than other approaches, suggesting that the
-             geometric arrangement of segments is a valuable
-             localization cue in unstructured environments.
+             Global localization is a fundamental capability enabling long-term and drift-free robot navigation. This paper presents an outdoor global localization method based on robust registration of open-set segment maps. Our method detects and tracks segments using open-set image segmentation models that enable direct generalization to unseen environments. To perform global localization under the high outlier regimes that are typical of natural/outdoor environments, we formulate a registration problem between small submaps of 3D segments and solve for the correspondences using a graph-theoretic global data association approach. Further, to guide registration in highly noisy or ambiguous scenarios, we propose novel ways of incorporating additional information (e.g., segment attributes and known gravity direction) within the global data association formulation. The proposed method is evaluated on outdoor datasets recorded by multiple robots and shown to outperform existing methods in terms of precision-recall metrics and localization accuracy.
           </p>
         </div>
       </div>
     </div>
     <!--/ Abstract. -->
 
-<section class="section">
+<!-- <section class="section">
   <div class="container is-max-desktop">
     <div class="columns is-centered has-text-centered">
       <!-- First Video -->
@@ -239,15 +215,15 @@ Registration of 3D Open-Set Segments</h1>
       </div>
     </div>
   </div>
-</section>
+</section> -->
 
 <section class="section" id="BibTeX">
   <div class="container is-max-desktop content">
     <h2 class="title">BibTeX</h2>
     <pre><code>@article{thomas2024sosmatch,
-  author    = {Thomas, Annika and Kinnari, Jouko and Lusk, Parker and Konda, Kota and How, Jonathan},
-  title     = {SOS-Match: Segmentation for Open-Set Robust Correspondence Search and Robot Localization in Unstructured Environments},
-  journal   = {arXiv preprint arXiv:2401.04791},
+  author    = {Peterson, Mason and Jia, Yi Xuan and Tian, Yulun and Thomas, Annika and How, Jonathan},
+  title     = {Outdoor Global Localization via Robust Registration of 3D Open-Set Segments},
+  journal   = {arXiv preprint [add here]},
   year      = {2024},
 }</code></pre>
   </div>
