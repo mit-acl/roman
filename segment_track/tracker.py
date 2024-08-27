@@ -39,6 +39,7 @@ class Tracker():
             plane_prune_params: List[float] = [3.0, 3.0, 0.5], # to get rid of planar objects (likely background)
             segment_graveyard_time: float = 15.0, # time after which an inactive segment is sent to the graveyard
             segment_graveyard_dist: float = 10.0, # distance traveled after which an inactive segment is sent to the graveyard
+            iou_voxel_size: float = 0.2
     ):
         self.camera_params = camera_params
         self.min_iou = min_iou
@@ -55,6 +56,7 @@ class Tracker():
         self.plane_prune_params = plane_prune_params
         self.segment_graveyard_time = segment_graveyard_time
         self.segment_graveyard_dist = segment_graveyard_dist
+        self.iou_voxel_size = iou_voxel_size
 
         self.segment_nursery = []
         self.segments = []
@@ -156,7 +158,7 @@ class Tracker():
         """
         Compute the similarity between the voxel grids of a segment and an observation
         """
-        voxel_size = 0.1
+        voxel_size = self.iou_voxel_size
         segment_voxel_grid = segment.get_voxel_grid(voxel_size)
         observation_voxel_grid = observation.get_voxel_grid(voxel_size)
         return segment_voxel_grid.iou(observation_voxel_grid)
@@ -296,7 +298,7 @@ class Tracker():
                     union2d = np.logical_or(maks1, maks2).sum()
                     iou2d = intersection2d / union2d
 
-                    iou3d = seg1.get_voxel_grid(0.1).iou(seg2.get_voxel_grid(0.1))
+                    iou3d = seg1.get_voxel_grid(self.iou_voxel_size).iou(seg2.get_voxel_grid(self.iou_voxel_size))
 
                     if iou3d > self.merge_objects_iou_3d or iou2d > self.merge_objects_iou_2d:
                         seg1.update_from_segment(seg2)
