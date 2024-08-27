@@ -4,6 +4,8 @@ import argparse
 import os
 import gtsam
 
+KMD_ROBOTS = ['acl_jackal', 'acl_jackal2', 'sparkal1', 'sparkal2', 'hathor', 'thoth', 'apis', 'sobek']
+
 def main(args):
     colors = {
         'a': 'tab:blue',
@@ -12,9 +14,20 @@ def main(args):
         'd': 'tab:pink',
         'e': 'tab:purple',
         'f': 'tab:brown',
-        'g': 'tab:pink',
+        'g': 'tab:red',
         'h': 'tab:gray',
     }
+    names = {chr(97 + i): args.robots[i] for i in range(len(args.robots))}
+    # names = {
+    #     'a': 'acl_jackal',
+    #     'b': 'acl_jackal2',
+    #     'c': 'sparkal1',
+    #     'd': 'sparkal2',
+    #     'e': 'hathor',
+    #     'f': 'thoth',
+    #     'g': 'apis',
+    #     'h': 'sobek'
+    # }
     linewidth = 3
 
     with open(os.path.expanduser(args.input), 'r') as f:
@@ -30,7 +43,7 @@ def main(args):
     fig, ax = plt.subplots()
     ax.set_aspect('equal')
     for r in robots:
-        ax.plot(positions[r][:, 0], positions[r][:, 1], label=f'{r}', linewidth=linewidth, color=colors[r])
+        ax.plot(positions[r][:, 0], positions[r][:, 1], label=f'{names[r]}', linewidth=linewidth, color=colors[r])
     ax.legend()
 
     if args.loop_closures:
@@ -54,7 +67,7 @@ def main(args):
     ax.grid(True)
 
     if args.output is not None:
-        plt.savefig(os.path.expanduser(args.output))
+        plt.savefig(os.path.expanduser(args.output), transparent=True)
     else:
         plt.show()
 
@@ -68,6 +81,7 @@ if __name__ == '__main__':
                         help='Plot only inliers')
     parser.add_argument('-j', '--outliers-only', action='store_true',
                         help='Plot only outliers')
+    parser.add_argument('-r', '--robots', type=str, nargs="+", default=KMD_ROBOTS,)
     args = parser.parse_args()
 
     assert not (args.inliers_only and args.outliers_only), "Cannot specify both inliers-only and outliers-only"
