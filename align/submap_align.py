@@ -31,6 +31,7 @@ from object_map_registration.register.dist_semantic_sim_reg import DistSemanticS
 from object_map_registration.register.ransac_reg import RansacReg
 from object_map_registration.register.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
 from object_map_registration.register.object_registration import InsufficientAssociationsException
+from object_map_registration.register.dist_pca_cos_reg import DistPCACosReg
 from object_map_registration.utils import object_list_bounds
 
 def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[float]=None):
@@ -364,7 +365,7 @@ def main(args):
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'pcavolgrav':
         method_name = f'Gravity Guided PCA feature-based Volume Registration (eps_pca={args.epsilon_pca})'
-        registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca[0], volume_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, pca=True, volume=True,
+        registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca, volume_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, pca=True, volume=True,
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'extentvolgrav':
         method_name = f'Gravity Guided Extent-based Volume Registration'
@@ -390,7 +391,19 @@ def main(args):
         registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, volume=True)
     elif args.method == 'semanticvolgrav':
         method_name = 'CLIP Semantic with Volume'
-        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, volume=True, use_gravity=True)
+        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, volume=True, use_gravity=True, volume_epsilon=args.epsilon_volume)
+    elif args.method == 'spvg':
+        method_name = 'CLIP Semantic + PCA + Volume + Gravity'
+        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, 
+                                          mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, 
+                                          volume=True, use_gravity=True, pca=True, pca_epsilon=args.epsilon_pca, volume_epsilon=args.epsilon_volume)
+    elif args.method == 'sevg':
+        method_name = 'Semantic + Extent/Volume + Gravity'
+        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, volume=True, extent=True, use_gravity=True)
+    elif args.method == 'pcacos':
+        method_name = 'PCA Cosine Similarity + Gravity + Volume'
+        registration = DistPCACosReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, volume_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True,
+                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight, pca_epsilon=args.epsilon_pca)
     else:
         assert False, "Invalid method"
 
