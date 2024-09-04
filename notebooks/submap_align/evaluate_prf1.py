@@ -1,5 +1,6 @@
 import numpy as np
 import pickle
+import hashlib
 
 def evaluate_prf1(
     overlap_mat: np.array, 
@@ -63,6 +64,11 @@ def prf1_sweep(pkl_paths, req_overlap=0.5, req_err_ang=3, req_err_dist=1.5):
             err_dist_mat = np.concatenate((err_dist_mat, np.reshape(edm, (-1,1))), axis=0)
             num_assoc_mat = np.concatenate((num_assoc_mat, np.reshape(nam, (-1,1))), axis=0)
             
+    total_overlap = np.sum((overlap_mat >= req_overlap))
+    total_pairs = len(overlap_mat)
+    # print(f"number of overlapping: {total_overlap}")
+    # print(f"total number of map pairs: {total_pairs}")
+            
     assoc_reqs = np.arange(3, 50)
     precisions = []
     recalls = []
@@ -89,3 +95,12 @@ def dir_is_inter_robot_lc(dir_name):
     else:
         return robots_str.split('_')[0] == robots_str.split('_')[2] \
             and robots_str.split('_')[1] == robots_str.split('_')[3]
+    
+def method_to_color(method):
+    hash_object = hashlib.sha256()
+    hash_object.update(method.encode('utf-8'))
+    hex_dig = hash_object.hexdigest()
+    seed = (int(hex_dig, 16) + 4) % 2**32
+    np.random.seed(seed)
+    color = np.random.rand(3)
+    return color
