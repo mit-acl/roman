@@ -395,7 +395,7 @@ def main(args):
     elif args.method == 'spvg':
         method_name = 'CLIP Semantic + PCA + Volume + Gravity'
         registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, 
-                                          mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, 
+                                          mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, sim_fusion_method=sim_fusion_method,
                                           volume=True, use_gravity=True, pca=True, pca_epsilon=args.epsilon_pca, volume_epsilon=args.epsilon_volume)
     elif args.method == 'sevg':
         method_name = 'Semantic + Extent/Volume + Gravity'
@@ -426,8 +426,16 @@ def main(args):
             if not args.show_false_positives and robots_nearby_mat[i, j] < args.submap_overlap_threshold:
                 continue
 
-            submap_i = submaps[0][i]
-            submap_j = submaps[1][j]
+            submap_i = deepcopy(submaps[0][i])
+            submap_j = deepcopy(submaps[1][j])
+            if args.self_lc_time_thresh > 0: # self loop closures
+                ids_i = set([obj.id for obj in submap_i])
+                ids_j = set([obj.id for obj in submap_j])
+                common_ids = ids_i.intersection(ids_j)
+                for sm in [submap_i, submap_j]:
+                    to_rm = [obj for obj in sm if obj.id in common_ids]
+                    for obj in to_rm:
+                        sm.remove(obj)
 
             # determine correct T_ij
             if args.rotate_maps_to_gt:
@@ -640,7 +648,7 @@ if __name__ == '__main__':
     parser.add_argument('--epsilon', type=float, default=0.5)
     parser.add_argument('--mindist', type=float, default=0.2)
     parser.add_argument('--epsilon-volume', type=float, default=0.0)
-    parser.add_argument('--epsilon-pca', type=float, nargs=1, default=0.0, help="Epsilon for PCA feature")
+    parser.add_argument('--epsilon-pca', type=float, default=0.0, help="Epsilon for PCA feature")
     parser.add_argument('--distance-weight', type=float, default=1.0, help="Weight for distance in similarity fusion")
     parser.add_argument('--drift-scale', type=float, default=0.05, help="Scale for drift relaxation of epsilon/sigma")
     parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
@@ -654,7 +662,7 @@ if __name__ == '__main__':
     if args.submaps_idx is not None:
         args.submaps_idx = [args.submaps_idx[:2], args.submaps_idx[2:]]
     args.submap_overlap_threshold = 0.1
-    args.submap_time_threshold = 60 # seconds # segments must be seen within this time of the 
+    args.submap_time_threshold = 30 # seconds # segments must be seen within this time of the 
                                               # submap center's time to be included in the submap
                                               
     if args.all_output_prefix:
