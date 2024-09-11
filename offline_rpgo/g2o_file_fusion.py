@@ -74,11 +74,32 @@ def reformat_g2o_edge_lines(file, letter1, letter2, thresh=None, lc=False, self_
             output_lines.append(format_g2o_line(line))
     return output_lines
 
+def create_yaml(robots, odometry_g2o_dir, submap_align_dir, align_file_name):
+    config = {}
+    config['robots'] = []
+    config['odometry'] = []
+    config['single_lc'] = []
+    config['multi_lc'] = []
+    for i, robot in enumerate(robots):
+        config['robots'].append({'robot': robot, 'letter': chr(ord('a') + i)})
+        config['odometry'].append({'robot': robot, 'file': f'{odometry_g2o_dir}/{robot}.g2o'})
+        config['single_lc'].append({'robot': robot, 'file': f'{submap_align_dir}/{robot}_{robot}/{align_file_name}.g2o'})
+        for j, robot2 in enumerate(robots):
+            if i >= j:
+                continue
+            config['multi_lc'].append({'robot1': robot, 'robot2': robot2, 'file': f'{submap_align_dir}/{robot}_{robot2}/{align_file_name}.g2o'})
+    return config
+
 def main(args):
     
-    # get configruation from yaml file
-    with open(args.yaml, 'r') as f:
-        config = yaml.safe_load(f)
+    if args.yaml is not None:
+        # get configruation from yaml file
+        with open(args.yaml, 'r') as f:
+            config = yaml.safe_load(f)
+    else:
+        assert args.robots is not None and args.odometry_g2o is not None and args.submap_align is not None, \
+            "Must provide either a yaml file or robots, odometry_g2o, and submap_align arguments."
+        config = create_yaml(args.robots, args.odometry_g2o, args.submap_align, args.align_file_name)
     
     robot_letters = {r['robot']: r['letter'] for r in config['robots']}
 
@@ -113,8 +134,12 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fuse submap aligns and odometry into a single g2o file.')
-    parser.add_argument('yaml', type=str, help='Input yaml file.')
-    parser.add_argument('output', type=str, help='Output g2o file.')
+    parser.add_argument('--yaml', '-y', type=str, help='Input yaml file.')
+    parser.add_argument('--output', '-o', type=str, help='Output g2o file.')
+    parser.add_argument('--robots', '-r', type=str, nargs='+', help='Robots to include in the g2o file.')
+    parser.add_argument('--odometry-g2o', '-g', type=str, help='odometry g2o directory path.')
+    parser.add_argument('--submap-align', '-a', type=str, help='submap align directory path.')
+    parser.add_argument('--align-file-name', '-n', type=str, help='submap align file name.')
     parser.add_argument('-t', '--thresh', type=int, default=None, 
                         help='Threshold on number of selected associations for submap alignment.')
     args = parser.parse_args()
