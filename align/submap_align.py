@@ -34,7 +34,7 @@ from object_map_registration.register.object_registration import InsufficientAss
 from object_map_registration.register.dist_pca_cos_reg import DistPCACosReg
 from object_map_registration.utils import object_list_bounds
 
-def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[float]=None):
+def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[float]=None, time_threshold: float=np.inf):
     """
     From a series of poses, generate a list of positions on the trajectory that are dist apart.
 
@@ -51,7 +51,8 @@ def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[fl
     center_idxs = []
 
     for i, (pose, t) in enumerate(zip(poses, times)):
-        if i == 0 or np.linalg.norm(pose[:-1,-1] - centers[-1][:-1,-1]) > dist:
+        if i == 0 or np.linalg.norm(pose[:-1,-1] - centers[-1][:-1,-1]) > dist \
+            or (times is not None and t - center_times[-1] > time_threshold):
             centers.append(pose)
             center_idxs.append(i)
             if times is not None:
@@ -182,6 +183,7 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
     # create submaps
     if times is not None:
         submap_centers, submap_times, submap_idxs = zip(*[submap_centers_from_poses(pose_list, submap_center_dist, ts) for pose_list, ts in zip(poses, times)])
+        # submap_centers, submap_times, submap_idxs = zip(*[submap_centers_from_poses(pose_list, submap_center_dist, ts, args.submap_time_threshold) for pose_list, ts in zip(poses, times)])
     else:
         submap_centers, submap_times, submap_idxs = [submap_centers_from_poses(pose_list, submap_center_dist) for pose_list in poses]
     submaps = [submaps_from_maps(object_map, center_list, submap_radius, time_list, args.submap_time_threshold, gtpd, rot_maps_to_gt=rot_maps_to_gt, max_submap_size=max_submap_size) \
@@ -579,10 +581,13 @@ def main(args):
         with open(args.output_params, 'w') as f:
             f.write(f"{args}")
 
-    if args.output_g2o:
+    if args.output_g2o or args.output_lc_json:
+        assert args.output_g2o and args.output_lc_json, "Must provide both g2o and json output files"        
         I_t = 1 / (args.t_std**2)
         I_r = 1 / (args.r_std**2)
         I = np.diag([I_t, I_t, I_t, I_r, I_r, I_r])
+        
+        json_output = []
 
         with open(args.output_g2o, 'w') as f:
             for i in range(len(submaps[0])):
@@ -601,6 +606,14 @@ def main(args):
                         np.linalg.inv(T_odomi_pi) @ T_odomi_ci @ T_ci_cj @ np.linalg.inv(T_odomj_cj) @ T_odomj_pj
                     )
                     t, q = transform_to_xyz_quat(T_pi_pj, separate=True)
+                    json_output.append({
+                        'seconds': [int(times[0][submap_idxs[0][i]]), int(times[1][submap_idxs[1][j]])],
+                        'nanoseconds': [int((times[0][submap_idxs[0][i]] % 1) * 1e9), int((times[1][submap_idxs[1][j]] % 1) * 1e9)],
+                        'names': args.robot_names,
+                        'translation': t.tolist(),
+                        'rotation': q.tolist(),
+                        'rotation_convention': 'xyzw',
+                    })
 
                     f.write(f"# LC: {int(clipper_num_associations[i, j])}\n")
                     f.write(f"EDGE_SE3:QUAT a{submap_idxs[0][i]} b{submap_idxs[1][j]} \t")
@@ -613,6 +626,10 @@ def main(args):
                             f.write(f"{I[ii, jj]} ")
                         f.write("\t")
                     f.write("\n")
+            f.close()
+            
+        with open(args.output_lc_json, 'w') as f:
+            json.dump(json_output, f, indent=4)
             f.close()
 
 
@@ -633,6 +650,7 @@ if __name__ == '__main__':
     parser.add_argument('--gt-yaml', type=str, default=[None, None], help="Path to ground truth yaml file", nargs=2)
     parser.add_argument('--rotate-maps-to-gt', action='store_true', help="Rotate maps to ground truth frame, previous method for validating map alignment")
     parser.add_argument('--self-lc-time-thresh', type=float, default=0.0, help="Time threshold for self loop closure")
+    parser.add_argument('--robot-names', type=str, nargs=2, default=["0", "1"], help="Robot IDs for submaps")
 
     # output files
     parser.add_argument('--output', '-o', type=str, default=None, help="Path to save output plot")
@@ -641,6 +659,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-timing', type=str, default=None, help="Path to save output timing file")
     parser.add_argument('--output-params', type=str, default=None, help="Path to save output parameters file")
     parser.add_argument('--output-g2o', type=str, default=None, help="Path to save output g2o file")
+    parser.add_argument('--output-lc-json', type=str, default=None, help="Path to save output json file")
     parser.add_argument('--all-output-prefix', type=str, default=None, help="Prefix for all output files")
     
     # registration params
@@ -672,6 +691,7 @@ if __name__ == '__main__':
         args.output_timing = f"{args.all_output_prefix}.timing.txt"
         args.output_params = f"{args.all_output_prefix}.params.txt"
         args.output_g2o = f"{args.all_output_prefix}.g2o"
+        args.output_lc_json = f"{args.all_output_prefix}.json"
 
     args.t_std = 1.0
     args.r_std = np.deg2rad(5)
