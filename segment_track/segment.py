@@ -58,7 +58,8 @@ class Segment():
         # Integrate point measurements
         if integrate_points:
             self._integrate_points_from_observation(observation)
-            self._add_semantic_descriptor(observation.clip_embedding)
+            if observation.clip_embedding is not None:
+                self._add_semantic_descriptor(observation.clip_embedding)
 
         self.num_sightings += 1
         if observation.time > self.last_seen:
@@ -76,7 +77,8 @@ class Segment():
                 obs = segment.last_observation
             self.update(obs, integrate_points=False)
         self._integrate_points_from_segment(segment)
-        self._add_semantic_descriptor(segment.semantic_descriptor, segment.semantic_descriptor_cnt)
+        if segment.semantic_descriptor is not None:
+            self._add_semantic_descriptor(segment.semantic_descriptor, segment.semantic_descriptor_cnt)
     
     def _integrate_points_from_observation(self, observation: Observation):
         """Integrate point cloud in the input observation object
