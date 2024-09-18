@@ -628,10 +628,38 @@ def main(args):
                     f.write("\n")
             f.close()
             
-        with open(args.output_lc_json, 'w') as f:
-            json.dump(json_output, f, indent=4)
-            f.close()
-
+        if args.output_lc_json:
+            with open(args.output_lc_json, 'w') as f:
+                json.dump(json_output, f, indent=4)
+                f.close()
+            
+        for i, output_sm in enumerate(args.output_submaps):
+            if output_sm is not None:
+                with open(output_sm, 'w') as f:
+                    sm_json = dict()
+                    sm_json['segments'] = []
+                    sm_json['submaps'] = []
+                    # sm_json['name'] = args.robot_names[i
+                    for j in range(len(submaps[i])):
+                        t_j = times[i][submap_idxs[i][j]]
+                        xyzquat_submap = transform_to_xyz_quat(submap_centers[i][j], separate=False)
+                        sm_json['submaps'].append({
+                            'submap_index': j,
+                            'T_odom_submap': {
+                                'tx': xyzquat_submap[0],
+                                'ty': xyzquat_submap[1],
+                                'tz': xyzquat_submap[2],
+                                'qx': xyzquat_submap[3],
+                                'qy': xyzquat_submap[4],
+                                'qz': xyzquat_submap[5],
+                                'qw': xyzquat_submap[6],
+                            },
+                            'robot_name': args.robot_names[i],
+                            'seconds': int(t_j),
+                            'nanoseconds': int((t_j % 1) * 1e9),
+                        })
+                    json.dump(sm_json, f, indent=4)
+                    f.close()
 
 
 if __name__ == '__main__':
@@ -660,6 +688,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-params', type=str, default=None, help="Path to save output parameters file")
     parser.add_argument('--output-g2o', type=str, default=None, help="Path to save output g2o file")
     parser.add_argument('--output-lc-json', type=str, default=None, help="Path to save output json file")
+    parser.add_argument('--output-submaps', type=str, nargs=2, default=[None, None], help="Path to save output submap times file")
     parser.add_argument('--all-output-prefix', type=str, default=None, help="Prefix for all output files")
     
     # registration params
@@ -692,6 +721,8 @@ if __name__ == '__main__':
         args.output_params = f"{args.all_output_prefix}.params.txt"
         args.output_g2o = f"{args.all_output_prefix}.g2o"
         args.output_lc_json = f"{args.all_output_prefix}.json"
+        if args.output_submaps[0] is None and args.output_submaps[1] is None:
+            args.output_submaps = [f"{args.all_output_prefix}.{rn}.sm.json" for rn in args.robot_names]
 
     args.t_std = 1.0
     args.r_std = np.deg2rad(5)
