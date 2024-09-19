@@ -44,18 +44,23 @@ def draw(t, img, pose, tracker, fastsam, observations, reprojected_bboxs, viz_bb
             # only draw segments seen in the last however many seconds
             if segment.last_seen < t - tracker.segment_graveyard_time - 10:
                 continue
-            bbox = segment.reprojected_bbox(pose)
-            if bbox is None:
+            outline = segment.outline_2d(pose)
+            if outline is None:
                 continue
-            if i < len(tracker.segments):
-                color = (0, 255, 0)
-            elif i < len(tracker.segments) + len(tracker.inactive_segments):
-                color = (255, 0, 0)
-            else:
-                color = (180, 0, 180)
-            img = cv.rectangle(img, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
-                        np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=color, thickness=2)
-            img = cv.putText(img, str(segment.id), (np.array(bbox[0]) + np.array([10., 10.])).astype(np.int32), 
+            # if i < len(tracker.segments):
+            #     color = (0, 255, 0)
+            # elif i < len(tracker.segments) + len(tracker.inactive_segments):
+            #     color = (255, 0, 0)
+            # else:
+            #     color = (180, 0, 180)
+            np.random.seed(segment.id)
+            color = np.random.randint(0, 255, 3).tolist()
+            for i in range(len(outline) - 1):
+                start_point = tuple(outline[i].astype(np.int32))
+                end_point = tuple(outline[i+1].astype(np.int32))
+                img = cv.line(img, start_point, end_point, color, thickness=2)
+
+            img = cv.putText(img, str(segment.id), (np.array(outline[0]) + np.array([10., 10.])).astype(np.int32), 
                             cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
     if viz_mask:
@@ -96,7 +101,8 @@ def draw(t, img, pose, tracker, fastsam, observations, reprojected_bboxs, viz_bb
             
     # rotate images
     img = fastsam.apply_rotation(img)
-    img_fastsam = fastsam.apply_rotation(img_fastsam)
+    if viz_mask:
+        img_fastsam = fastsam.apply_rotation(img_fastsam)
             
     # concatenate images
     if viz_bbox and viz_mask:
@@ -256,7 +262,7 @@ def main(args):
         img_data = ImgData.from_bag(
             path=img_file_path,
             topic=expandvars(params["img_data"]["img_topic"]),
-            time_tol=.02,
+            time_tol=.05,
             time_range=time_range,
             compressed=params['img_data']['color_compressed']
         )
@@ -273,7 +279,7 @@ def main(args):
         depth_data = ImgData.from_bag(
             path=img_file_path,
             topic=expandvars(params['img_data']['depth_img_topic']),
-            time_tol=.02,
+            time_tol=.05,
             time_range=time_range,
             compressed=params['img_data']['depth_compressed'],
             compressed_rvl=params['img_data']['depth_compressed_rvl'],
