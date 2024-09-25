@@ -1,37 +1,30 @@
-# `segment_track`
+# `segment_track` (to be renamed to ROMAN)
 
 ![demo](./media/tracking.png)
 
-Object detection based segment tracking and 3D reconstruction using triangulation of image detections.
-
-Frame to frame segment data association is computed using mask object detection mask similarity.
+Open-set object mapping pipeline. 
+Objects are detected using [FastSAM](https://github.com/CASIA-IVA-Lab/FastSAM).
+3D point cloud observations are created by using FastSAM masks on depth images, which are then merged into object tracks in real-time, using voxel-based data association.
 
 # Install
 
-TODO: setup dependencies for easy install
-
-For now, activate your favorite virtual environment and `cd` into this repo and run:
-
-```
-mkdir dependencies
-cd dependencies
-git clone git@github.com:mbpeterson70/robotdatapy.git
-pip install ./robotdatapy/
-```
+`cd` into this directory and `pip install .`
 
 # Demo
 
 1. Set the following environment variables (consider putting in `.bashrc` for running repeatedly):
 
 ```
-export WEST_POINT_2023_PATH=<path>
-export FASTSAM_WEIGHTS_PATH=<path>
+export BAG_PATH=<path to Kimera Multi bag file>
+export GT_PATH=<path to Kimera Multi ground truth csv file>
+export FASTSAM_WEIGHTS_PATH=<path to FastSAM weights>
+export ROBOT=<acl_jackal, acl_jackal2, sparkal1, sparkal2, hathor, thoth, apis, OR sobek>
 ```
 
-2. `cd` into `./demo` and run `python3 ./demo.py -p <params file> -o <output prefix (without file extensions)`
+2. `cd` into `./demo` and run `python3 ./demo.py -p ./params/kmd_gt.yaml -o <output prefix (without file extensions)`
 
 ---
 
-This research is supported by Ford Motor Company, ONR, and
+This research is supported by Ford Motor Company, DSTA, ONR, and
 ARL DCIST under Cooperative Agreement Number W911NF-17-2-0181.
 
