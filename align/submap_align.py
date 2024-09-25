@@ -63,6 +63,14 @@ def transform_rm_roll_pitch(T):
     T[:3,:3] = Rot.from_euler('z', Rot.from_matrix(T[:3,:3]).as_euler('ZYX')[0]).as_matrix()
     return T
 
+def time_to_secs_nsecs(t, as_dict=False):
+    seconds = int(t)
+    nanoseconds = int((t - int(t)) * 1e9)
+    if not as_dict:
+        return seconds, nanoseconds
+    else:
+        return {'seconds': seconds, 'nanoseconds': nanoseconds}
+
 def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius: float, 
                       center_times: List[float]=None, time_threshold: float=0.0, 
                       gt_pose_data: PoseData=None, rot_maps_to_gt=False, max_submap_size=None):
@@ -223,7 +231,7 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
                 new_submap_centers[i].append(gtpd.pose(st[j]))
         submap_centers = new_submap_centers
         
-    return submap_centers, submaps, poses, times, submap_idxs
+    return submap_centers, submaps, poses, times, trackers, submap_idxs
 
 # def load_segment_slam_submaps(json_files: List[str], show_maps=False):
 #     submaps = []
@@ -301,7 +309,7 @@ def main(args):
                 raise ValueError("Invalid pose data type")
     
     if not args.segment_slam:
-        submap_centers, submaps, poses, times, submap_idxs = \
+        submap_centers, submaps, poses, times, trackers, submap_idxs = \
             create_submaps(args.input, args.submap_radius, args.submap_center_dist, 
                            show_maps=args.show_maps, gt_pose_data=gt_pose_data, 
                            rot_maps_to_gt=args.rotate_maps_to_gt, 
@@ -634,12 +642,24 @@ def main(args):
                 f.close()
             
         for i, output_sm in enumerate(args.output_submaps):
+            tracker = trackers[i]
             if output_sm is not None:
                 with open(output_sm, 'w') as f:
                     sm_json = dict()
                     sm_json['segments'] = []
                     sm_json['submaps'] = []
-                    # sm_json['name'] = args.robot_names[i
+                    
+                    segment: Segment
+                    for segment in tracker.segment_graveyard + tracker.inactive_segments + tracker.segments:
+                        segment_json = {}
+                        segment_json['robot_name'] = args.robot_names[i]
+                        segment_json['segment_index'] = segment.id
+                        segment_json['centroid_odom'] = np.mean(segment.points, axis=0).tolist()
+                        segment_json['volume'] = segment.volume()
+                        segment_json['first_seen'] = time_to_secs_nsecs(segment.first_seen, as_dict=True)
+                        segment_json['last_seen'] = time_to_secs_nsecs(segment.last_seen, as_dict=True)
+                        sm_json['segments'].append(segment_json)
+                        
                     for j in range(len(submaps[i])):
                         t_j = times[i][submap_idxs[i][j]]
                         xyzquat_submap = transform_to_xyz_quat(submap_centers[i][j], separate=False)
