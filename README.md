@@ -30,3 +30,8 @@ export FASTSAM_WEIGHTS_PATH=<path>
 
 2. `cd` into `./demo` and run `python3 ./demo.py -p <params file> -o <output prefix (without file extensions)`
 
+---
+
+This research is supported by Ford Motor Company, ONR, and
+ARL DCIST under Cooperative Agreement Number W911NF-17-2-0181.
+
