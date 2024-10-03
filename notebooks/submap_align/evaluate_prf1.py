@@ -1,5 +1,6 @@
 import numpy as np
 import pickle
+import hashlib
 
 def evaluate_prf1(
     overlap_mat: np.array, 
@@ -40,20 +41,33 @@ def evaluate_prf1(
     return precision, recall, f1
 
 def prf1_sweep(pkl_paths, req_overlap=0.5, req_err_ang=3, req_err_dist=1.5):
+    loaded = False
     for i, pkl_path in enumerate(pkl_paths):
-        pkl_file = open(pkl_path, 'rb')
-        if i == 0:
-            overlap_mat, err_ang_mat, err_dist_mat, num_assoc_mat = pickle.load(pkl_file)
+        
+        try:
+            pkl_file = open(pkl_path, 'rb')
+        except:
+            print(f"Error loading {pkl_path}")
+            continue
+        pickle_data = pickle.load(pkl_file)
+        if not loaded:
+            loaded = True
+            overlap_mat, err_ang_mat, err_dist_mat, num_assoc_mat = pickle_data[:4]
             overlap_mat = np.reshape(overlap_mat, (-1,1))
             err_ang_mat = np.reshape(err_ang_mat, (-1,1))
             err_dist_mat = np.reshape(err_dist_mat, (-1,1))
             num_assoc_mat = np.reshape(num_assoc_mat, (-1,1))
         else:
-            om, eam, edm, nam = pickle.load(pkl_file)
+            om, eam, edm, nam = pickle_data[:4]
             overlap_mat = np.concatenate((overlap_mat, np.reshape(om, (-1,1))), axis=0)
             err_ang_mat = np.concatenate((err_ang_mat, np.reshape(eam, (-1,1))), axis=0)
             err_dist_mat = np.concatenate((err_dist_mat, np.reshape(edm, (-1,1))), axis=0)
             num_assoc_mat = np.concatenate((num_assoc_mat, np.reshape(nam, (-1,1))), axis=0)
+            
+    total_overlap = np.sum((overlap_mat >= req_overlap))
+    total_pairs = len(overlap_mat)
+    # print(f"number of overlapping: {total_overlap}")
+    # print(f"total number of map pairs: {total_pairs}")
             
     assoc_reqs = np.arange(3, 50)
     precisions = []
@@ -70,3 +84,23 @@ def prf1_sweep(pkl_paths, req_overlap=0.5, req_err_ang=3, req_err_dist=1.5):
         f1s.append(f1)
 
     return precisions, recalls, f1s, assoc_reqs
+
+def dir_is_inter_robot_lc(dir_name):
+    robots_str = dir_name.split('/')[-1]
+    num_underscores = robots_str.count('_')
+    if num_underscores != 1 and num_underscores != 3:
+        return False
+    elif num_underscores == 1:
+        return robots_str.split('_')[0] == robots_str.split('_')[1]
+    else:
+        return robots_str.split('_')[0] == robots_str.split('_')[2] \
+            and robots_str.split('_')[1] == robots_str.split('_')[3]
+    
+def method_to_color(method):
+    hash_object = hashlib.sha256()
+    hash_object.update(method.encode('utf-8'))
+    hex_dig = hash_object.hexdigest()
+    seed = (int(hex_dig, 16) + 4) % 2**32
+    np.random.seed(seed)
+    color = np.random.rand(3)
+    return color

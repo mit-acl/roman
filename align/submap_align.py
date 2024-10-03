@@ -31,9 +31,10 @@ from object_map_registration.register.dist_semantic_sim_reg import DistSemanticS
 from object_map_registration.register.ransac_reg import RansacReg
 from object_map_registration.register.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
 from object_map_registration.register.object_registration import InsufficientAssociationsException
+from object_map_registration.register.dist_pca_cos_reg import DistPCACosReg
 from object_map_registration.utils import object_list_bounds
 
-def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[float]=None):
+def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[float]=None, time_threshold: float=np.inf):
     """
     From a series of poses, generate a list of positions on the trajectory that are dist apart.
 
@@ -50,7 +51,8 @@ def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[fl
     center_idxs = []
 
     for i, (pose, t) in enumerate(zip(poses, times)):
-        if i == 0 or np.linalg.norm(pose[:-1,-1] - centers[-1][:-1,-1]) > dist:
+        if i == 0 or np.linalg.norm(pose[:-1,-1] - centers[-1][:-1,-1]) > dist \
+            or (times is not None and t - center_times[-1] > time_threshold):
             centers.append(pose)
             center_idxs.append(i)
             if times is not None:
@@ -60,6 +62,14 @@ def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[fl
 def transform_rm_roll_pitch(T):
     T[:3,:3] = Rot.from_euler('z', Rot.from_matrix(T[:3,:3]).as_euler('ZYX')[0]).as_matrix()
     return T
+
+def time_to_secs_nsecs(t, as_dict=False):
+    seconds = int(t)
+    nanoseconds = int((t - int(t)) * 1e9)
+    if not as_dict:
+        return seconds, nanoseconds
+    else:
+        return {'seconds': seconds, 'nanoseconds': nanoseconds}
 
 def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius: float, 
                       center_times: List[float]=None, time_threshold: float=0.0, 
@@ -181,6 +191,7 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
     # create submaps
     if times is not None:
         submap_centers, submap_times, submap_idxs = zip(*[submap_centers_from_poses(pose_list, submap_center_dist, ts) for pose_list, ts in zip(poses, times)])
+        # submap_centers, submap_times, submap_idxs = zip(*[submap_centers_from_poses(pose_list, submap_center_dist, ts, args.submap_time_threshold) for pose_list, ts in zip(poses, times)])
     else:
         submap_centers, submap_times, submap_idxs = [submap_centers_from_poses(pose_list, submap_center_dist) for pose_list in poses]
     submaps = [submaps_from_maps(object_map, center_list, submap_radius, time_list, args.submap_time_threshold, gtpd, rot_maps_to_gt=rot_maps_to_gt, max_submap_size=max_submap_size) \
@@ -220,7 +231,7 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
                 new_submap_centers[i].append(gtpd.pose(st[j]))
         submap_centers = new_submap_centers
         
-    return submap_centers, submaps, poses, times, submap_idxs
+    return submap_centers, submaps, poses, times, trackers, submap_idxs
 
 # def load_segment_slam_submaps(json_files: List[str], show_maps=False):
 #     submaps = []
@@ -298,7 +309,7 @@ def main(args):
                 raise ValueError("Invalid pose data type")
     
     if not args.segment_slam:
-        submap_centers, submaps, poses, times, submap_idxs = \
+        submap_centers, submaps, poses, times, trackers, submap_idxs = \
             create_submaps(args.input, args.submap_radius, args.submap_center_dist, 
                            show_maps=args.show_maps, gt_pose_data=gt_pose_data, 
                            rot_maps_to_gt=args.rotate_maps_to_gt, 
@@ -364,7 +375,7 @@ def main(args):
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'pcavolgrav':
         method_name = f'Gravity Guided PCA feature-based Volume Registration (eps_pca={args.epsilon_pca})'
-        registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca[0], volume_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, pca=True, volume=True,
+        registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca, volume_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, pca=True, volume=True,
                                          sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
     elif args.method == 'extentvolgrav':
         method_name = f'Gravity Guided Extent-based Volume Registration'
@@ -390,7 +401,19 @@ def main(args):
         registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, volume=True)
     elif args.method == 'semanticvolgrav':
         method_name = 'CLIP Semantic with Volume'
-        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, volume=True, use_gravity=True)
+        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, volume=True, use_gravity=True, volume_epsilon=args.epsilon_volume)
+    elif args.method == 'spvg':
+        method_name = 'CLIP Semantic + PCA + Volume + Gravity'
+        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, 
+                                          mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, sim_fusion_method=sim_fusion_method,
+                                          volume=True, use_gravity=True, pca=True, pca_epsilon=args.epsilon_pca, volume_epsilon=args.epsilon_volume)
+    elif args.method == 'sevg':
+        method_name = 'Semantic + Extent/Volume + Gravity'
+        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, volume=True, extent=True, use_gravity=True)
+    elif args.method == 'pcacos':
+        method_name = 'PCA Cosine Similarity + Gravity + Volume'
+        registration = DistPCACosReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, volume_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True,
+                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight, pca_epsilon=args.epsilon_pca)
     else:
         assert False, "Invalid method"
 
@@ -413,8 +436,16 @@ def main(args):
             if not args.show_false_positives and robots_nearby_mat[i, j] < args.submap_overlap_threshold:
                 continue
 
-            submap_i = submaps[0][i]
-            submap_j = submaps[1][j]
+            submap_i = deepcopy(submaps[0][i])
+            submap_j = deepcopy(submaps[1][j])
+            if args.self_lc_time_thresh > 0: # self loop closures
+                ids_i = set([obj.id for obj in submap_i])
+                ids_j = set([obj.id for obj in submap_j])
+                common_ids = ids_i.intersection(ids_j)
+                for sm in [submap_i, submap_j]:
+                    to_rm = [obj for obj in sm if obj.id in common_ids]
+                    for obj in to_rm:
+                        sm.remove(obj)
 
             # determine correct T_ij
             if args.rotate_maps_to_gt:
@@ -558,10 +589,13 @@ def main(args):
         with open(args.output_params, 'w') as f:
             f.write(f"{args}")
 
-    if args.output_g2o:
+    if args.output_g2o or args.output_lc_json:
+        assert args.output_g2o and args.output_lc_json, "Must provide both g2o and json output files"        
         I_t = 1 / (args.t_std**2)
         I_r = 1 / (args.r_std**2)
         I = np.diag([I_t, I_t, I_t, I_r, I_r, I_r])
+        
+        json_output = []
 
         with open(args.output_g2o, 'w') as f:
             for i in range(len(submaps[0])):
@@ -580,6 +614,14 @@ def main(args):
                         np.linalg.inv(T_odomi_pi) @ T_odomi_ci @ T_ci_cj @ np.linalg.inv(T_odomj_cj) @ T_odomj_pj
                     )
                     t, q = transform_to_xyz_quat(T_pi_pj, separate=True)
+                    json_output.append({
+                        'seconds': [int(times[0][submap_idxs[0][i]]), int(times[1][submap_idxs[1][j]])],
+                        'nanoseconds': [int((times[0][submap_idxs[0][i]] % 1) * 1e9), int((times[1][submap_idxs[1][j]] % 1) * 1e9)],
+                        'names': args.robot_names,
+                        'translation': t.tolist(),
+                        'rotation': q.tolist(),
+                        'rotation_convention': 'xyzw',
+                    })
 
                     f.write(f"# LC: {int(clipper_num_associations[i, j])}\n")
                     f.write(f"EDGE_SE3:QUAT a{submap_idxs[0][i]} b{submap_idxs[1][j]} \t")
@@ -593,7 +635,51 @@ def main(args):
                         f.write("\t")
                     f.write("\n")
             f.close()
-
+            
+        if args.output_lc_json:
+            with open(args.output_lc_json, 'w') as f:
+                json.dump(json_output, f, indent=4)
+                f.close()
+            
+        for i, output_sm in enumerate(args.output_submaps):
+            tracker = trackers[i]
+            if output_sm is not None:
+                with open(output_sm, 'w') as f:
+                    sm_json = dict()
+                    sm_json['segments'] = []
+                    sm_json['submaps'] = []
+                    
+                    segment: Segment
+                    for segment in tracker.segment_graveyard + tracker.inactive_segments + tracker.segments:
+                        segment_json = {}
+                        segment_json['robot_name'] = args.robot_names[i]
+                        segment_json['segment_index'] = segment.id
+                        segment_json['centroid_odom'] = np.mean(segment.points, axis=0).tolist()
+                        segment_json['volume'] = segment.volume()
+                        segment_json['first_seen'] = time_to_secs_nsecs(segment.first_seen, as_dict=True)
+                        segment_json['last_seen'] = time_to_secs_nsecs(segment.last_seen, as_dict=True)
+                        sm_json['segments'].append(segment_json)
+                        
+                    for j in range(len(submaps[i])):
+                        t_j = times[i][submap_idxs[i][j]]
+                        xyzquat_submap = transform_to_xyz_quat(submap_centers[i][j], separate=False)
+                        sm_json['submaps'].append({
+                            'submap_index': j,
+                            'T_odom_submap': {
+                                'tx': xyzquat_submap[0],
+                                'ty': xyzquat_submap[1],
+                                'tz': xyzquat_submap[2],
+                                'qx': xyzquat_submap[3],
+                                'qy': xyzquat_submap[4],
+                                'qz': xyzquat_submap[5],
+                                'qw': xyzquat_submap[6],
+                            },
+                            'robot_name': args.robot_names[i],
+                            'seconds': int(t_j),
+                            'nanoseconds': int((t_j % 1) * 1e9),
+                        })
+                    json.dump(sm_json, f, indent=4)
+                    f.close()
 
 
 if __name__ == '__main__':
@@ -612,6 +698,7 @@ if __name__ == '__main__':
     parser.add_argument('--gt-yaml', type=str, default=[None, None], help="Path to ground truth yaml file", nargs=2)
     parser.add_argument('--rotate-maps-to-gt', action='store_true', help="Rotate maps to ground truth frame, previous method for validating map alignment")
     parser.add_argument('--self-lc-time-thresh', type=float, default=0.0, help="Time threshold for self loop closure")
+    parser.add_argument('--robot-names', type=str, nargs=2, default=["0", "1"], help="Robot IDs for submaps")
 
     # output files
     parser.add_argument('--output', '-o', type=str, default=None, help="Path to save output plot")
@@ -620,6 +707,8 @@ if __name__ == '__main__':
     parser.add_argument('--output-timing', type=str, default=None, help="Path to save output timing file")
     parser.add_argument('--output-params', type=str, default=None, help="Path to save output parameters file")
     parser.add_argument('--output-g2o', type=str, default=None, help="Path to save output g2o file")
+    parser.add_argument('--output-lc-json', type=str, default=None, help="Path to save output json file")
+    parser.add_argument('--output-submaps', type=str, nargs=2, default=[None, None], help="Path to save output submap times file")
     parser.add_argument('--all-output-prefix', type=str, default=None, help="Prefix for all output files")
     
     # registration params
@@ -627,7 +716,7 @@ if __name__ == '__main__':
     parser.add_argument('--epsilon', type=float, default=0.5)
     parser.add_argument('--mindist', type=float, default=0.2)
     parser.add_argument('--epsilon-volume', type=float, default=0.0)
-    parser.add_argument('--epsilon-pca', type=float, nargs=1, default=0.0, help="Epsilon for PCA feature")
+    parser.add_argument('--epsilon-pca', type=float, default=0.0, help="Epsilon for PCA feature")
     parser.add_argument('--distance-weight', type=float, default=1.0, help="Weight for distance in similarity fusion")
     parser.add_argument('--drift-scale', type=float, default=0.05, help="Scale for drift relaxation of epsilon/sigma")
     parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
@@ -641,7 +730,7 @@ if __name__ == '__main__':
     if args.submaps_idx is not None:
         args.submaps_idx = [args.submaps_idx[:2], args.submaps_idx[2:]]
     args.submap_overlap_threshold = 0.1
-    args.submap_time_threshold = 60 # seconds # segments must be seen within this time of the 
+    args.submap_time_threshold = 30 # seconds # segments must be seen within this time of the 
                                               # submap center's time to be included in the submap
                                               
     if args.all_output_prefix:
@@ -651,6 +740,9 @@ if __name__ == '__main__':
         args.output_timing = f"{args.all_output_prefix}.timing.txt"
         args.output_params = f"{args.all_output_prefix}.params.txt"
         args.output_g2o = f"{args.all_output_prefix}.g2o"
+        args.output_lc_json = f"{args.all_output_prefix}.json"
+        if args.output_submaps[0] is None and args.output_submaps[1] is None:
+            args.output_submaps = [f"{args.all_output_prefix}.{rn}.sm.json" for rn in args.robot_names]
 
     args.t_std = 1.0
     args.r_std = np.deg2rad(5)
