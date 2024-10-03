@@ -291,6 +291,7 @@ class FastSAMWrapper():
         self.observations = []
         
         # rotate image
+        img_orig = img
         img = self.apply_rotation(img)
 
         if self.run_yolo:
@@ -387,7 +388,7 @@ class FastSAMWrapper():
                     self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
                 else:
                     min_col, min_row, max_col, max_row = bbox
-                    img_bbox = img[min_row:max_row, min_col:max_col]
+                    img_bbox = self.apply_rotation(img_orig[min_row:max_row, min_col:max_col])
                     img_bbox = cv.cvtColor(img_bbox, cv.COLOR_BGR2RGB)
                     processed_img = self.clip_preprocess(Image.fromarray(img_bbox, mode='RGB')).to(self.device)
                     clip_embedding = self.clip_model.encode_image(processed_img.unsqueeze(dim=0))

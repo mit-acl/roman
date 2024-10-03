@@ -17,7 +17,8 @@ setup(
         'scikit-image',
         'open3d',
         'yolov7-package',
-        'fastsam'
+        'fastsam @ git+ssh://git@github.com/CASIA-IVA-Lab/FastSAM@4d153e9',
+        'robotdatapy @ git+ssh://git@github.com/mbpeterson70/robotdatapy@0e7853d'
     ],
 )
 

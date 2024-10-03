@@ -3,6 +3,7 @@ from numpy.linalg import norm
 import gtsam
 import cv2 as cv
 from typing import List
+import shapely
 
 from robotdatapy.data.img_data import CameraParams
 from robotdatapy.transform import transform, aruns
@@ -58,7 +59,8 @@ class Segment():
         # Integrate point measurements
         if integrate_points:
             self._integrate_points_from_observation(observation)
-            self._add_semantic_descriptor(observation.clip_embedding)
+            if observation.clip_embedding is not None:
+                self._add_semantic_descriptor(observation.clip_embedding)
 
         self.num_sightings += 1
         if observation.time > self.last_seen:
@@ -76,7 +78,8 @@ class Segment():
                 obs = segment.last_observation
             self.update(obs, integrate_points=False)
         self._integrate_points_from_segment(segment)
-        self._add_semantic_descriptor(segment.semantic_descriptor, segment.semantic_descriptor_cnt)
+        if segment.semantic_descriptor is not None:
+            self._add_semantic_descriptor(segment.semantic_descriptor, segment.semantic_descriptor_cnt)
     
     def _integrate_points_from_observation(self, observation: Observation):
         """Integrate point cloud in the input observation object
@@ -235,7 +238,7 @@ class Segment():
                 )).astype('uint8')
         return mask
     
-    def reprojected_bbox(self, pose):
+    def _pixels_2d(self, pose):
         if self.points is None:
             return None
         points_c = transform(np.linalg.inv(pose), self.points, axis=0)
@@ -246,6 +249,12 @@ class Segment():
         pixels = pixels[np.bitwise_and(pixels[:,0] >= 0, pixels[:,0] < self.camera_params.width), :]
         pixels = pixels[np.bitwise_and(pixels[:,1] >= 0, pixels[:,1] < self.camera_params.height), :]
         if len(pixels) == 0:
+            return None
+        return pixels
+    
+    def reprojected_bbox(self, pose):
+        pixels = self._pixels_2d(pose)
+        if pixels is None:
             return None
         upper_left = np.max([np.min(pixels, axis=0).astype(int), [0, 0]], axis=0)
         lower_right = np.min([np.max(pixels, axis=0).astype(int), 
@@ -300,6 +309,16 @@ class Segment():
         self.last_propagated_mask = mask
         self.last_propagated_time = t
         return mask
+    
+    def outline_2d(self, pose):
+        pixels = self._pixels_2d(pose)
+        if pixels is None:
+            return None
+        convex_hull = shapely.convex_hull(shapely.MultiPoint(pixels))
+        if type(convex_hull) == shapely.Polygon:
+            return np.array(convex_hull.exterior.coords)
+        elif type(convex_hull) == shapely.LineString:
+            return np.array(convex_hull.coords)
     
     def _add_semantic_descriptor(self, descriptor: np.ndarray, cnt: int = 1):
         if self.semantic_descriptor is None:

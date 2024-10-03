@@ -33,12 +33,13 @@ class Tracker():
             min_sightings: int,
             max_t_no_sightings: int,
             merge_objects: bool = False,
-            merge_objects_iou: float = 0.25,
+            merge_objects_iou: float = 0.1,
             mask_downsample_factor: int = 1,
             min_max_extent: float = 0.25, # to get rid of very small objects
             plane_prune_params: List[float] = [3.0, 3.0, 0.5], # to get rid of planar objects (likely background)
             segment_graveyard_time: float = 15.0, # time after which an inactive segment is sent to the graveyard
             segment_graveyard_dist: float = 10.0, # distance traveled after which an inactive segment is sent to the graveyard
+            iou_voxel_size: float = 0.2
     ):
         self.camera_params = camera_params
         self.min_iou = min_iou
@@ -48,13 +49,14 @@ class Tracker():
         self.num_orb_features = 10
         self.merge_objects = merge_objects
         self.merge_objects_iou_3d = merge_objects_iou
-        self.merge_objects_iou_2d = 0.8
+        self.merge_objects_iou_2d = 0.5
         self.mask_downsample_factor = mask_downsample_factor
         # self.min_volume = .25**3 # 25x25x25 cm^3
         self.min_max_extent = min_max_extent
         self.plane_prune_params = plane_prune_params
         self.segment_graveyard_time = segment_graveyard_time
         self.segment_graveyard_dist = segment_graveyard_dist
+        self.iou_voxel_size = iou_voxel_size
 
         self.segment_nursery = []
         self.segments = []
@@ -156,7 +158,7 @@ class Tracker():
         """
         Compute the similarity between the voxel grids of a segment and an observation
         """
-        voxel_size = 0.1
+        voxel_size = self.iou_voxel_size
         segment_voxel_grid = segment.get_voxel_grid(voxel_size)
         observation_voxel_grid = observation.get_voxel_grid(voxel_size)
         return segment_voxel_grid.iou(observation_voxel_grid)
@@ -296,7 +298,7 @@ class Tracker():
                     union2d = np.logical_or(maks1, maks2).sum()
                     iou2d = intersection2d / union2d
 
-                    iou3d = seg1.get_voxel_grid(0.1).iou(seg2.get_voxel_grid(0.1))
+                    iou3d = seg1.get_voxel_grid(self.iou_voxel_size).iou(seg2.get_voxel_grid(self.iou_voxel_size))
 
                     if iou3d > self.merge_objects_iou_3d or iou2d > self.merge_objects_iou_2d:
                         seg1.update_from_segment(seg2)

@@ -4,7 +4,7 @@
 #   relative: True
 
 img_data:
-  path: "$BAG_DIR/$ROBOT.bag"
+  path: "$IMG_BAG"
   img_topic: /$ROBOT/forward/color/image_raw/compressed
   cam_info_topic: /$ROBOT/forward/color/camera_info
   depth_img_topic: /$ROBOT/forward/depth/image_rect_raw
@@ -14,7 +14,7 @@ img_data:
 
 pose_data:
   file_type: bag
-  path: $KMD_VIO_PATH/$ROBOT.bag
+  path: $ODOM_BAG
   topic: /$ROBOT/kimera_vio_ros/odometry
   time_tol: 10.0
 
