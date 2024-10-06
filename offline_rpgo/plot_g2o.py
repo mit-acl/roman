@@ -28,7 +28,7 @@ class G2OPlotParams:
     inliers: bool = True
     outliers: bool = False
     colors: dict = field(default_factory=lambda: DEFAULT_LC_COLORS)
-    lc_alpha: float = .5
+    lc_alpha: float = .9
     odom_alpha: float = 1.0
     odom_linewidth: float = 3.0
     lc_linewidth: float = 2.0
@@ -164,7 +164,7 @@ def main(args):
     
 
     if args.output is not None:
-        plt.savefig(os.path.expanduser(args.output), transparent=False)
+        plt.savefig(os.path.expanduser(args.output), transparent=True)
     else:
         plt.show()
 
