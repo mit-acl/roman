@@ -26,12 +26,10 @@ from segment_track.tracker import Tracker
 from object_map_registration.object.ellipsoid import Ellipsoid
 from object_map_registration.object.object import Object
 from object_map_registration.object.pointcloud_object import PointCloudObject
-from object_map_registration.register.dist_min_max_sim_reg import DistOnlyReg, DistVolReg, DistMinMaxPCAReg, DistCustomFeatureComboReg
-from object_map_registration.register.dist_semantic_sim_reg import DistSemanticSimReg
+from object_map_registration.register.roman import ROMAN, ROMANParams
 from object_map_registration.register.ransac_reg import RansacReg
 from object_map_registration.register.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
 from object_map_registration.register.object_registration import InsufficientAssociationsException
-from object_map_registration.register.dist_pca_cos_reg import DistPCACosReg
 from object_map_registration.utils import object_list_bounds
 
 def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[float]=None, time_threshold: float=np.inf):
@@ -178,6 +176,7 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
                 # new_obj.use_bottom_median_as_center()
                 # find volume once for each object so does not have to be recomputed each time
                 new_obj.volume
+                new_obj.extent
                 new_obj.first_seen = segment.first_seen
                 new_obj.last_seen = segment.last_seen
 
@@ -338,28 +337,46 @@ def main(args):
 
     # Registration method
     if args.fusion_method == 'geometric_mean':
-        sim_fusion_method = clipperpy.invariants.DistancePairwiseAndSingle.GEOMETRIC_MEAN
+        sim_fusion_method = clipperpy.invariants.ROMAN.GEOMETRIC_MEAN
     elif args.fusion_method == 'arithmetic_mean':
-        sim_fusion_method = clipperpy.invariants.DistancePairwiseAndSingle.ARITHMETIC_MEAN
+        sim_fusion_method = clipperpy.invariants.ROMAN.ARITHMETIC_MEAN
     elif args.fusion_method == 'product':
-        sim_fusion_method = clipperpy.invariants.DistancePairwiseAndSingle.PRODUCT
+        sim_fusion_method = clipperpy.invariants.ROMAN.PRODUCT
         
 
-    if args.method == 'standard':
-        method_name = f'{args.dim}D Point CLIPPER'
-        registration = DistOnlyReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pt_dim=args.dim)
-    elif args.method == 'gravity':
-        method_name = 'Gravity Guided CLIPPER'
-        registration = DistOnlyReg(sigma=args.sigma, mindist=args.mindist, epsilon=args.epsilon, use_gravity=True,
-                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
-    elif args.method == 'distvol':
-        method_name = f'{args.dim}D Volume-based Registration'
-        registration = DistVolReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pt_dim=args.dim, volume_epsilon=args.epsilon_volume,
-                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
-    elif args.method == 'distvolgrav':
-        method_name = f'Gravity Guided Volume-based Registration'
-        registration = DistVolReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, use_gravity=True, volume_epsilon=args.epsilon_volume,
-                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
+    if args.method in ['standard', 'gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg']:
+        roman_params = ROMANParams()
+        roman_params.point_dim = args.dim
+        roman_params.sigma = args.sigma
+        roman_params.epsilon = args.epsilon
+        roman_params.min_dist = args.mindist
+        roman_params.fusion = sim_fusion_method
+
+        roman_params.gravity = args.method in ['gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg']
+        roman_params.volume = args.method in ['pcavolgrav', 'extentvolgrav', 'spvg', 'sevg']
+        roman_params.extent = args.method in ['extentvolgrav', 'sevg']
+        roman_params.pca = args.method in ['pcavolgrav', 'spvg']
+        roman_params.cos_min = args.cosine_min
+        roman_params.cos_max = args.cosine_max
+        
+        if args.method == 'standard':
+            method_name = f'{args.dim}D Point CLIPPER'
+        elif args.method == 'gravity':
+            method_name = 'Gravity Guided CLIPPER'
+            roman_params.gravity = True
+        elif args.method == 'pcavolgrav':
+            method_name = f'Gravity Guided PCA feature-based Volume Registration (eps_pca={args.epsilon_pca})'
+        elif args.method == 'extentvolgrav':
+            method_name = f'Gravity Guided Extent-based Volume Registration'
+        elif args.method == 'spvg':
+            method_name = 'CLIP Semantic + PCA + Volume + Gravity'
+            roman_params.semantics_dim = 768
+        elif args.method == 'sevg':
+            method_name = 'Semantic + Extent + Volume + Gravity'
+            roman_params.semantics_dim = 768
+
+        registration = ROMAN(roman_params)
+
     elif args.method == 'prunevol':
         method_name = f'{args.dim}D Volume-based Pruning'
         registration = DistRegWithPruning(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim, volume_epsilon=args.epsilon_volume, use_gravity=False)
@@ -369,51 +386,9 @@ def main(args):
     elif args.method == 'prunegrav':
         method_name = f'Gravity Filtered Pruning'
         registration = DistRegWithPruning(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim, use_gravity=True)
-    elif args.method == 'distfeatpca':
-        method_name = f'Gravity Constrained PCA feature-based Registration (eps_pca={args.epsilon_pca})'
-        registration = DistMinMaxPCAReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca, pt_dim=args.dim, use_gravity=True,
-                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
-    elif args.method == 'pcavolgrav':
-        method_name = f'Gravity Guided PCA feature-based Volume Registration (eps_pca={args.epsilon_pca})'
-        registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, pca_epsilon=args.epsilon_pca, volume_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, pca=True, volume=True,
-                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
-    elif args.method == 'extentvolgrav':
-        method_name = f'Gravity Guided Extent-based Volume Registration'
-        # sim_fusion_method = clipperpy.invariants.DistanceMinMaxSimilarity.GEOMETRIC_MEAN
-        registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, volume_epsilon=args.epsilon_volume, extent_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, extent=True, volume=True,
-                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight)
-    elif args.method == 'drift':
-        method_name = 'Drift-Aware, Gravity-Guided, Extent-based Volume Registration'
-        registration = DistCustomFeatureComboReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, volume_epsilon=args.epsilon_volume, extent_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True, extent=True, volume=True,
-                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight, drift_aware=True, drift_scale=args.drift_scale, drift_scale_sigma=True)
     elif args.method == 'ransac':
         method_name = 'RANSAC'
         registration = RansacReg(dim=args.dim, max_iteration=args.ransac_iter)
-
-    elif args.method == 'semantic':
-        method_name = 'CLIP Semantic'
-        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max)
-    elif args.method == 'semanticgrav':
-        method_name = 'CLIP Semantic with Gravity'
-        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, use_gravity=True)
-    elif args.method == 'semanticvol':
-        method_name = 'CLIP Semantic with Volume'
-        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, volume=True)
-    elif args.method == 'semanticvolgrav':
-        method_name = 'CLIP Semantic with Volume'
-        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, volume=True, use_gravity=True, volume_epsilon=args.epsilon_volume)
-    elif args.method == 'spvg':
-        method_name = 'CLIP Semantic + PCA + Volume + Gravity'
-        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, 
-                                          mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, sim_fusion_method=sim_fusion_method,
-                                          volume=True, use_gravity=True, pca=True, pca_epsilon=args.epsilon_pca, volume_epsilon=args.epsilon_volume)
-    elif args.method == 'sevg':
-        method_name = 'Semantic + Extent/Volume + Gravity'
-        registration = DistSemanticSimReg(sigma=args.sigma, epsilon=args.epsilon, cos_feature_dim=768, mindist=args.mindist, cosine_min=args.cosine_min, cosine_max=args.cosine_max, volume=True, extent=True, use_gravity=True)
-    elif args.method == 'pcacos':
-        method_name = 'PCA Cosine Similarity + Gravity + Volume'
-        registration = DistPCACosReg(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, volume_epsilon=args.epsilon_volume, pt_dim=args.dim, use_gravity=True,
-                                         sim_fusion_method=sim_fusion_method, distance_fusion_weight=args.distance_weight, pca_epsilon=args.epsilon_pca)
     else:
         assert False, "Invalid method"
 
@@ -720,7 +695,7 @@ if __name__ == '__main__':
     parser.add_argument('--distance-weight', type=float, default=1.0, help="Weight for distance in similarity fusion")
     parser.add_argument('--drift-scale', type=float, default=0.05, help="Scale for drift relaxation of epsilon/sigma")
     parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
-    parser.add_argument('--cosine_min', type=float, default=0.7)
+    parser.add_argument('--cosine_min', type=float, default=0.85)
     parser.add_argument('--cosine_max', type=float, default=0.95)
     parser.add_argument('--g2o-thresh', type=int, default=4, help="Association quantity threshold for g2o edge creation")
     parser.add_argument('--max-map-size', '-n', type=int, default=40, help="Maximum number of objects in a submap")
