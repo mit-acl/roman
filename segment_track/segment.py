@@ -319,6 +319,46 @@ class Segment():
             return np.array(convex_hull.exterior.coords)
         elif type(convex_hull) == shapely.LineString:
             return np.array(convex_hull.coords)
+        
+    def normalized_eigenvalues(self):
+        """Compute the normalized eigenvalues of the covariance matrix
+        as a np array [e1, e2, e3]
+        e1 >= e2 >= e3 so that the sum is one
+        """
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(self.points)
+        _, C = pcd.compute_mean_and_covariance()
+        _, eigvals, _ = np.linalg.svd(C)  # svd return in descending order
+        return eigvals / eigvals.sum()
+
+    def linearity(self, e: np.ndarray=None):
+        """ Large if similar to a 1D line (Weinmann et al. ISPRS 2014)
+
+        Args:
+            e (np.ndarray): normalized eigenvalues of this point cloud
+        """
+        if e is None:
+            e = self.normalized_eigenvalues()
+        return (e[0]-e[1]) / e[0]
+
+    def planarity(self, e: np.ndarray=None):
+        """ Large if similar to a 2D plane (Weinmann et al. ISPRS 2014)
+        Args:
+            e (np.ndarray): normalized eigenvalues of this point cloud
+        """
+        if e is None:
+            e = self.normalized_eigenvalues()
+        return (e[1]-e[2]) / e[0]
+
+    def scattering(self, e: np.ndarray=None):
+        """Large if this object is 3D, i.e., neither a line nor a plane (Weinmann et al. ISPRS 2014)
+
+        Args:
+            e (np.ndarray): normalized eigenvalues of this point cloud
+        """
+        if e is None:
+            e = self.normalized_eigenvalues()
+        return e[2] / e[0]
     
     def _add_semantic_descriptor(self, descriptor: np.ndarray, cnt: int = 1):
         if self.semantic_descriptor is None:
