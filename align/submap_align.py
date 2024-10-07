@@ -652,6 +652,7 @@ def main(args):
                             'robot_name': args.robot_names[i],
                             'seconds': int(t_j),
                             'nanoseconds': int((t_j % 1) * 1e9),
+                            'segment_indices': [obj.id for obj in submaps[i][j]]
                         })
                     json.dump(sm_json, f, indent=4)
                     f.close()
