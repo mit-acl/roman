@@ -14,7 +14,7 @@ from PIL import Image
 from fastsam import FastSAMPrompt
 from fastsam import FastSAM
 import clip
-from segment_track.observation import Observation
+from roman.map.observation import Observation
 import logging
 
 logger = logging.getLogger(__name__)

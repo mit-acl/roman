@@ -6,9 +6,9 @@ import open3d as o3d
 
 from robotdatapy.data.img_data import CameraParams
 
-from segment_track.segment import Segment
-from segment_track.observation import Observation
-from segment_track.global_nearest_neighbor import global_nearest_neighbor
+from roman.object.segment import Segment
+from roman.map.observation import Observation
+from roman.map.global_nearest_neighbor import global_nearest_neighbor
 
 import logging
 logger = logging.getLogger(__name__)

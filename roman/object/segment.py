@@ -10,8 +10,8 @@ from robotdatapy.transform import transform, aruns
 from robotdatapy.camera import xyz_2_pixel, pixel_depth_2_xyz
 
 import open3d as o3d
-from segment_track.observation import Observation
-from segment_track.voxel_grid import VoxelGrid
+from roman.map.observation import Observation
+from roman.map.voxel_grid import VoxelGrid
 
 class Segment():
 

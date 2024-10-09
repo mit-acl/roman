@@ -5,7 +5,7 @@ from typing import List, Dict
 
 from robotdatapy.transform import transform
 
-from segment_track.voxel_grid import VoxelGrid
+from roman.map.voxel_grid import VoxelGrid
 
 
 @dataclass
