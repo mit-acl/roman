@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='segment_track',
+    name='roman',
     version='0.1.0',    
     description='Package for tracking FastSAM segments',
     url='url',
@@ -17,6 +17,9 @@ setup(
         'scikit-image',
         'open3d',
         'yolov7-package',
+        'shapely',
+        'opencv-python',
+        'pyyaml',
         'fastsam @ git+ssh://git@github.com/CASIA-IVA-Lab/FastSAM@4d153e9',
         'robotdatapy @ git+ssh://git@github.com/mbpeterson70/robotdatapy@0e7853d'
     ],
