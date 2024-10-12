@@ -21,6 +21,14 @@ class ProcessingTimes:
     fastsam_times: list
     map_times: list
     total_times: list
+    
+def expandvars_recursive(path):
+    """Recursively expands environment variables in the given path."""
+    while True:
+        expanded_path = expandvars(path)
+        if expanded_path == path:
+            return expanded_path
+        path = expanded_path
 
 class ROMANMapRunner:
     def __init__(self, params: dict, verbose=False, viz_map=False, viz_observations=False):
@@ -208,10 +216,10 @@ class ROMANMapRunner:
         if params['use_kitti']:
             time_range = [params['time']['t0'], params['time']['tf']]
         else:
-            img_file_path = expanduser(expandvars(params["img_data"]["path"]))
+            img_file_path = expanduser(expandvars_recursive(params["img_data"]["path"]))
             if 'time' in params:
                 if 'relative' in params['time'] and params['time']['relative']:
-                    topic_t0 = ImgData.topic_t0(img_file_path, expandvars(params["img_data"]["img_topic"]))
+                    topic_t0 = ImgData.topic_t0(img_file_path, expandvars_recursive(params["img_data"]["img_topic"]))
                     time_range = [topic_t0 + params['time']['t0'], topic_t0 + params['time']['tf']]
                 else:
                     time_range = [params['time']['t0'], params['time']['tf']]
@@ -230,15 +238,15 @@ class ROMANMapRunner:
             img_data = ImgData.from_kitti(self.params['img_data']['base_path'], 'rgb')
             img_data.extract_params()
         else:
-            img_file_path = expanduser(expandvars(self.params["img_data"]["path"]))
+            img_file_path = expanduser(expandvars_recursive(self.params["img_data"]["path"]))
             img_data = ImgData.from_bag(
                 path=img_file_path,
-                topic=expandvars(self.params["img_data"]["img_topic"]),
+                topic=expandvars_recursive(self.params["img_data"]["img_topic"]),
                 time_tol=.05,
                 time_range=self.time_range,
                 compressed=self.params['img_data']['color_compressed']
             )
-            img_data.extract_params(expandvars(self.params['img_data']['cam_info_topic']))
+            img_data.extract_params(expandvars_recursive(self.params['img_data']['cam_info_topic']))
         return img_data
 
     def _load_depth_data(self) -> ImgData:
@@ -252,16 +260,16 @@ class ROMANMapRunner:
             depth_data = ImgData.from_kitti(self.params['img_data']['base_path'], 'depth')
             depth_data.extract_params()
         else:
-            img_file_path = expanduser(expandvars(self.params["img_data"]["path"]))
+            img_file_path = expanduser(expandvars_recursive(self.params["img_data"]["path"]))
             depth_data = ImgData.from_bag(
                 path=img_file_path,
-                topic=expandvars(self.params['img_data']['depth_img_topic']),
+                topic=expandvars_recursive(self.params['img_data']['depth_img_topic']),
                 time_tol=.05,
                 time_range=self.time_range,
                 compressed=self.params['img_data']['depth_compressed'],
                 compressed_rvl=self.params['img_data']['depth_compressed_rvl'],
             )
-            depth_data.extract_params(expandvars(self.params['img_data']['depth_cam_info_topic']))
+            depth_data.extract_params(expandvars_recursive(self.params['img_data']['depth_cam_info_topic']))
         
         return depth_data
     
@@ -273,11 +281,11 @@ class ROMANMapRunner:
             PoseData: Pose data object.
         """
         if not self.params['use_kitti']:
-            pose_file_path = self.params['pose_data']['path']
+            pose_file_path = expandvars_recursive(self.params['pose_data']['path'])
             pose_file_type = self.params['pose_data']['file_type']
             pose_time_tol = self.params['pose_data']['time_tol']
             if pose_file_type == 'bag':
-                pose_topic = expandvars(self.params['pose_data']['topic'])
+                pose_topic = expandvars_recursive(self.params['pose_data']['topic'])
                 csv_options = None
             else:
                 pose_topic = None
@@ -294,11 +302,11 @@ class ROMANMapRunner:
             elif self.params['pose_data']['T_postmultiply'] == 'T_RDFFLU':
                 T_postmultiply = T_RDFFLU
         if 'tf_to_cam' in self.params['pose_data']:
-            img_file_path = expanduser(expandvars(self.params["img_data"]["path"]))
+            img_file_path = expanduser(expandvars_recursive(self.params["img_data"]["path"]))
             T_postmultiply = PoseData.static_tf_from_bag(
                 expanduser(img_file_path), 
-                expandvars(self.params['pose_data']['tf_to_cam']['parent']), 
-                expandvars(self.params['pose_data']['tf_to_cam']['child'])
+                expandvars_recursive(self.params['pose_data']['tf_to_cam']['parent']), 
+                expandvars_recursive(self.params['pose_data']['tf_to_cam']['child'])
             )
         
         if self.params['use_kitti']:
@@ -306,7 +314,7 @@ class ROMANMapRunner:
         elif pose_file_type == 'bag':
             pose_data = PoseData.from_bag(
                 path=expanduser(pose_file_path),
-                topic=expandvars(pose_topic),
+                topic=expandvars_recursive(pose_topic),
                 time_tol=pose_time_tol,
                 interp=True,
                 T_postmultiply=T_postmultiply
@@ -330,7 +338,7 @@ class ROMANMapRunner:
             FastSAMWrapper: Wrapper for extracting observations from images using FastSAM.
         """
         fastsam = FastSAMWrapper(
-            weights=expanduser(expandvars(self.params['fastsam']['weights'])),
+            weights=expanduser(expandvars_recursive(self.params['fastsam']['weights'])),
             imgsz=self.params['fastsam']['imgsz'],
             device=self.params['fastsam']['device'],
             mask_downsample_factor=self.params['segment_tracking']['mask_downsample_factor'],

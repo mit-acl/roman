@@ -243,7 +243,7 @@ class Tracker():
                 if seg.num_points == 0:
                     to_delete.append(seg)
                     # reason.append(f"Segment {seg.id} has no points")
-                elif seg.volume() < min_volume:
+                elif seg.volume < min_volume:
                     to_delete.append(seg)
                     # reason.append(f"Segment {seg.id} has volume {seg.volume} < {min_volume}")
                 elif extent[-1] < min_max_extent:

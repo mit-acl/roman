@@ -12,10 +12,10 @@ from robot_utils.robot_data.pose_data import PoseData
 from robot_utils.transform import transform_2_xytheta
 from robot_utils.geometry import circle_intersection
 
-from segment_track.segment import Segment
-from segment_track.tracker import Tracker
+from roman.object.segment import Segment
+from roman.map.tracker import Tracker
 
-from object_map_registration.object.pointcloud_object import PointCloudObject
+from roman.object.pointcloud_object import PointCloudObject
 
 def create_ptcld_geometries(submap, color, submap_offset=np.array([0,0,0]), include_label=True):
     ocd_list = []

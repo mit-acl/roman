@@ -20,17 +20,17 @@ from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat, \
 from robotdatapy.geometry import circle_intersection
 from robotdatapy.transform import T_FLURDF, T_RDFFLU
 
-from segment_track.segment import Segment
-from segment_track.tracker import Tracker
+from roman.object.segment import Segment
+from roman.map.tracker import Tracker
 
-from object_map_registration.object.ellipsoid import Ellipsoid
-from object_map_registration.object.object import Object
-from object_map_registration.object.pointcloud_object import PointCloudObject
-from object_map_registration.register.roman import ROMAN, ROMANParams
-from object_map_registration.register.ransac_reg import RansacReg
-from object_map_registration.register.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
-from object_map_registration.register.object_registration import InsufficientAssociationsException
-from object_map_registration.utils import object_list_bounds
+from roman.object.object import Object
+from roman.align.object_registration import InsufficientAssociationsException
+from roman.align.dist_reg_with_pruning import GravityConstraintError
+from roman.utils import object_list_bounds, transform_rm_roll_pitch
+from roman.align.params import SubmapAlignParams, SubmapAlignInputOutput
+from roman.align.results import save_submap_align_results, SubmapAlignResults
+
+OVERLAP_EPS = 0.01
 
 def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[float]=None, time_threshold: float=np.inf):
     """
@@ -57,21 +57,8 @@ def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[fl
                 center_times.append(t)
     return centers, center_times, center_idxs
 
-def transform_rm_roll_pitch(T):
-    T[:3,:3] = Rot.from_euler('z', Rot.from_matrix(T[:3,:3]).as_euler('ZYX')[0]).as_matrix()
-    return T
-
-def time_to_secs_nsecs(t, as_dict=False):
-    seconds = int(t)
-    nanoseconds = int((t - int(t)) * 1e9)
-    if not as_dict:
-        return seconds, nanoseconds
-    else:
-        return {'seconds': seconds, 'nanoseconds': nanoseconds}
-
-def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius: float, 
-                      center_times: List[float]=None, time_threshold: float=0.0, 
-                      gt_pose_data: PoseData=None, rot_maps_to_gt=False, max_submap_size=None):
+def submaps_from_maps(object_map: List[Object], centers: List[np.array],
+                      center_times: List[float]=None, submap_align_params: SubmapAlignParams = SubmapAlignParams()):
     """
     From a list of objects and a list of centers, generate a list of submaps centered at the centers.
 
@@ -84,60 +71,39 @@ def submaps_from_maps(object_map: List[Object], centers: List[np.array], radius:
         List[List[Object]]: List of submaps
     """
     
-    # # gt_pose_data.T_postmultiply = np.eye(4)
-    # vio_pd = PoseData.from_times_and_poses(center_times, centers, T_premultiply=gt_pose_data.pose(center_times[0]) @ np.linalg.inv(centers[0]))
-
-    # fig, ax = plt.subplots()
-    # vio_pd.plot2d(ax=ax, trajectory=False, pose=True, t=vio_pd.times)
-    # gt_pose_data.plot2d(ax=ax, trajectory=True, pose=True, t=center_times)
-    # plt.show()
-    # exit(0)
-    
     submaps = []
     for i, center in enumerate(centers):
         if center_times is not None:
             t = center_times[i]
             tm1 = center_times[i-1] if i > 0 else center_times[i]
             tp1 = center_times[i+1] if i < len(centers) - 1 else center_times[i]
-            meets_time_thresh = lambda obj: not (obj.first_seen > tp1 + time_threshold or obj.last_seen < tm1 - time_threshold)
+            meets_time_thresh = \
+                lambda obj: not (obj.first_seen > tp1 + submap_align_params.submap_center_time
+                    or obj.last_seen < tm1 - submap_align_params.submap_center_time)
         else:
             meets_time_thresh = lambda obj: True
         # submaps is originally a collection of objects that are within a radius from the center
         submap = [deepcopy(obj) for obj in object_map if \
-                  np.linalg.norm(obj.center.flatten()[:2] - center[:2,3]) < radius \
+                  np.linalg.norm(obj.center.flatten()[:2] - center[:2,3]) < submap_align_params.submap_radius \
                   and meets_time_thresh(obj)]
         
-        # Rotate objects to be aligned with the ground truth frame
-        if rot_maps_to_gt:
-            if gt_pose_data is not None:
-                # only rotate objects about yaw - want to preserve the gravity direction
-                # small time difference can cause small tilt angles if we don't just use yaw
-                T_odom_center = transform_rm_roll_pitch(center @ T_RDFFLU)
-                T_world_center = transform_rm_roll_pitch(gt_pose_data.pose(center_times[i]) @ T_RDFFLU)
-                T_world_odom = T_world_center @ np.linalg.inv(T_odom_center)
-                for obj in submap:
-                    obj.transform(T_world_odom)
-            
-            # Transform objects to be centered at the submap center
-            T_submap_world = np.eye(4) # transformation to move submap from world frame to centered submap frame
-            T_submap_world[:args.dim, 3] = -center[:args.dim,3] if gt_pose_data is None else -T_world_center[:args.dim,3]
-            for obj in submap:
-                obj.transform(T_submap_world)
+        T_odom_center = transform_rm_roll_pitch(center @ T_RDFFLU)
+        T_center_odom = np.linalg.inv(T_odom_center)
+        for obj in submap:
+            obj.transform(T_center_odom)
 
-        else: # transform objects to be in the robot frame (of the submap center)
-            T_odom_center = transform_rm_roll_pitch(center @ T_RDFFLU)
-            T_center_odom = np.linalg.inv(T_odom_center)
-            for obj in submap:
-                obj.transform(T_center_odom)
-
-        if max_submap_size is not None:
+        if submap_align_params.submap_max_size is not None:
             submap_sorted_by_dist = sorted(submap, key=lambda obj: np.linalg.norm(obj.center.flatten()[:2]))
-            submap = submap_sorted_by_dist[:max_submap_size]
+            submap = submap_sorted_by_dist[:submap_align_params.submap_max_size]
 
         submaps.append(submap)
     return submaps
 
-def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_dist: float, show_maps=False, gt_pose_data=[None, None], rot_maps_to_gt=False, max_submap_size=None):    
+def create_submaps(
+    pickle_files: List[str], 
+    submap_align_params: SubmapAlignParams=SubmapAlignParams(), 
+    show_maps: bool=False
+):    
     colors = ['maroon', 'blue']
     poses = []
     times = []
@@ -145,57 +111,31 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
     object_maps = [[], []]
     
     # extract pickled data
-    poses_1 = []
-    times_1 = []
-    poses_2 = []
-    times_2 = []
-    # for pickle_file in pickle_files:
     for i, pickle_file in enumerate(pickle_files):
         with open(os.path.expanduser(pickle_file), 'rb') as f:
             pickle_data = pickle.load(f)
             
             tr, p, t = pickle_data
-            if i < len(pickle_files) / 2.0:
-                times_1.extend(t)
-                poses_1.extend(p)
-            else:
-                times_2.extend(t)
-                poses_2.extend(p)
+            times.append(t)
+            poses.append(p)
             trackers.append(tr)
-
-    poses = [poses_1, poses_2]
-    times = [times_1, times_2]
 
     # create objects from segments
     for i, tracker in enumerate(trackers):
         segment: Segment
         for segment in tracker.segments + tracker.inactive_segments + tracker.segment_graveyard:
             if segment.points is not None and len(segment.points) > 0:
-                # new_obj = PointCloudObject(np.mean(segment.points, axis=0), np.eye(3), segment.points - np.mean(segment.points, axis=0), dim=3)
-                new_obj = PointCloudObject(np.zeros(3), np.eye(3), segment.points, dim=3, id=segment.id)
-                # new_obj.use_bottom_median_as_center()
-                # find volume once for each object so does not have to be recomputed each time
-                new_obj.volume
-                new_obj.extent
-                new_obj.first_seen = segment.first_seen
-                new_obj.last_seen = segment.last_seen
-
-                new_obj.semantic_descriptor = segment.semantic_descriptor
-
-                if i < len(pickle_files) / 2.0:
-                    object_maps[0].append(new_obj)
-                else:
-                    object_maps[1].append(new_obj)
+                segment.volume
+                segment.extent
+                object_maps[i].append(segment)
 
     # create submaps
-    if times is not None:
-        submap_centers, submap_times, submap_idxs = zip(*[submap_centers_from_poses(pose_list, submap_center_dist, ts) for pose_list, ts in zip(poses, times)])
-        # submap_centers, submap_times, submap_idxs = zip(*[submap_centers_from_poses(pose_list, submap_center_dist, ts, args.submap_time_threshold) for pose_list, ts in zip(poses, times)])
-    else:
-        submap_centers, submap_times, submap_idxs = [submap_centers_from_poses(pose_list, submap_center_dist) for pose_list in poses]
-    submaps = [submaps_from_maps(object_map, center_list, submap_radius, time_list, args.submap_time_threshold, gtpd, rot_maps_to_gt=rot_maps_to_gt, max_submap_size=max_submap_size) \
-        for object_map, center_list, time_list, gtpd \
-        in zip(object_maps, submap_centers, submap_times, gt_pose_data)]
+    submap_centers, submap_times, submap_idxs = \
+        zip(*[submap_centers_from_poses(pose_list, submap_align_params.submap_center_dist, ts) \
+            for pose_list, ts in zip(poses, times)])
+    submaps = [submaps_from_maps(object_map, center_list, time_list, submap_align_params) \
+        for object_map, center_list, time_list \
+        in zip(object_maps, submap_centers, submap_times)]
     
     # plot maps
     if show_maps:
@@ -213,7 +153,7 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
             
             # ax.plot([position[0] for position in submap_centers[i]], [position[1] for position in submap_centers[i]], 'o', color='black')
             for center in submap_centers[i]:
-                ax.add_patch(plt.Circle(center[:2,3], submap_radius, color='black', fill=False))
+                ax.add_patch(plt.Circle(center[:2,3], submap_align_params.submap_radius, color='black', fill=False))
             ax.set_aspect('equal')
             
             ax.set_xlim(xlim)
@@ -221,14 +161,6 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
 
         plt.show()
         exit(0)
-        
-    # if gt data is available, return gt submap location for evaluation
-    if gt_pose_data != [None, None] and rot_maps_to_gt:
-        new_submap_centers = [[], []]
-        for i, (gtpd, st) in enumerate(zip(gt_pose_data, submap_times)):
-            for j in range(len(st)):
-                new_submap_centers[i].append(gtpd.pose(st[j]))
-        submap_centers = new_submap_centers
         
     return submap_centers, submaps, poses, times, trackers, submap_idxs
 
@@ -289,13 +221,21 @@ def create_submaps(pickle_files: List[str], submap_radius: float, submap_center_
 #     return submap_centers, submaps
         
 
-def main(args):
-    assert not (args.rotate_maps_to_gt and args.output_g2o), "Cannot provide g2o output when rotating maps to ground truth"
+def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
+    """
+    Breaks maps into submaps and attempts to align each submap from one map with each submap from the second map.
 
+    Args:
+        sm_params (SubmapAlignParams): Aignment (loop closure) params.
+        sm_io (SubmapAlignInputOutput): Input/output specifications.
+    """
+    assert sm_io.input_type_json or sm_io.input_type_pkl, "Invalid input type"
+    assert sm_io.input_type_json != sm_io.input_type_pkl, "Only one input type allowed"
+    
     gt_pose_data = [None, None]
     
     # load ground truth pose data
-    for i, yaml_file in enumerate(args.gt_yaml):
+    for i, yaml_file in enumerate(sm_io.input_gt_pose_yaml):
         if yaml_file is not None:
             # load yaml file
             with open(os.path.expanduser(yaml_file), 'r') as f:
@@ -307,18 +247,11 @@ def main(args):
             else:
                 raise ValueError("Invalid pose data type")
     
-    if not args.segment_slam:
+    if sm_io.input_type_pkl:
         submap_centers, submaps, poses, times, trackers, submap_idxs = \
-            create_submaps(args.input, args.submap_radius, args.submap_center_dist, 
-                           show_maps=args.show_maps, gt_pose_data=gt_pose_data, 
-                           rot_maps_to_gt=args.rotate_maps_to_gt, 
-                           max_submap_size=args.max_map_size)
-    else:
+            create_submaps(sm_io.inputs, sm_params, sm_io.debug_show_maps)
+    elif sm_io.input_type_json: # TODO: re-implement support for json files
         submap_centers, submaps = load_segment_slam_submaps(args.input, show_maps=args.show_maps)
-
-    if args.submaps_idx:
-        submaps = [submaps[i][args.submaps_idx[i][0]:args.submaps_idx[i][1]] for i in range(2)]
-        submap_centers = [submap_centers[i][args.submaps_idx[i][0]:args.submaps_idx[i][1]] for i in range(2)]
 
     # Registration setup
     clipper_angle_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
@@ -328,69 +261,13 @@ def main(args):
     clipper_percent_associations = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     submap_yaw_diff_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     timing_list = []
-    if args.ambiguity:
-        ambiguity_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
-    if args.output_viz:
-        T_ij_mat = np.zeros((len(submaps[0]), len(submaps[1]), 4, 4))*np.nan
-        T_ij_hat_mat = np.zeros((len(submaps[0]), len(submaps[1]), 4, 4))*np.nan
-        associated_objs_mat = [[[] for _ in range(len(submaps[1]))] for _ in range(len(submaps[0]))] # cannot be numpy array since each element is a different sized array
+    
+    T_ij_mat = np.zeros((len(submaps[0]), len(submaps[1]), 4, 4))*np.nan
+    T_ij_hat_mat = np.zeros((len(submaps[0]), len(submaps[1]), 4, 4))*np.nan
+    associated_objs_mat = [[[] for _ in range(len(submaps[1]))] for _ in range(len(submaps[0]))] # cannot be numpy array since each element is a different sized array
 
     # Registration method
-    if args.fusion_method == 'geometric_mean':
-        sim_fusion_method = clipperpy.invariants.ROMAN.GEOMETRIC_MEAN
-    elif args.fusion_method == 'arithmetic_mean':
-        sim_fusion_method = clipperpy.invariants.ROMAN.ARITHMETIC_MEAN
-    elif args.fusion_method == 'product':
-        sim_fusion_method = clipperpy.invariants.ROMAN.PRODUCT
-        
-
-    if args.method in ['standard', 'gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg']:
-        roman_params = ROMANParams()
-        roman_params.point_dim = args.dim
-        roman_params.sigma = args.sigma
-        roman_params.epsilon = args.epsilon
-        roman_params.min_dist = args.mindist
-        roman_params.fusion = sim_fusion_method
-
-        roman_params.gravity = args.method in ['gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg']
-        roman_params.volume = args.method in ['pcavolgrav', 'extentvolgrav', 'spvg', 'sevg']
-        roman_params.extent = args.method in ['extentvolgrav', 'sevg']
-        roman_params.pca = args.method in ['pcavolgrav', 'spvg']
-        roman_params.cos_min = args.cosine_min
-        roman_params.cos_max = args.cosine_max
-        
-        if args.method == 'standard':
-            method_name = f'{args.dim}D Point CLIPPER'
-        elif args.method == 'gravity':
-            method_name = 'Gravity Guided CLIPPER'
-            roman_params.gravity = True
-        elif args.method == 'pcavolgrav':
-            method_name = f'Gravity Guided PCA feature-based Volume Registration (eps_pca={args.epsilon_pca})'
-        elif args.method == 'extentvolgrav':
-            method_name = f'Gravity Guided Extent-based Volume Registration'
-        elif args.method == 'spvg':
-            method_name = 'CLIP Semantic + PCA + Volume + Gravity'
-            roman_params.semantics_dim = 768
-        elif args.method == 'sevg':
-            method_name = 'Semantic + Extent + Volume + Gravity'
-            roman_params.semantics_dim = 768
-
-        registration = ROMAN(roman_params)
-
-    elif args.method == 'prunevol':
-        method_name = f'{args.dim}D Volume-based Pruning'
-        registration = DistRegWithPruning(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim, volume_epsilon=args.epsilon_volume, use_gravity=False)
-    elif args.method == 'prunevolgrav':
-        method_name = f'Gravity Filtered Volume-based Pruning'
-        registration = DistRegWithPruning(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim, volume_epsilon=args.epsilon_volume, use_gravity=True)
-    elif args.method == 'prunegrav':
-        method_name = f'Gravity Filtered Pruning'
-        registration = DistRegWithPruning(sigma=args.sigma, epsilon=args.epsilon, mindist=args.mindist, dim=args.dim, use_gravity=True)
-    elif args.method == 'ransac':
-        method_name = 'RANSAC'
-        registration = RansacReg(dim=args.dim, max_iteration=args.ransac_iter)
-    else:
-        assert False, "Invalid method"
+    registration = sm_params.get_object_registration()
 
 
     # iterate over pairs of submaps and create registration results
@@ -402,18 +279,14 @@ def main(args):
             else:
                 sc_gt = [submap_centers[0][i], submap_centers[1][j]]
             submap_intersection = circle_intersection(
-                center1=sc_gt[0][:2,3], center2=sc_gt[1][:2,3], radius1=args.submap_radius, radius2=args.submap_radius
+                center1=sc_gt[0][:2,3], center2=sc_gt[1][:2,3], radius1=sm_params.submap_radius, radius2=sm_params.submap_radius
             )
-            submap_area = np.pi*args.submap_radius**2
+            submap_area = np.pi*sm_params.submap_radius**2
             robots_nearby_mat[i, j] = submap_intersection/submap_area
-
-            # if show_false_positives is not set, then skip over non overlapping submaps
-            if not args.show_false_positives and robots_nearby_mat[i, j] < args.submap_overlap_threshold:
-                continue
 
             submap_i = deepcopy(submaps[0][i])
             submap_j = deepcopy(submaps[1][j])
-            if args.self_lc_time_thresh > 0: # self loop closures
+            if sm_params.single_robot_lc: # self loop closures
                 ids_i = set([obj.id for obj in submap_i])
                 ids_j = set([obj.id for obj in submap_j])
                 common_ids = ids_i.intersection(ids_j)
@@ -423,47 +296,36 @@ def main(args):
                         sm.remove(obj)
 
             # determine correct T_ij
-            if args.rotate_maps_to_gt:
-                T_wi = np.eye(4); T_wi[:args.dim, 3] = submap_centers[0][i][:args.dim,3]
-                T_wj = np.eye(4); T_wj[:args.dim, 3] = submap_centers[1][j][:args.dim,3]
-                T_ij = np.linalg.inv(T_wi) @ T_wj
+            if gt_pose_data[0] is not None:
+                T_wi = transform_rm_roll_pitch(gt_pose_data[0].pose(times[0][submap_idxs[0][i]]) @ T_RDFFLU)
             else:
-                if gt_pose_data[0] is not None:
-                    T_wi = transform_rm_roll_pitch(gt_pose_data[0].pose(times[0][submap_idxs[0][i]]) @ T_RDFFLU)
-                else:
-                    T_wi = transform_rm_roll_pitch(submap_centers[0][i] @ T_RDFFLU)
-                if gt_pose_data[1] is not None:
-                    T_wj = transform_rm_roll_pitch(gt_pose_data[1].pose(times[1][submap_idxs[1][j]]) @ T_RDFFLU)
-                else:
-                    T_wj = transform_rm_roll_pitch(submap_centers[1][j] @ T_RDFFLU)
-                T_ij = np.linalg.inv(T_wi) @ T_wj
-                if robots_nearby_mat[i, j] > args.submap_overlap_threshold:
-                    relative_yaw_angle = transform_to_xyzrpy(T_ij)[5]
-                    submap_yaw_diff_mat[i, j] = np.abs(np.rad2deg(relative_yaw_angle))
+                T_wi = transform_rm_roll_pitch(submap_centers[0][i] @ T_RDFFLU)
+            if gt_pose_data[1] is not None:
+                T_wj = transform_rm_roll_pitch(gt_pose_data[1].pose(times[1][submap_idxs[1][j]]) @ T_RDFFLU)
+            else:
+                T_wj = transform_rm_roll_pitch(submap_centers[1][j] @ T_RDFFLU)
+            T_ij = np.linalg.inv(T_wi) @ T_wj
+            if robots_nearby_mat[i, j] > OVERLAP_EPS:
+                relative_yaw_angle = transform_to_xyzrpy(T_ij)[5]
+                submap_yaw_diff_mat[i, j] = np.abs(np.rad2deg(relative_yaw_angle))
                 
-            # register the submaps (run multiple times if ambiguity is set)
-            if args.ambiguity:
-                solutions = registration.mno_clipper(submap_i, submap_j, num_solutions=2)
-                ambiguity_mat[i, j] = np.min([solutions[k][1] for k in range(2)]) / np.max([solutions[k][1] for k in range(2)])
-                associations = solutions[0][0]
-
+            # register the submaps=
             try:
                 start_t = time.time()
                 associations = registration.register(submap_i, submap_j)
                 timing_list.append(time.time() - start_t)
-
                 
-                if args.dim == 2:
+                if sm_params.dim == 2:
                     T_ij_hat = registration.T_align(submap_i, submap_j, associations)
                     T_error = np.linalg.inv(T_ij_hat) @ T_ij
                     _, _, theta = transform_to_xytheta(T_error)
-                    dist = np.linalg.norm(T_error[:args.dim, 3])
+                    dist = np.linalg.norm(T_error[:sm_params.dim, 3])
 
-                elif args.dim == 3:
+                elif sm_params.dim == 3:
                     T_ij_hat = registration.T_align(submap_i, submap_j, associations)
                     T_error = np.linalg.inv(T_ij_hat) @ T_ij
                     theta = Rot.from_matrix(T_error[:3, :3]).magnitude()
-                    dist = np.linalg.norm(T_error[:args.dim, 3])
+                    dist = np.linalg.norm(T_error[:sm_params.dim, 3])
                 else:
                     raise ValueError("Invalid dimension")
                 
@@ -474,7 +336,7 @@ def main(args):
                 dist = 1e6
                 associations = []
             
-            if robots_nearby_mat[i, j] > args.submap_overlap_threshold:
+            if robots_nearby_mat[i, j] > OVERLAP_EPS:
                 clipper_angle_mat[i, j] = np.abs(np.rad2deg(theta))
                 clipper_dist_mat[i, j] = dist
             else:
@@ -484,243 +346,20 @@ def main(args):
             clipper_num_associations[i, j] = len(associations)
             clipper_percent_associations[i, j] = len(associations) / np.mean([len(submap_i), len(submap_j)])
             
-            if args.output_viz:
-                T_ij_mat[i, j] = T_ij
-                T_ij_hat_mat[i, j] = T_ij_hat
-                associated_objs_mat[i][j] = associations
+            T_ij_mat[i, j] = T_ij
+            T_ij_hat_mat[i, j] = T_ij_hat
+            associated_objs_mat[i][j] = associations
 
-    # Create plots
-    if args.ambiguity:
-        fig, ax = plt.subplots(1, 5, figsize=(25, 5), dpi=500)
-    else:
-        fig, ax = plt.subplots(1, 5, figsize=(20, 5), dpi=500)
-    fig.subplots_adjust(wspace=.3)
-    fig.suptitle(method_name)
-
-    mp = ax[0].imshow(robots_nearby_mat, vmin=0)
-    fig.colorbar(mp, fraction=0.03, pad=0.04)
-    ax[0].set_title("Submaps Overlap")
-
-    mp = ax[1].imshow(-clipper_angle_mat, vmax=0, vmin=-10)
-    fig.colorbar(mp, fraction=0.03, pad=0.04)
-    ax[1].set_title("Registration Error (deg)")
-
-    mp = ax[2].imshow(-clipper_dist_mat, vmax=0, vmin=-5.0)
-    fig.colorbar(mp, fraction=0.03, pad=0.04)
-    ax[2].set_title("Registration Distance Error (m)")
-
-    mp = ax[3].imshow(clipper_num_associations, vmin=0)
-    fig.colorbar(mp, fraction=0.03, pad=0.04)
-    ax[3].set_title("Number of CLIPPER Associations")
-
-    # mp = ax[4].imshow(clipper_percent_associations, vmin=0)
-    # fig.colorbar(mp, fraction=0.04, pad=0.04)
-    # ax[4].set_title("Percent CLIPPER Associations")
-    
-    mp = ax[4].imshow(submap_yaw_diff_mat, vmin=0)
-    fig.colorbar(mp, fraction=0.04, pad=0.04)
-    ax[4].set_title("Submap Yaw Difference (deg)")
-
-    # if args.ambiguity:
-    #     mp = ax[4].imshow(ambiguity_mat, vmin=0, vmax=1.0)
-    #     fig.colorbar(mp, fraction=0.03, pad=0.04)
-    #     ax[4].set_title("Ambiguity")
-
-    for i in range(len(ax)):
-        ax[i].set_xlabel("submap index (robot 2)")
-        ax[i].set_ylabel("submap index (robot 1)")
-
-    if args.output:
-        plt.savefig(args.output)
-    else:
-        plt.show()
-        
-    # for saving matrix results instead of image
-    if args.matrix_file:
-        pkl_file = open(args.matrix_file, 'wb')
-        if not args.ambiguity:
-            pickle.dump([robots_nearby_mat, clipper_angle_mat, clipper_dist_mat, clipper_num_associations, submap_yaw_diff_mat], pkl_file)
-        else:
-            pickle.dump([robots_nearby_mat, clipper_angle_mat, clipper_dist_mat, clipper_num_associations, ambiguity_mat], pkl_file)
-        pkl_file.close()
-        
-    # stores the submaps, associated objects, ground truth object overlap, and ground truth and estimated submap transformations
-    if args.output_viz:
-        submaps_pkl = [[[obj.to_pickle() for obj in sm] for sm in sms] for sms in submaps]
-        pkl_file = open(args.output_viz, 'wb')
-        # submaps for robot i, submaps for robot j, associated object indices, matrix of how much overlap is between submaps, ground truth T_ij, estimated T_ij
-        pickle.dump([submaps_pkl[0], submaps_pkl[1], associated_objs_mat, robots_nearby_mat, T_ij_mat, T_ij_hat_mat], pkl_file)
-        pkl_file.close()
-
-    if args.output_timing:
-        with open(args.output_timing, 'w') as f:
-            f.write(f"Total number of submaps: {len(submaps[0])} x {len(submaps[1])} = {len(submaps[0])*len(submaps[1])}\n")
-            f.write(f"Average time per registration: {np.mean(timing_list):.4f} seconds\n")
-            f.write(f"Total time: {np.sum(timing_list):.4f} seconds\n")
-            f.write(f"Total number of objects: {np.sum([len(submap) for submap in submaps[0] + submaps[1]])}\n")
-            f.write(f"Average number of obects per map: {np.mean([len(submap) for submap in submaps[0] + submaps[1]]):.2f}\n")
-    
-    if args.output_params:
-        with open(args.output_params, 'w') as f:
-            f.write(f"{args}")
-
-    if args.output_g2o or args.output_lc_json:
-        assert args.output_g2o and args.output_lc_json, "Must provide both g2o and json output files"        
-        I_t = 1 / (args.t_std**2)
-        I_r = 1 / (args.r_std**2)
-        I = np.diag([I_t, I_t, I_t, I_r, I_r, I_r])
-        
-        json_output = []
-
-        with open(args.output_g2o, 'w') as f:
-            for i in range(len(submaps[0])):
-                for j in range(len(submaps[1])):
-                    if clipper_num_associations[i, j] < args.g2o_thresh:
-                        continue
-                    if (np.abs(times[0][submap_idxs[0][i]] - times[1][submap_idxs[1][j]]) < 
-                        args.self_lc_time_thresh):
-                        continue
-                    T_ci_cj = T_ij_hat_mat[i, j] # transform from center_j to center_i
-                    T_odomi_ci = transform_rm_roll_pitch(submap_centers[0][i] @ T_RDFFLU)
-                    T_odomj_cj = transform_rm_roll_pitch(submap_centers[1][j] @ T_RDFFLU)
-                    T_odomi_pi = submap_centers[0][i] # pose i in odom frame
-                    T_odomj_pj = submap_centers[1][j] # pose j in odom frame
-                    T_pi_pj = ( # pose j in pose i frame, the desired format for our loop closure
-                        np.linalg.inv(T_odomi_pi) @ T_odomi_ci @ T_ci_cj @ np.linalg.inv(T_odomj_cj) @ T_odomj_pj
-                    )
-                    t, q = transform_to_xyz_quat(T_pi_pj, separate=True)
-                    json_output.append({
-                        'seconds': [int(times[0][submap_idxs[0][i]]), int(times[1][submap_idxs[1][j]])],
-                        'nanoseconds': [int((times[0][submap_idxs[0][i]] % 1) * 1e9), int((times[1][submap_idxs[1][j]] % 1) * 1e9)],
-                        'names': args.robot_names,
-                        'translation': t.tolist(),
-                        'rotation': q.tolist(),
-                        'rotation_convention': 'xyzw',
-                    })
-
-                    f.write(f"# LC: {int(clipper_num_associations[i, j])}\n")
-                    f.write(f"EDGE_SE3:QUAT a{submap_idxs[0][i]} b{submap_idxs[1][j]} \t")
-                    f.write(f"{t[0]} {t[1]} {t[2]} \t")
-                    f.write(f"{q[0]} {q[1]} {q[2]} {q[3]} \t")
-                    for ii in range(6):
-                        for jj in range(6):
-                            if jj < ii:
-                                continue
-                            f.write(f"{I[ii, jj]} ")
-                        f.write("\t")
-                    f.write("\n")
-            f.close()
-            
-        if args.output_lc_json:
-            with open(args.output_lc_json, 'w') as f:
-                json.dump(json_output, f, indent=4)
-                f.close()
-            
-        for i, output_sm in enumerate(args.output_submaps):
-            tracker = trackers[i]
-            if output_sm is not None:
-                with open(output_sm, 'w') as f:
-                    sm_json = dict()
-                    sm_json['segments'] = []
-                    sm_json['submaps'] = []
-                    
-                    segment: Segment
-                    for segment in tracker.segment_graveyard + tracker.inactive_segments + tracker.segments:
-                        segment_json = {}
-                        segment_json['robot_name'] = args.robot_names[i]
-                        segment_json['segment_index'] = segment.id
-                        segment_json['centroid_odom'] = np.mean(segment.points, axis=0).tolist()
-                        segment_json['volume'] = segment.volume()
-                        segment_json['first_seen'] = time_to_secs_nsecs(segment.first_seen, as_dict=True)
-                        segment_json['last_seen'] = time_to_secs_nsecs(segment.last_seen, as_dict=True)
-                        sm_json['segments'].append(segment_json)
-                        
-                    for j in range(len(submaps[i])):
-                        t_j = times[i][submap_idxs[i][j]]
-                        xyzquat_submap = transform_to_xyz_quat(submap_centers[i][j], separate=False)
-                        sm_json['submaps'].append({
-                            'submap_index': j,
-                            'T_odom_submap': {
-                                'tx': xyzquat_submap[0],
-                                'ty': xyzquat_submap[1],
-                                'tz': xyzquat_submap[2],
-                                'qx': xyzquat_submap[3],
-                                'qy': xyzquat_submap[4],
-                                'qz': xyzquat_submap[5],
-                                'qw': xyzquat_submap[6],
-                            },
-                            'robot_name': args.robot_names[i],
-                            'seconds': int(t_j),
-                            'nanoseconds': int((t_j % 1) * 1e9),
-                            'segment_indices': [obj.id for obj in submaps[i][j]]
-                        })
-                    json.dump(sm_json, f, indent=4)
-                    f.close()
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('input', nargs=2)
-    parser.add_argument('--segment-slam', action='store_true', help="Use online mapped segment_slam data")
-    parser.add_argument('--show-maps', action='store_true', help="Shows the submaps plotted as 2D points to help with submap sizing")
-    parser.add_argument('--dim', '-d', type=int, default=3, help="2 or 3 - desired dimension to use for object alignment")
-    parser.add_argument('--method', '-m', type=str, default='standard', help="Method to use for registration: standard, gravity, distvol, distvolgrav, prunevol, prunevolgrav, prunegrav")
-    parser.add_argument('--fusion-method', type=str, default='geometric_mean', help="Method to use for similarity fusion: geometric_mean, arithmetic_mean, product")
-    parser.add_argument('--show-false-positives', '-s', action='store_true', help="Run alignment for submaps that do not overlap")
-    parser.add_argument('-r', '--submap-radius', type=float, default=20.0, help="Radius of submaps")
-    parser.add_argument('-c', '--submap-center-dist', type=float, default=10.0, help="Distance between submap centers")
-    parser.add_argument('--ambiguity', '-a', action='store_true', help="Create ambiguity matrix plot")
-    parser.add_argument('--submaps-idx', type=int, nargs=4, default=None, help="Specify submap indices to use")
-    parser.add_argument('--gt-yaml', type=str, default=[None, None], help="Path to ground truth yaml file", nargs=2)
-    parser.add_argument('--rotate-maps-to-gt', action='store_true', help="Rotate maps to ground truth frame, previous method for validating map alignment")
-    parser.add_argument('--self-lc-time-thresh', type=float, default=0.0, help="Time threshold for self loop closure")
-    parser.add_argument('--robot-names', type=str, nargs=2, default=["0", "1"], help="Robot IDs for submaps")
-
-    # output files
-    parser.add_argument('--output', '-o', type=str, default=None, help="Path to save output plot")
-    parser.add_argument('--matrix-file', type=str, default=None, help="Path to save matrix pickle file")
-    parser.add_argument('--output-viz', type=str, default=None, help="Path to save output visualization file")
-    parser.add_argument('--output-timing', type=str, default=None, help="Path to save output timing file")
-    parser.add_argument('--output-params', type=str, default=None, help="Path to save output parameters file")
-    parser.add_argument('--output-g2o', type=str, default=None, help="Path to save output g2o file")
-    parser.add_argument('--output-lc-json', type=str, default=None, help="Path to save output json file")
-    parser.add_argument('--output-submaps', type=str, nargs=2, default=[None, None], help="Path to save output submap times file")
-    parser.add_argument('--all-output-prefix', type=str, default=None, help="Prefix for all output files")
-    
-    # registration params
-    parser.add_argument('--sigma', type=float, default=0.3)
-    parser.add_argument('--epsilon', type=float, default=0.5)
-    parser.add_argument('--mindist', type=float, default=0.2)
-    parser.add_argument('--epsilon-volume', type=float, default=0.0)
-    parser.add_argument('--epsilon-pca', type=float, default=0.0, help="Epsilon for PCA feature")
-    parser.add_argument('--distance-weight', type=float, default=1.0, help="Weight for distance in similarity fusion")
-    parser.add_argument('--drift-scale', type=float, default=0.05, help="Scale for drift relaxation of epsilon/sigma")
-    parser.add_argument('--ransac-iter', type=int, default=int(1e6), help="Number of RANSAC iterations")
-    parser.add_argument('--cosine_min', type=float, default=0.85)
-    parser.add_argument('--cosine_max', type=float, default=0.95)
-    parser.add_argument('--g2o-thresh', type=int, default=4, help="Association quantity threshold for g2o edge creation")
-    parser.add_argument('--max-map-size', '-n', type=int, default=40, help="Maximum number of objects in a submap")
-
-    args = parser.parse_args()
-
-    if args.submaps_idx is not None:
-        args.submaps_idx = [args.submaps_idx[:2], args.submaps_idx[2:]]
-    args.submap_overlap_threshold = 0.1
-    args.submap_time_threshold = 30 # seconds # segments must be seen within this time of the 
-                                              # submap center's time to be included in the submap
-                                              
-    if args.all_output_prefix:
-        args.output = f"{args.all_output_prefix}.png"
-        args.matrix_file = f"{args.all_output_prefix}.pkl"
-        args.output_viz = f"{args.all_output_prefix}.viz.pkl"
-        args.output_timing = f"{args.all_output_prefix}.timing.txt"
-        args.output_params = f"{args.all_output_prefix}.params.txt"
-        args.output_g2o = f"{args.all_output_prefix}.g2o"
-        args.output_lc_json = f"{args.all_output_prefix}.json"
-        if args.output_submaps[0] is None and args.output_submaps[1] is None:
-            args.output_submaps = [f"{args.all_output_prefix}.{rn}.sm.json" for rn in args.robot_names]
-
-    args.t_std = 1.0
-    args.r_std = np.deg2rad(5)
-    
-    main(args)
+    # save results
+    results = SubmapAlignResults(
+        robots_nearby_mat=robots_nearby_mat,
+        clipper_angle_mat=clipper_angle_mat,
+        clipper_dist_mat=clipper_dist_mat,
+        clipper_num_associations=clipper_num_associations,
+        submap_yaw_diff_mat=submap_yaw_diff_mat,
+        T_ij_mat=T_ij_mat,
+        T_ij_hat_mat=T_ij_hat_mat,
+        associated_objs_mat=associated_objs_mat,
+        timing_list=timing_list,
+    )
+    save_submap_align_results(sm_params, sm_io, submaps, results, trackers, times, submap_idxs, submap_centers)

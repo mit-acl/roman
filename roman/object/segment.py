@@ -12,12 +12,15 @@ from robotdatapy.camera import xyz_2_pixel, pixel_depth_2_xyz
 import open3d as o3d
 from roman.map.observation import Observation
 from roman.map.voxel_grid import VoxelGrid
+from roman.object.object import Object
 
-class Segment():
+class Segment(Object):
 
+    # TODO: separate from observation and from points class
     def __init__(self, observation: Observation, camera_params: CameraParams, 
                  id: int = 0, voxel_size: float = 0.05):
-        self.id = id
+        # initialize parent class
+        super().__init__(centroid=np.zeros(3), dim=3, id=id)
         self.observations = [observation.copy(include_mask=False)]
         self.first_seen = observation.time
         self.last_seen = observation.time
@@ -174,6 +177,7 @@ class Segment():
         self._obb = None
         self.voxel_grid = dict()
         
+    @property
     def volume(self):
         if self.num_points > 4: # 4 is the minimum number of points needed to define a 3D box
             if self._obb is None:
@@ -194,6 +198,12 @@ class Segment():
             return extent
         else:
             return np.zeros(3)
+        
+    @property
+    def center(self):
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(self.points)
+        return pcd.get_center().reshape(self.dim, 1)
         
     def get_voxel_grid(self, voxel_size: float) -> VoxelGrid:
         if self.num_points > 0:
@@ -374,3 +384,22 @@ class Segment():
             )
             self.semantic_descriptor_cnt += cnt
         self.semantic_descriptor /= norm(self.semantic_descriptor) # renormalize
+        
+    @classmethod
+    def from_pickle(cls, data):
+        return data
+        # new_obj = cls(
+        #     data["centroid"],
+        #     data["rot_mat"],
+        #     data["points"],
+        #     data["dim"],
+        #     data["id"]
+        # )
+        # if data["use_bottom_median_as_center"]:
+        #     new_obj.use_bottom_median_as_center()
+        # return new_obj
+
+    def to_pickle(self):
+        self._obb = None
+        return self
+        
