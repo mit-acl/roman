@@ -15,7 +15,7 @@ import os
 from os.path import expandvars
 from threading import Thread
 
-from roman.run import ROMANMapRunner
+from roman.map.run import ROMANMapRunner
     
 
 def main(args):
