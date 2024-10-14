@@ -166,7 +166,13 @@ hulls are visualized in the original image observations.</p>
         <h2 class="title is-3">Abstract</h2>
         <div class="content has-text-justified">
           <p>
-             Global localization is a fundamental capability enabling long-term and drift-free robot navigation. This paper presents an outdoor global localization method based on robust registration of open-set segment maps. Our method detects and tracks segments using open-set image segmentation models that enable direct generalization to unseen environments. To perform global localization under the high outlier regimes that are typical of natural/outdoor environments, we formulate a registration problem between small submaps of 3D segments and solve for the correspondences using a graph-theoretic global data association approach. Further, to guide registration in highly noisy or ambiguous scenarios, we propose novel ways of incorporating additional information (e.g., segment attributes and known gravity direction) within the global data association formulation. The proposed method is evaluated on outdoor datasets recorded by multiple robots and shown to outperform existing methods in terms of precision-recall metrics and localization accuracy.
+            Global localization is a fundamental capability required for long-term and drift-free robot navigation. 
+            However, current methods fail 
+            to relocalize when faced with significantly different viewpoints.
+            We present ROMAN (Robust Object Map Alignment Anywhere), a robust global localization method capable of localizing in challenging and diverse environments based on creating and aligning maps of open-set and view-invariant objects. 
+            To address localization difficulties caused by feature-sparse or perceptually aliased environments, ROMAN formulates and solves a registration problem between object submaps using a unified graph-theoretic global data association approach that simultaneously accounts for object shape and semantic similarities and a prior on gravity direction.
+            Through a set of challenging large-scale multi-robot or multi-session SLAM experiments in indoor, urban and unstructured/forested environments, 
+            we demonstrate that ROMAN achieves a maximum recall 36% higher than other object-based map alignment methods and an absolute trajectory error that is 37% lower than using visual features for loop closures.   
           </p>
         </div>
       </div>
