@@ -4,6 +4,7 @@ import gtsam
 import cv2 as cv
 from typing import List
 import shapely
+from dataclasses import dataclass
 
 from robotdatapy.data.img_data import CameraParams
 from robotdatapy.transform import transform, aruns
@@ -13,6 +14,26 @@ import open3d as o3d
 from roman.map.observation import Observation
 from roman.map.voxel_grid import VoxelGrid
 from roman.object.object import Object
+
+class SegmentLowData(Object):
+    
+    def __init__(
+        self,
+        id: int,
+        center: np.array,
+        volume: float,
+        linearity: float,
+        planarity: float,
+        scattering: float,
+        extent: np.array,
+        semantic_descriptor: np.array
+    ):
+        super().__init__(center, 3, id, volume=volume)
+        self.linearity = linearity
+        self.planarity = planarity
+        self.scattering = scattering
+        self.extent = extent
+        self.semantic_descriptor = semantic_descriptor
 
 class Segment(Object):
 
@@ -385,6 +406,10 @@ class Segment(Object):
             self.semantic_descriptor_cnt += cnt
         self.semantic_descriptor /= norm(self.semantic_descriptor) # renormalize
         
+    def transform(self, T):
+        if self.points is not None:
+            self.points = transform(T, self.points, axis=0)
+        
     @classmethod
     def from_pickle(cls, data):
         return data
@@ -400,6 +425,6 @@ class Segment(Object):
         # return new_obj
 
     def to_pickle(self):
-        self._obb = None
+        self.reset_obb()
         return self
         

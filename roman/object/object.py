@@ -3,15 +3,15 @@ import matplotlib.pyplot as plt
 
 class Object():
 
-    def __init__(self, centroid: np.array, dim=None, id=0):
+    def __init__(self, centroid: np.array, dim=None, id=0, volume=None, descriptor=None):
         if dim is None:
             dim = centroid.shape[0]
         assert dim == 2 or dim == 3, "dim must be 2 or 3"
         self.dim = dim
         self.centroid = centroid.reshape(self.dim, 1)
         self.id = id
-        self._volume = None
-        self._descriptor = None
+        self._volume = volume
+        self._descriptor = descriptor
 
     def transform(self, T):
         assert T.shape == (self.dim+1, self.dim+1)

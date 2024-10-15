@@ -19,7 +19,7 @@ class SubmapAlignParams:
     submap_center_time: float = 30.0 # time threshold between segments and submap center times
     submap_max_size: int = 40
     single_robot_lc: bool = False
-    single_robot_lc_time_thresh: float = 0.0
+    single_robot_lc_time_thresh: float = 50.0
     
     # registration params
     sigma: float = 0.4
