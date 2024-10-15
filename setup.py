@@ -15,7 +15,7 @@ setup(
         'matplotlib', 
         'gtsam',
         'scikit-image',
-        'open3d',
+        'open3d==0.13.0',
         'yolov7-package',
         'shapely',
         'opencv-python',

@@ -30,7 +30,7 @@ from roman.utils import object_list_bounds, transform_rm_roll_pitch
 from roman.align.params import SubmapAlignParams, SubmapAlignInputOutput
 from roman.align.results import save_submap_align_results, SubmapAlignResults
 
-OVERLAP_EPS = 0.01
+OVERLAP_EPS = 0.1
 
 def submap_centers_from_poses(poses: List[np.array], dist: float, times: List[float]=None, time_threshold: float=np.inf):
     """

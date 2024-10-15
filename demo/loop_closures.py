@@ -10,12 +10,13 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output-dir', type=str, help='Output directory', required=True)
     parser.add_argument('-n', '--run-name', type=str, help='Run name for file prefix', default='align')
     parser.add_argument('-p', '--params', type=str, default=None, help='Path to params yaml file')
+    parser.add_argument('-s', '--single-robot', action='store_true', help='Single robot loop closures')
     args = parser.parse_args()
 
     if args.params:
         assert False, 'params file not supported yet'
 
-    sm_params = SubmapAlignParams()
+    sm_params = SubmapAlignParams(single_robot_lc=args.single_robot)
     sm_io = SubmapAlignInputOutput(
         inputs=args.input,
         output_dir=args.output_dir,
