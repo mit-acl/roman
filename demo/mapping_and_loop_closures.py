@@ -17,7 +17,12 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--viz-map', action='store_true', help='Visualize map')
     parser.add_argument('-v', '--viz-observations', action='store_true', help='Visualize observations')
     parser.add_argument('--vid-rate', type=float, help='Video playback rate', default=1.0)
-    parser.add_argument('--set-env-vars', type=str)
+    # parser.add_argument('--set-env-vars', type=str)
+    # parser.add_argument('--gt', type=str, help='Path to ground truth pose yaml file')
+
+    parser.add_argument('--skip-map', action='store_true', help='Skip mapping')
+    parser.add_argument('--skip-align', action='store_true', help='Skip alignment')
+    
     args = parser.parse_args()
 
     assert args.params is not None or args.params_list is not None, "Either --params or --params-list must be provided."
@@ -25,38 +30,41 @@ if __name__ == '__main__':
     if args.params_list:
         assert len(args.params_list) == len(args.runs), "Number of params files must match number of runs."
     
+    # create output directories
+    os.makedirs(os.path.join(args.output_dir, "map"), exist_ok=True)
+    os.makedirs(os.path.join(args.output_dir, "submap_align"), exist_ok=True)
+    
     args.viz_open3d = False
         
-    for i, run in enumerate(args.runs):
-        if args.params_list:
-            args.params = args.params_list[i]
-        # mkdir $output_dir/map
-        os.makedirs(os.path.join(args.output_dir, "map"), exist_ok=True)
-        args.output = os.path.join(args.output_dir, "map", f"{run}")
+    if not args.skip_map:
+        for i, run in enumerate(args.runs):
+            if args.params_list:
+                args.params = args.params_list[i]
+            # mkdir $output_dir/map
+            args.output = os.path.join(args.output_dir, "map", f"{run}")
+                
+            # shell: export RUN=run
+            os.environ['RUN'] = run
             
-        # shell: export RUN=run
-        os.environ['RUN'] = run
+            demo.main(args)
         
-        demo.main(args)
-        
-    # sm_params = SubmapAlignParams(single_robot_lc=args.single_robot)
-    # sm_io = SubmapAlignInputOutput(
-    #     inputs=args.input,
-    #     output_dir=args.output_dir,
-    #     run_name=args.run_name,
-    # )
-    # if args.gt:
-    #     sm_io.input_gt_pose_yaml = args.gt
-
-    # submap_align(sm_params=sm_params, sm_io=sm_io)
-        
-    # for i, run in enumerate(args.runs):
-    #     for j, run in enumerate(args.runs[i:]):
-    #         if i == j:
-    #             pass
+    if not args.skip_align:
+        sm_params = SubmapAlignParams()
+        # TODO: support ground truth pose file for validation
+        # if args.gt:
+        #     sm_io.input_gt_pose_yaml = args.gt
             
-    #             # self loop closure true
-    #         # args.runs = [args.runs[i], args.runs[j]]
-    #         # args.output = os.path.join(args.output_dir, f"{run}_to_{run}")
-    #         # os.makedirs(os.path.join(args.output_dir, "map"), exist_ok=True)
-    #         # demo.main(args)
+        for i, run in enumerate(args.runs):
+            for j, run in enumerate(args.runs[i:]):
+                output_dir = os.path.join(args.output_dir, "align", f"{args.runs[i]}_{args.runs[j]}")
+                os.makedirs(output_dir, exist_ok=True)
+                input_files = [os.path.join(args.output_dir, "map", f"{args.runs[i]}.pkl"),
+                            os.path.join(args.output_dir, "map", f"{args.runs[j]}.pkl")]
+                sm_io = SubmapAlignInputOutput(
+                    inputs=input_files,
+                    output_dir=output_dir,
+                    run_name="align",
+                )
+                sm_params.single_robot_lc = (i == j)
+                submap_align(sm_params=sm_params, sm_io=sm_io)
+                
