@@ -16,14 +16,15 @@ from os.path import expandvars
 from threading import Thread
 
 from roman.map.run import ROMANMapRunner
-    
+
+from robotdatapy.data import ImgData
 
 def main(args):
     with open(args.params, 'r') as f:
         params = yaml.safe_load(f)
 
     runner = ROMANMapRunner(params, verbose=True, viz_map=args.viz_map, 
-                            viz_observations=args.viz_observations)
+                            viz_observations=args.viz_observations, save_viz=args.save_img_data)
 
     # Setup logging
     # TODO: add support for logfile
@@ -83,6 +84,12 @@ def main(args):
             f.write(f"total: {np.mean(runner.processing_times.total_times):.3f}\n")
             f.write(f"TOTAL TIMES\n")
             f.write(f"total: {np.sum(runner.processing_times.total_times):.2f}\n")
+    
+    if args.save_img_data:
+        img_data_path = os.path.expanduser(expandvars(args.output)) + ".img_data.zip"
+        print(f"Saving visualization to {img_data_path}")
+        img_data = ImgData(times=runner.times_history, imgs=runner.viz_imgs, data_type='raw')
+        img_data.to_zip(img_data_path)
 
     if args.viz_open3d:
         poses_list = []
@@ -114,6 +121,7 @@ if __name__ == '__main__':
     parser.add_argument('-v', '--viz-observations', action='store_true', help='Visualize observations')
     parser.add_argument('-3', '--viz-open3d', action='store_true', help='Visualize in 3D')
     parser.add_argument('--vid-rate', type=float, help='Video playback rate', default=1.0)
+    parser.add_argument('-d', '--save-img-data', action='store_true', help='Save video frames as ImgData class')
     args = parser.parse_args()
 
     main(args)
