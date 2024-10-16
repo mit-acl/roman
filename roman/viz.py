@@ -30,8 +30,7 @@ def draw(t, img, pose, tracker, fastsam, observations, reprojected_bboxs, viz_bb
             #     color = (255, 0, 0)
             # else:
             #     color = (180, 0, 180)
-            np.random.seed(segment.id)
-            color = np.random.randint(0, 255, 3).tolist()
+            color = segment.viz_color
             for i in range(len(outline) - 1):
                 start_point = tuple(outline[i].astype(np.int32))
                 end_point = tuple(outline[i+1].astype(np.int32))
@@ -45,8 +44,7 @@ def draw(t, img, pose, tracker, fastsam, observations, reprojected_bboxs, viz_bb
         for segment in tracker.segments:
             if segment.last_seen == t:
                 colored_mask = np.zeros_like(img)
-                np.random.seed(segment.id)
-                rand_color = np.random.randint(0, 255, 3)
+                rand_color = segment.viz_color
                 matched_masks.append(segment.last_mask)
                 try:
                     colored_mask = segment.last_mask.astype(np.int32)[..., np.newaxis]*rand_color
