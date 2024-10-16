@@ -27,6 +27,7 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--viz-map', action='store_true', help='Visualize map')
     parser.add_argument('-v', '--viz-observations', action='store_true', help='Visualize observations')
     parser.add_argument('--vid-rate', type=float, help='Video playback rate', default=1.0)
+    parser.add_argument('-d', '--save-img-data', action='store_true', help='Save video frames as ImgData class')
     parser.add_argument('-s', '--sparse-pgo', action='store_true', help='Use sparse pose graph optimization')
     parser.add_argument('-n', '--num-req-assoc', type=int, help='Number of required associations', default=4)
     # parser.add_argument('--set-env-vars', type=str)

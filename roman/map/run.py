@@ -31,7 +31,8 @@ def expandvars_recursive(path):
         path = expanded_path
 
 class ROMANMapRunner:
-    def __init__(self, params: dict, verbose=False, viz_map=False, viz_observations=False):
+    def __init__(self, params: dict, verbose=False, viz_map=False, 
+                 viz_observations=False, save_viz=False):
         self.params = self._check_params(params)
 
         if verbose: print("Extracting time range...")
@@ -59,8 +60,10 @@ class ROMANMapRunner:
         self.verbose = verbose
         self.viz_map = viz_map
         self.viz_observations = viz_observations
+        self.save_viz = save_viz
         self.times_history = []
         self.poses_history = []
+        self.viz_imgs = []
         self.processing_times = ProcessingTimes([], [], [])
 
     def times(self):
@@ -74,10 +77,11 @@ class ROMANMapRunner:
         img_output = None
         update_t0 = time.time()
 
-        observations, pose, img = self.update_fastsam(t)
+        img_time, observations, pose, img = self.update_fastsam(t)
         update_t1 = time.time()
         if observations is not None and pose is not None and img is not None:
-            img_output = self.update_segment_track(t, observations, pose, img)
+            img_output = self.update_segment_track(img_time, observations, pose, img)
+        
         update_t2 = time.time()
         self.processing_times.map_times.append(update_t2 - update_t1)
         self.processing_times.fastsam_times.append(update_t1 - update_t0)
@@ -96,7 +100,7 @@ class ROMANMapRunner:
             return None, None, None
         
         observations = self.fastsam.run(t, pose, img, img_depth=img_depth)
-        return observations, pose, img
+        return img_t, observations, pose, img
 
     def update_segment_track(self, t, observations, pose, img): 
 
@@ -118,6 +122,8 @@ class ROMANMapRunner:
 
         self.poses_history.append(pose)
         self.times_history.append(t)
+        if self.save_viz:
+            self.viz_imgs.append(img_ret)
 
         return img_ret
 
