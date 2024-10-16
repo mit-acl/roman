@@ -409,6 +409,12 @@ class Segment(Object):
     def transform(self, T):
         if self.points is not None:
             self.points = transform(T, self.points, axis=0)
+            
+    @property
+    def viz_color(self):
+        np.random.seed(self.id)
+        color = np.random.randint(0, 255, 3).tolist()
+        return color
         
     @classmethod
     def from_pickle(cls, data):

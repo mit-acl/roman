@@ -20,6 +20,16 @@ DEFAULT_LC_COLORS = {
         'intra': 'red',
     }
 }
+DEFAULT_TRAJECTORY_COLORS = {
+        'a': 'tab:blue',
+        'b': 'tab:orange',
+        'c': 'tab:green',
+        'd': 'tab:pink',
+        'e': 'tab:purple',
+        'f': 'tab:brown',
+        'g': 'tab:red',
+        'h': 'tab:gray',
+    }
 
 @dataclass
 class G2OPlotParams:
@@ -120,16 +130,6 @@ def plot_g2o(
     ax.grid(True)
 
 def main(args):
-    colors = {
-        'a': 'tab:blue',
-        'b': 'tab:orange',
-        'c': 'tab:green',
-        'd': 'tab:pink',
-        'e': 'tab:purple',
-        'f': 'tab:brown',
-        'g': 'tab:red',
-        'h': 'tab:gray',
-    }
     if args.robot_letters is None:
         names = {chr(97 + i): args.robots[i] for i in range(len(args.robots))}
     else:
@@ -157,7 +157,7 @@ def main(args):
     plot_g2o(
         g2o_path=args.input,
         g2o_symbol_to_name=names,
-        g2o_symbol_to_color=colors,
+        g2o_symbol_to_color=DEFAULT_TRAJECTORY_COLORS,
         params=params,
         ax=ax
     )
