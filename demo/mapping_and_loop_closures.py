@@ -31,7 +31,7 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--sparse-pgo', action='store_true', help='Use sparse pose graph optimization')
     parser.add_argument('-n', '--num-req-assoc', type=int, help='Number of required associations', default=4)
     # parser.add_argument('--set-env-vars', type=str)
-    # parser.add_argument('--gt', type=str, help='Path to ground truth pose yaml file')
+    parser.add_argument('--gt', type=str, nargs='+', help='Paths to ground truth pose yaml file')
 
     parser.add_argument('--skip-map', action='store_true', help='Skip mapping')
     parser.add_argument('--skip-align', action='store_true', help='Skip alignment')
@@ -81,7 +81,8 @@ if __name__ == '__main__':
                     inputs=input_files,
                     output_dir=output_dir,
                     run_name="align",
-                    lc_association_thresh=args.num_req_assoc
+                    lc_association_thresh=args.num_req_assoc,
+                    input_gt_pose_yaml=[args.gt[i], args.gt[j]],
                 )
                 sm_params.single_robot_lc = (i == j)
                 submap_align(sm_params=sm_params, sm_io=sm_io)
