@@ -14,6 +14,7 @@ from roman.offline_rpgo.g2o_file_fusion import create_config, g2o_file_fusion
 from roman.offline_rpgo.combine_loop_closures import combine_loop_closures
 from roman.offline_rpgo.plot_g2o import plot_g2o, DEFAULT_TRAJECTORY_COLORS
 from roman.offline_rpgo.g2o_and_time_to_pose_data import g2o_and_time_to_pose_data
+from roman.offline_rpgo.evaluate import evaluate
 
 import demo
 
@@ -82,7 +83,7 @@ if __name__ == '__main__':
                     output_dir=output_dir,
                     run_name="align",
                     lc_association_thresh=args.num_req_assoc,
-                    input_gt_pose_yaml=[args.gt[i], args.gt[j]],
+                    input_gt_pose_yaml=[args.gt[i], args.gt[j]] if args.gt is not None else [None, None],
                 )
                 sm_params.single_robot_lc = (i == j)
                 submap_align(sm_params=sm_params, sm_io=sm_io)
@@ -177,3 +178,9 @@ if __name__ == '__main__':
                                                   odom_sparse_all_time_file, robot_id=i)
             pose_data.to_csv(os.path.join(args.output_dir, "offline_rpgo", f"{run}.csv"))
             print(f"Saving {run} pose data to {os.path.join(args.output_dir, 'offline_rpgo', f'{run}.csv')}")
+
+        # Report ATE results
+        if args.gt is not None:
+            print("ATE results:")
+            print("============")
+            print(evaluate(result_g2o_file, odom_sparse_all_time_file, {i: args.gt[i] for i in range(len(args.gt))}))
