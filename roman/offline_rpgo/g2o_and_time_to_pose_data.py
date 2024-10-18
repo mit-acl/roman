@@ -1,6 +1,8 @@
 import numpy as np
 import gtsam
 from typing import List, Tuple, Dict
+import os
+import yaml
 
 from robotdatapy.data.pose_data import PoseData
 
@@ -94,6 +96,18 @@ def combine_multi_est_and_gt_pose_data(est: List[PoseData], gt: List[PoseData]) 
     
     return concatentate_pose_data(est), concatentate_pose_data(gt)
 
+def load_gt_pose_data(gt_file):
+    if 'csv' in gt_file:
+        return PoseData.from_kmd_gt_csv(gt_file) 
+    with open(os.path.expanduser(gt_file), 'r') as f:
+        gt_pose_args = yaml.safe_load(f)
+    if gt_pose_args['type'] == 'bag':
+        return PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
+    elif gt_pose_args['type'] == 'csv':
+        return PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
+    else:
+        raise ValueError("Invalid pose data type")
+
 def gt_csv_est_g2o_to_pose_data(est_g2o_file: str, est_time_file: str, gt_csv_files: Dict[int, str]) -> Tuple[PoseData, PoseData]:
     """
     Generates two comparable PoseData objects from ground truth and estimated multi-robot poses.
@@ -110,7 +124,7 @@ def gt_csv_est_g2o_to_pose_data(est_g2o_file: str, est_time_file: str, gt_csv_fi
         Tuple[PoseData, PoseData]: Estimated and ground truth PoseData objects
     """
     
-    pose_data_gt = [PoseData.from_kmd_gt_csv(gt_csv_files[i]) 
+    pose_data_gt = [load_gt_pose_data(gt_csv_files[i])
                     for i in sorted(gt_csv_files.keys())]
     pose_data_est = [g2o_and_time_to_pose_data(est_g2o_file, est_time_file, i)
                      for i in sorted(gt_csv_files.keys())]
