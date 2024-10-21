@@ -65,14 +65,14 @@ def main(args):
     print(f"Run duration was {runner.tf - runner.t0:.2f} seconds")
     print(f"Compute per second: {(time.time() - wc_t0) / (runner.tf - runner.t0):.2f}")
 
-    print(f"Number of poses: {len(runner.poses_history)}.")
+    print(f"Number of poses: {len(runner.poses_flu_history)}.")
 
     if args.output:
         pkl_path = os.path.expanduser(expandvars(args.output)) + ".pkl"
         pkl_file = open(pkl_path, 'wb')
         runner.mapper.make_pickle_compatible()
-        pickle.dump([runner.mapper, runner.poses_history, runner.times_history], pkl_file, -1)
-        logging.info(f"Saved tracker, poses_history to file: {pkl_path}.")
+        pickle.dump([runner.mapper, runner.poses_flu_history, runner.times_history], pkl_file, -1)
+        logging.info(f"Saved tracker, poses_flu_history to file: {pkl_path}.")
         pkl_file.close()
 
         timing_file = os.path.expanduser(expandvars(args.output)) + ".time.txt"
@@ -94,7 +94,7 @@ def main(args):
     if args.viz_open3d:
         poses_list = []
         pcd_list = []
-        for Twb in runner.poses_history:
+        for Twb in runner.poses_flu_history:
             pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
             pose_obj.transform(Twb)
             poses_list.append(pose_obj)

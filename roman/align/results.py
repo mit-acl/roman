@@ -7,8 +7,6 @@ import json
 
 from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat, \
     transform_to_xyzrpy
-from robotdatapy.geometry import circle_intersection
-from robotdatapy.transform import T_FLURDF, T_RDFFLU
 
 from roman.utils import transform_rm_roll_pitch
 from roman.align.params import SubmapAlignInputOutput, SubmapAlignParams
@@ -42,29 +40,30 @@ def save_submap_align_results(sm_params: SubmapAlignParams, sm_io: SubmapAlignIn
     fig.subplots_adjust(wspace=.3)
     fig.suptitle(sm_io.run_name)
 
-    mp = ax[0].imshow(results.robots_nearby_mat, vmin=0)
+    mp = ax[0].imshow(results.robots_nearby_mat, cmap='viridis', vmin=0)
     fig.colorbar(mp, fraction=0.03, pad=0.04)
     ax[0].set_title("Submaps Overlap")
 
-    mp = ax[1].imshow(-results.clipper_angle_mat, vmax=0, vmin=-10)
+    mp = ax[1].imshow(-results.clipper_angle_mat, cmap='viridis', vmax=0, vmin=-10)
     fig.colorbar(mp, fraction=0.03, pad=0.04)
     ax[1].set_title("Registration Error (deg)")
 
-    mp = ax[2].imshow(-results.clipper_dist_mat, vmax=0, vmin=-5.0)
+    mp = ax[2].imshow(-results.clipper_dist_mat, cmap='viridis', vmax=0, vmin=-5.0)
     fig.colorbar(mp, fraction=0.03, pad=0.04)
     ax[2].set_title("Registration Distance Error (m)")
 
-    mp = ax[3].imshow(results.clipper_num_associations, vmin=0)
+    mp = ax[3].imshow(results.clipper_num_associations, cmap='viridis', vmin=0)
     fig.colorbar(mp, fraction=0.03, pad=0.04)
     ax[3].set_title("Number of CLIPPER Associations")
 
-    mp = ax[4].imshow(results.submap_yaw_diff_mat, vmin=0)
+    mp = ax[4].imshow(results.submap_yaw_diff_mat, cmap='viridis', vmin=0)
     fig.colorbar(mp, fraction=0.04, pad=0.04)
     ax[4].set_title("Submap Yaw Difference (deg)")
 
     for i in range(len(ax)):
         ax[i].set_xlabel("submap index (robot 2)")
         ax[i].set_ylabel("submap index (robot 1)")
+        ax[i].grid(False)
 
     plt.savefig(sm_io.output_img)
         
@@ -106,8 +105,8 @@ def save_submap_align_results(sm_params: SubmapAlignParams, sm_io: SubmapAlignIn
                     sm_params.single_robot_lc_time_thresh):
                     continue
                 T_ci_cj = results.T_ij_hat_mat[i, j] # transform from center_j to center_i
-                T_odomi_ci = transform_rm_roll_pitch(submap_centers[0][i] @ T_RDFFLU)
-                T_odomj_cj = transform_rm_roll_pitch(submap_centers[1][j] @ T_RDFFLU)
+                T_odomi_ci = transform_rm_roll_pitch(submap_centers[0][i])
+                T_odomj_cj = transform_rm_roll_pitch(submap_centers[1][j])
                 T_odomi_pi = submap_centers[0][i] # pose i in odom frame
                 T_odomj_pj = submap_centers[1][j] # pose j in odom frame
                 T_pi_pj = ( # pose j in pose i frame, the desired format for our loop closure

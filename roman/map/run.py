@@ -62,7 +62,7 @@ class ROMANMapRunner:
         self.viz_observations = viz_observations
         self.save_viz = save_viz
         self.times_history = []
-        self.poses_history = []
+        self.poses_flu_history = []
         self.viz_imgs = []
         self.processing_times = ProcessingTimes([], [], [])
 
@@ -97,7 +97,7 @@ class ROMANMapRunner:
             img_t = self.img_data.nearest_time(t)
             pose = self.pose_data.T_WB(img_t)
         except NoDataNearTimeException:
-            return None, None, None
+            return None, None, None, None
         
         observations = self.fastsam.run(t, pose, img, img_depth=img_depth)
         return img_t, observations, pose, img
@@ -120,7 +120,10 @@ class ROMANMapRunner:
         if self.viz_map or self.viz_observations:
             img_ret = draw(t, img, pose, self.mapper, self.fastsam, observations, reprojected_bboxs, self.viz_map, self.viz_observations)
 
-        self.poses_history.append(pose)
+        # have T_WC, want T_WB
+        # T_WB = T_WC @ T_CB
+        self.poses_flu_history.append(pose @ self.mapper.T_camera_flu)
+        
         self.times_history.append(t)
         if self.save_viz:
             self.viz_imgs.append(img_ret)
@@ -297,23 +300,10 @@ class ROMANMapRunner:
                 pose_topic = None
                 csv_options = self.params['pose_data']['csv_options']
             
-        T_postmultiply = np.eye(4)
-        # if 'T_body_odom' in self.params['pose_data']:
-        #     T_postmultiply = np.linalg.inv(np.array(self.params['pose_data']['T_body_odom']).reshape((4, 4)))
-        if 'T_body_cam' in self.params['pose_data']:
-            T_postmultiply = T_postmultiply @ np.array(self.params['pose_data']['T_body_cam']).reshape((4, 4))
-        if 'T_postmultiply' in self.params['pose_data']:
-            if self.params['pose_data']['T_postmultiply'] == 'T_FLURDF':
-                T_postmultiply = T_FLURDF
-            elif self.params['pose_data']['T_postmultiply'] == 'T_RDFFLU':
-                T_postmultiply = T_RDFFLU
-        if 'tf_to_cam' in self.params['pose_data']:
-            img_file_path = expanduser(expandvars_recursive(self.params["img_data"]["path"]))
-            T_postmultiply = PoseData.static_tf_from_bag(
-                expanduser(img_file_path), 
-                expandvars_recursive(self.params['pose_data']['tf_to_cam']['parent']), 
-                expandvars_recursive(self.params['pose_data']['tf_to_cam']['child'])
-            )
+        if 'T_odombase_camera' in self.params['pose_data']:
+            T_postmultiply = self._find_transformation(self.params['pose_data']['T_odombase_camera'])
+        else:
+            T_postmultiply = None
         
         if self.params['use_kitti']:
             pose_data = PoseData.from_kitti(self.params['pose_data']['base_path'])
@@ -335,6 +325,38 @@ class ROMANMapRunner:
             )
         
         return pose_data
+    
+    def _find_transformation(self, param_dict) -> np.array:
+        """
+        Finds the transformation from the body frame to the camera frame.
+
+        Returns:
+            np.array: Transformation matrix.
+        """
+        # T_postmultiply = np.eye(4)
+        # # if 'T_body_odom' in param_dict:
+        # #     T_postmultiply = np.linalg.inv(np.array(param_dict['T_body_odom']).reshape((4, 4)))
+        # if 'T_body_cam' in param_dict:
+        #     T_postmultiply = T_postmultiply @ np.array(param_dict['T_body_cam']).reshape((4, 4))
+        # if 'T_postmultiply' in param_dict:
+        #     if param_dict['T_postmultiply'] == 'T_FLURDF':
+        #         T_postmultiply = T_FLURDF
+        #     elif param_dict['T_postmultiply'] == 'T_RDFFLU':
+        #         T_postmultiply = T_RDFFLU
+        # if 'tf_to_cam' in param_dict:
+        #     img_file_path = expanduser(expandvars_recursive(self.params["img_data"]["path"]))
+        #     T_postmultiply = PoseData.static_tf_from_bag(
+        #         expanduser(img_file_path), 
+        #         expandvars_recursive(param_dict['tf_to_cam']['parent']), 
+        #         expandvars_recursive(param_dict['tf_to_cam']['child'])
+        #     )
+        if param_dict['input_type'] == 'string':
+            if param_dict['string'] == 'T_FLURDF':
+                return T_FLURDF
+            elif param_dict['string'] == 'T_RDFFLU':
+                return T_RDFFLU
+            else:
+                raise ValueError("Invalid string.")
 
     def _load_fastsam_wrapper(self) -> FastSAMWrapper:
         """
@@ -386,6 +408,10 @@ class ROMANMapRunner:
             max_t_no_sightings=self.params['segment_tracking']['max_t_no_sightings'],
             mask_downsample_factor=self.params['segment_tracking']['mask_downsample_factor']
         )
+        if 'T_camera_flu' in self.params['pose_data']:
+            mapper.set_T_camera_flu(self._find_transformation(self.params['pose_data']['T_camera_flu']))
+        else:
+            mapper.set_T_camera_flu(np.eye(4))
         return mapper
 
 

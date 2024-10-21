@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+from robotdatapy.transform import transform
+
 class Object():
 
     def __init__(self, centroid: np.array, dim=None, id=0, volume=None, descriptor=None):
@@ -15,7 +17,7 @@ class Object():
 
     def transform(self, T):
         assert T.shape == (self.dim+1, self.dim+1)
-        self.centroid = (T @ np.vstack([self.centroid, np.ones((1,1))]))[:self.dim,:]
+        self.centroid = transform(T, self.centroid)
         return
     
     def add_noise(self, centroid_covariance, object_noise_params = None):
@@ -59,8 +61,8 @@ class Object():
         return lambda: Object(np.random.uniform(bounds[:,0], bounds[:,1]))
     
     def to_pickle(self):
-        return {
-            "centroid": self.centroid,
-            "dim": self.dim,
-            "id": self.id
-        }
+        return self
+    
+    @classmethod
+    def from_pickle(cls, data):
+        return data
