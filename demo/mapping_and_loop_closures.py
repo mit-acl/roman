@@ -4,8 +4,6 @@ import matplotlib.pyplot as plt
 import argparse
 from typing import List
 import os
-import signal
-import sys
 
 from roman.align.params import SubmapAlignInputOutput, SubmapAlignParams
 from roman.align.submap_align import submap_align
@@ -40,11 +38,6 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
 
-    assert args.params is not None or args.params_list is not None, "Either --params or --params-list must be provided."
-    
-    if args.params_list:
-        assert len(args.params_list) == len(args.runs), "Number of params files must match number of runs."
-    
     # create output directories
     os.makedirs(os.path.join(args.output_dir, "map"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "align"), exist_ok=True)
@@ -55,6 +48,13 @@ if __name__ == '__main__':
     args.viz_open3d = False
         
     if not args.skip_map:
+        
+        assert args.params is not None or args.params_list is not None, \
+            "Either --params or --params-list must be provided."
+        if args.params_list:
+            assert len(args.params_list) == len(args.runs), \
+                "Number of params files must match number of runs."
+        
         for i, run in enumerate(args.runs):
             if args.params_list:
                 args.params = args.params_list[i]

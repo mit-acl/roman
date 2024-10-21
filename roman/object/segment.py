@@ -15,7 +15,10 @@ from roman.map.observation import Observation
 from roman.map.voxel_grid import VoxelGrid
 from roman.object.object import Object
 
-class SegmentLowData(Object):
+# TODO: use edited to help save computation in computing things 
+# like volume, extent, and pca shape attributes
+
+class SegmentMinimalData(Object):
     
     def __init__(
         self,
@@ -26,14 +29,30 @@ class SegmentLowData(Object):
         planarity: float,
         scattering: float,
         extent: np.array,
-        semantic_descriptor: np.array
+        semantic_descriptor: np.array,
+        first_seen: float,
+        last_seen: float
     ):
         super().__init__(center, 3, id, volume=volume)
-        self.linearity = linearity
-        self.planarity = planarity
-        self.scattering = scattering
+        self._linearity = linearity
+        self._planarity = planarity
+        self._scattering = scattering
         self.extent = extent
         self.semantic_descriptor = semantic_descriptor
+        self.first_seen = first_seen
+        self.last_seen = last_seen
+        
+    def normalized_eigenvalues(self):
+        return None
+    
+    def linearity(self, e=None):
+        return self._linearity
+        
+    def planarity(self, e=None):
+        return self._planarity
+
+    def scattering(self, e=None):
+        return self._scattering
 
 class Segment(Object):
 
@@ -409,6 +428,21 @@ class Segment(Object):
     def transform(self, T):
         if self.points is not None:
             self.points = transform(T, self.points, axis=0)
+            
+    def minimal_data(self):
+        e = self.normalized_eigenvalues()
+        return SegmentMinimalData(
+            self.id,
+            self.center,
+            self.volume,
+            self.linearity(e),
+            self.planarity(e),
+            self.scattering(e),
+            self.extent,
+            self.semantic_descriptor,
+            self.first_seen,
+            self.last_seen
+        )
             
     @property
     def viz_color(self):

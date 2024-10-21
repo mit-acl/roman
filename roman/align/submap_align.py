@@ -18,12 +18,12 @@ from robotdatapy.data.pose_data import PoseData
 from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat, \
     transform_to_xyzrpy
 from robotdatapy.geometry import circle_intersection
-from robotdatapy.transform import T_FLURDF, T_RDFFLU
 
 from roman.object.segment import Segment
 from roman.map.tracker import Tracker
 
 from roman.object.object import Object
+from roman.object.segment import SegmentMinimalData
 from roman.align.object_registration import InsufficientAssociationsException
 from roman.align.dist_reg_with_pruning import GravityConstraintError
 from roman.utils import object_list_bounds, transform_rm_roll_pitch
@@ -87,7 +87,7 @@ def submaps_from_maps(object_map: List[Object], centers: List[np.array],
                   np.linalg.norm(obj.center.flatten()[:2] - center[:2,3]) < submap_align_params.submap_radius \
                   and meets_time_thresh(obj)]
         
-        T_odom_center = transform_rm_roll_pitch(center @ T_RDFFLU)
+        T_odom_center = transform_rm_roll_pitch(center)
         T_center_odom = np.linalg.inv(T_odom_center)
         for obj in submap:
             obj.transform(T_center_odom)
@@ -125,9 +125,7 @@ def create_submaps(
         segment: Segment
         for segment in tracker.segments + tracker.inactive_segments + tracker.segment_graveyard:
             if segment.points is not None and len(segment.points) > 0:
-                segment.volume
-                segment.extent
-                object_maps[i].append(segment)
+                object_maps[i].append(segment.minimal_data())
 
     # create submaps
     submap_centers, submap_times, submap_idxs = \
@@ -164,61 +162,70 @@ def create_submaps(
         
     return submap_centers, submaps, poses, times, trackers, submap_idxs
 
-# def load_segment_slam_submaps(json_files: List[str], show_maps=False):
-#     submaps = []
-#     submap_centers = []
-#     for json_file in json_files:
-#         with open(json_file, 'r') as f:
-#             smcs = []
-#             sms = []
-#             objs = {}
+def load_segment_slam_submaps(json_files: List[str], 
+        sm_params: SubmapAlignParams=SubmapAlignParams(), show_maps=False):
+    submaps = []
+    submap_centers = []
+    for json_file in json_files:
+        with open(json_file, 'r') as f:
+            smcs = []
+            sms = []
+            objs = {}
             
-#             data = json.load(f)
-#             for seg in data['segments']:
-#                 centroid = np.array([seg['centroid_odom']['x'], seg['centroid_odom']['y'], seg['centroid_odom']['z']])[:args.dim]
-#                 new_obj = Object(centroid, id=seg['segment_index'])
-#                 new_obj.set_volume(seg['volume'])
-#                 objs[seg['segment_index']] = new_obj
+            data = json.load(f)
+            for seg in data['segments']:
+                centroid = np.array([seg['centroid_odom']['x'], seg['centroid_odom']['y'], seg['centroid_odom']['z']])[:sm_params.dim]
+                new_obj = SegmentMinimalData(
+                    id=seg['segment_index'],
+                    center=centroid,
+                    volume=seg['shape_attributes']['volume'],
+                    linearity=seg['shape_attributes']['linearity'],
+                    planarity=seg['shape_attributes']['planarity'],
+                    scattering=seg['shape_attributes']['scattering'],
+                    extent=None,
+                    semantic_descriptor=None
+                )
+                objs[seg['segment_index']] = new_obj
                 
-#             for submap in data['submaps']:
-#                 center = np.eye(4)
-#                 center[:3,3] = np.array([submap['T_odom_submap']['tx'], submap['T_odom_submap']['ty'], submap['T_odom_submap']['tz']])
-#                 center[:3,:3] = Rot.from_quat([submap['T_odom_submap']['qx'], submap['T_odom_submap']['qy'], submap['T_odom_submap']['qz'], submap['T_odom_submap']['qw']]).as_matrix()
-#                 sm = [deepcopy(objs[idx]) for idx in submap['segment_indices']]
+            for submap in data['submaps']:
+                center = np.eye(4)
+                center[:3,3] = np.array([submap['T_odom_submap']['tx'], submap['T_odom_submap']['ty'], submap['T_odom_submap']['tz']])
+                center[:3,:3] = Rot.from_quat([submap['T_odom_submap']['qx'], submap['T_odom_submap']['qy'], submap['T_odom_submap']['qz'], submap['T_odom_submap']['qw']]).as_matrix()
+                sm = [deepcopy(objs[idx]) for idx in submap['segment_indices']]
 
-#                 # Transform objects to be centered at the submap center
-#                 T_submap_world = np.eye(4) # transformation to move submap from world frame to centered submap frame
-#                 T_submap_world[:args.dim, 3] = -center[:args.dim, 3]
-#                 for obj in sm:
-#                     obj.transform(T_submap_world)
+                # Transform objects to be centered at the submap center
+                T_submap_world = np.eye(4) # transformation to move submap from world frame to centered submap frame
+                T_submap_world[:sm_params.dim, 3] = -center[:sm_params.dim, 3]
+                for obj in sm:
+                    obj.transform(T_submap_world)
 
-#                 smcs.append(center)
-#                 sms.append(sm)
+                smcs.append(center)
+                sms.append(sm)
                 
-#             submap_centers.append(smcs)
-#             submaps.append(sms)
-#     if show_maps:
-#         for i in range(2):
-#             for submap in submaps[i]:
-#                 fig, ax = plt.subplots()
-#                 for obj in submap:
-#                     obj.plot2d(ax, color='blue')
+            submap_centers.append(smcs)
+            submaps.append(sms)
+    if show_maps:
+        for i in range(2):
+            for submap in submaps[i]:
+                fig, ax = plt.subplots()
+                for obj in submap:
+                    obj.plot2d(ax, color='blue')
                 
-#                 bounds = object_list_bounds(submap)
-#                 if len(bounds) == 3:
-#                     xlim, ylim, _ = bounds
-#                 else:
-#                     xlim, ylim = bounds
+                bounds = object_list_bounds(submap)
+                if len(bounds) == 3:
+                    xlim, ylim, _ = bounds
+                else:
+                    xlim, ylim = bounds
 
-#                 # ax.plot([position[0] for position in submap_centers[i]], [position[1] for position in submap_centers[i]], 'o', color='black')
-#                 ax.set_aspect('equal')
+                # ax.plot([position[0] for position in submap_centers[i]], [position[1] for position in submap_centers[i]], 'o', color='black')
+                ax.set_aspect('equal')
                 
-#                 ax.set_xlim(xlim)
-#                 ax.set_ylim(ylim)
+                ax.set_xlim(xlim)
+                ax.set_ylim(ylim)
 
-#             plt.show()
-#         exit(0)
-#     return submap_centers, submaps
+            plt.show()
+        exit(0)
+    return submap_centers, submaps
         
 
 def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
@@ -251,7 +258,10 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
         submap_centers, submaps, poses, times, trackers, submap_idxs = \
             create_submaps(sm_io.inputs, sm_params, sm_io.debug_show_maps)
     elif sm_io.input_type_json: # TODO: re-implement support for json files
-        submap_centers, submaps = load_segment_slam_submaps(args.input, show_maps=args.show_maps)
+        submap_centers, submaps = load_segment_slam_submaps(sm_io.inputs, sm_params, sm_io.debug_show_maps)
+        times = [None, None]
+        trackers = [None, None]
+        submap_idxs = [None, None]
 
     # Registration setup
     clipper_angle_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
@@ -297,13 +307,13 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
 
             # determine correct T_ij
             if gt_pose_data[0] is not None:
-                T_wi = transform_rm_roll_pitch(gt_pose_data[0].pose(times[0][submap_idxs[0][i]]) @ T_RDFFLU)
+                T_wi = transform_rm_roll_pitch(gt_pose_data[0].pose(times[0][submap_idxs[0][i]]))
             else:
-                T_wi = transform_rm_roll_pitch(submap_centers[0][i] @ T_RDFFLU)
+                T_wi = transform_rm_roll_pitch(submap_centers[0][i])
             if gt_pose_data[1] is not None:
-                T_wj = transform_rm_roll_pitch(gt_pose_data[1].pose(times[1][submap_idxs[1][j]]) @ T_RDFFLU)
+                T_wj = transform_rm_roll_pitch(gt_pose_data[1].pose(times[1][submap_idxs[1][j]]))
             else:
-                T_wj = transform_rm_roll_pitch(submap_centers[1][j] @ T_RDFFLU)
+                T_wj = transform_rm_roll_pitch(submap_centers[1][j])
             T_ij = np.linalg.inv(T_wi) @ T_wj
             if robots_nearby_mat[i, j] > OVERLAP_EPS:
                 relative_yaw_angle = transform_to_xyzrpy(T_ij)[5]
