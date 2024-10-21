@@ -338,18 +338,6 @@ class ROMANMapRunner:
         # #     T_postmultiply = np.linalg.inv(np.array(param_dict['T_body_odom']).reshape((4, 4)))
         # if 'T_body_cam' in param_dict:
         #     T_postmultiply = T_postmultiply @ np.array(param_dict['T_body_cam']).reshape((4, 4))
-        # if 'T_postmultiply' in param_dict:
-        #     if param_dict['T_postmultiply'] == 'T_FLURDF':
-        #         T_postmultiply = T_FLURDF
-        #     elif param_dict['T_postmultiply'] == 'T_RDFFLU':
-        #         T_postmultiply = T_RDFFLU
-        # if 'tf_to_cam' in param_dict:
-        #     img_file_path = expanduser(expandvars_recursive(self.params["img_data"]["path"]))
-        #     T_postmultiply = PoseData.static_tf_from_bag(
-        #         expanduser(img_file_path), 
-        #         expandvars_recursive(param_dict['tf_to_cam']['parent']), 
-        #         expandvars_recursive(param_dict['tf_to_cam']['child'])
-        #     )
         if param_dict['input_type'] == 'string':
             if param_dict['string'] == 'T_FLURDF':
                 return T_FLURDF
@@ -357,6 +345,19 @@ class ROMANMapRunner:
                 return T_RDFFLU
             else:
                 raise ValueError("Invalid string.")
+        elif param_dict['input_type'] == 'tf':
+            img_file_path = expanduser(expandvars_recursive(self.params["img_data"]["path"]))
+            T = PoseData.static_tf_from_bag(
+                expanduser(img_file_path), 
+                expandvars_recursive(param_dict['parent']), 
+                expandvars_recursive(param_dict['child'])
+            )
+            if param_dict['inv']:
+                return np.linalg.inv(T)
+            else:
+                return T
+        else:
+            raise ValueError("Invalid input type.")
 
     def _load_fastsam_wrapper(self) -> FastSAMWrapper:
         """

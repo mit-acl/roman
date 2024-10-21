@@ -134,4 +134,4 @@ class SubmapAlignInputOutput:
     
     @property
     def output_submaps(self):
-        return [os.path.join(self.output_dir, f'{self.run_name}.{rn}.sm.json') for rn in self.robot_names]
+        return [os.path.join(self.output_dir, f'{rn}.sm.json') for rn in self.robot_names]
