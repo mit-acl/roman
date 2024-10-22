@@ -251,7 +251,7 @@ class ROMANMapRunner:
             img_data = ImgData.from_bag(
                 path=img_file_path,
                 topic=expandvars_recursive(self.params["img_data"]["img_topic"]),
-                time_tol=.05,
+                time_tol=self.params['segment_tracking']['dt'] / 2.0,
                 time_range=self.time_range,
                 compressed=self.params['img_data']['color_compressed']
             )
