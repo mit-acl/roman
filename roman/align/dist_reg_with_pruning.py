@@ -14,7 +14,10 @@ class GravityConstraintError(Exception):
 class DistRegWithPruning(ObjectRegistration):
     
     def __init__(self, sigma, epsilon, mindist=0.0, volume_epsilon=0.0, dim=3, use_gravity=False, roll_pitch_thresh=np.deg2rad(5)):
-        super().__init__(sigma, epsilon, mindist, dim)
+        super().__init__(dim)
+        self.sigma = sigma
+        self.epsilon = epsilon
+        self.mindist = mindist
         self.volume_epsilon = volume_epsilon
         self.use_gravity = use_gravity
         self.roll_pitch_thresh = roll_pitch_thresh
