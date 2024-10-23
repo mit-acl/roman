@@ -333,6 +333,12 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
 
                 elif sm_params.dim == 3:
                     T_ij_hat = registration.T_align(submap_i, submap_j, associations)
+                    if sm_params.force_rm_upside_down:
+                        xyzrpy = transform_to_xyzrpy(T_ij_hat)
+                        if np.abs(xyzrpy[3]) > np.deg2rad(90.) or np.abs(xyzrpy[4]) > np.deg2rad(90.):
+                            raise GravityConstraintError
+                    if sm_params.force_rm_lc_roll_pitch:
+                        T_ij_hat = transform_rm_roll_pitch(T_ij_hat)
                     T_error = np.linalg.inv(T_ij_hat) @ T_ij
                     theta = Rot.from_matrix(T_error[:3, :3]).magnitude()
                     dist = np.linalg.norm(T_error[:sm_params.dim, 3])
