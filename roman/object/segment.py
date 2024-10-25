@@ -4,20 +4,63 @@ import gtsam
 import cv2 as cv
 from typing import List
 import shapely
+from dataclasses import dataclass
 
 from robotdatapy.data.img_data import CameraParams
 from robotdatapy.transform import transform, aruns
 from robotdatapy.camera import xyz_2_pixel, pixel_depth_2_xyz
 
 import open3d as o3d
-from segment_track.observation import Observation
-from segment_track.voxel_grid import VoxelGrid
+from roman.map.observation import Observation
+from roman.map.voxel_grid import VoxelGrid
+from roman.object.object import Object
 
-class Segment():
+# TODO: use edited to help save computation in computing things 
+# like volume, extent, and pca shape attributes
 
+class SegmentMinimalData(Object):
+    
+    def __init__(
+        self,
+        id: int,
+        center: np.array,
+        volume: float,
+        linearity: float,
+        planarity: float,
+        scattering: float,
+        extent: np.array,
+        semantic_descriptor: np.array,
+        first_seen: float,
+        last_seen: float
+    ):
+        super().__init__(center, 3, id, volume=volume)
+        self._linearity = linearity
+        self._planarity = planarity
+        self._scattering = scattering
+        self.extent = extent
+        self.semantic_descriptor = semantic_descriptor
+        self.first_seen = first_seen
+        self.last_seen = last_seen
+        
+    def normalized_eigenvalues(self):
+        return None
+    
+    def linearity(self, e=None):
+        return self._linearity
+        
+    def planarity(self, e=None):
+        return self._planarity
+
+    def scattering(self, e=None):
+        return self._scattering
+
+class Segment(Object):
+
+    # TODO: separate from observation and from points class
     def __init__(self, observation: Observation, camera_params: CameraParams, 
                  id: int = 0, voxel_size: float = 0.05):
-        self.id = id
+        # initialize parent class
+        super().__init__(centroid=np.zeros(3), dim=3, id=id)
         self.observations = [observation.copy(include_mask=False)]
         self.first_seen = observation.time
         self.last_seen = observation.time
@@ -174,6 +217,7 @@ class Segment():
         self._obb = None
         self.voxel_grid = dict()
         
+    @property
     def volume(self):
         if self.num_points > 4: # 4 is the minimum number of points needed to define a 3D box
             if self._obb is None:
@@ -194,6 +238,12 @@ class Segment():
             return extent
         else:
             return np.zeros(3)
+        
+    @property
+    def center(self):
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(self.points)
+        return pcd.get_center().reshape(self.dim, 1)
         
     def get_voxel_grid(self, voxel_size: float) -> VoxelGrid:
         if self.num_points > 0:
@@ -374,3 +424,47 @@ class Segment():
             )
             self.semantic_descriptor_cnt += cnt
         self.semantic_descriptor /= norm(self.semantic_descriptor) # renormalize
+        
+    def transform(self, T):
+        if self.points is not None:
+            self.points = transform(T, self.points, axis=0)
+            
+    def minimal_data(self):
+        e = self.normalized_eigenvalues()
+        return SegmentMinimalData(
+            self.id,
+            self.center,
+            self.volume,
+            self.linearity(e),
+            self.planarity(e),
+            self.scattering(e),
+            self.extent,
+            self.semantic_descriptor,
+            self.first_seen,
+            self.last_seen
+        )
+            
+    @property
+    def viz_color(self):
+        np.random.seed(self.id)
+        color = np.random.randint(0, 255, 3).tolist()
+        return color
+        
+    @classmethod
+    def from_pickle(cls, data):
+        return data
+        # new_obj = cls(
+        #     data["centroid"],
+        #     data["rot_mat"],
+        #     data["points"],
+        #     data["dim"],
+        #     data["id"]
+        # )
+        # if data["use_bottom_median_as_center"]:
+        #     new_obj.use_bottom_median_as_center()
+        # return new_obj
+
+    def to_pickle(self):
+        self.reset_obb()
+        return self
+        

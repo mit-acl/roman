@@ -17,6 +17,9 @@ pose_data:
   path: $ODOM_BAG
   topic: /$ROBOT/kimera_vio_ros/odometry
   time_tol: 10.0
+  T_camera_flu:
+    input_type: "string"
+    string: "T_RDFFLU"
 
 fastsam:
   weights: "$FASTSAM_WEIGHTS_PATH"

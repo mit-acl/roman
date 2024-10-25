@@ -2,23 +2,34 @@ import numpy as np
 import argparse
 import os
 import pickle
+from typing import List
 
 from robotdatapy import transform
 
-def main(args):
-
-    I_t = 1 / (args.t_std**2)
-    I_r = 1 / (args.r_std**2)
-    I = np.diag([I_t, I_t, I_t, I_r, I_r, I_r])
-    
-    with open(os.path.expanduser(args.input), 'rb') as f:
+def extract_roman_map_data(pkl_file):
+    with open(os.path.expanduser(pkl_file), 'rb') as f:
         pickle_data = pickle.load(f)
-        if len(pickle_data) == 2:
-            _, poses, = pickle_data
-            times = None
-        else:
-            _, poses, times = pickle_data
+        tracker, poses, times = pickle_data
+        return tracker, poses, times
 
+def create_information_matrix(t_std, r_std):
+    I_t = 1 / (t_std**2)
+    I_r = 1 / (r_std**2)
+    I = np.diag([I_t, I_t, I_t, I_r, I_r, I_r])
+    return I
+
+def extract_odom_g2o(poses: List[np.array], times: List[float], I: np.array, 
+                     min_keyframe_dist: bool = None):
+    """
+    Turns odometry data from saved ROMAN pickle file into g2o/time format.
+
+    Args:
+        poses (List[np.array]): List of poses.
+        times (List[float]): List of times.
+        I (np.array): Information matrix.
+        min_keyframe_dist (bool, optional): Minimum distance between keyframes. No min if None. 
+            Defaults to None.
+    """
     edge_lines = []
     vertex_lines = []
     selected_times = []
@@ -26,18 +37,18 @@ def main(args):
     next_i = 0
     idx_list = []
     for i in range(len(poses) - 1):
-        if args.min_keyframe_dist is not None and i < next_i:
+        if min_keyframe_dist is not None and i < next_i:
             continue
         idx_list.append(i)
         T_w1 = poses[i]
         T_w2 = poses[i + 1]
-        if args.min_keyframe_dist is not None:
+        if min_keyframe_dist is not None:
             j = i
             while j < len(poses) - 1:
                 j += 1
                 T_w2 = poses[j]
                 # continue until the next keyframe is far enough
-                if np.linalg.norm(T_w1[:3, 3] - T_w2[:3, 3]) > args.min_keyframe_dist:
+                if np.linalg.norm(T_w1[:3, 3] - T_w2[:3, 3]) > min_keyframe_dist:
                     break
             next_i = j
             
@@ -56,7 +67,7 @@ def main(args):
         edge_lines.append(new_line)
         
         # Make sure that the last pose is included
-        if args.min_keyframe_dist is not None:
+        if min_keyframe_dist is not None:
             if next_i == len(poses) - 1:
                 idx_list.append(j)
         
@@ -65,28 +76,51 @@ def main(args):
         t, q = transform.transform_to_xyz_quat(pose, separate=True)
         vertex_lines += f"VERTEX_SE3:QUAT {new_i} {t[0]} {t[1]} {t[2]} {q[0]} {q[1]} {q[2]} {q[3]}\n"
         selected_times.append(times[i])
+        
+    return vertex_lines, edge_lines, selected_times
+
+def roman_map_pkl_to_g2o(
+    pkl_file: str,
+    g2o_file: str,
+    time_file: str = None,
+    robot_id: int = 0,
+    min_keyframe_dist: float = None,
+    t_std: float = 0.005,
+    r_std: float = np.deg2rad(0.025),
+    verbose: bool = False
+):
+
+    # setup information matrix
+    I = create_information_matrix(t_std, r_std)
+    
+    # open input ROMAN map pkl file
+    _, poses, times = extract_roman_map_data(pkl_file)
+    
+    # extract g2o data
+    vertex_lines, edge_lines, selected_times = \
+        extract_odom_g2o(poses, times, I, min_keyframe_dist)
             
-    with open(os.path.expanduser(args.output), 'w') as f:
+    with open(os.path.expanduser(g2o_file), 'w') as f:
         for line in vertex_lines + edge_lines:
             f.write(line)    
         f.close()
 
-    print(f"Saved g2o to {os.path.abspath(args.output)}")
+    if verbose:
+        print(f"Saved g2o to {os.path.abspath(g2o_file)}")
     
-    if args.output_time is None:
+    if time_file is None:
         return
     
     assert times is not None, "No time data found in pickle file."
     
-    with open(os.path.expanduser(args.time_file), 'w') as f:
+    with open(os.path.expanduser(time_file), 'w') as f:
         for i, time in enumerate(selected_times):
-            f.write(f"{args.robot_id} {i} {int(time*1e9)} xxx\n")
+            f.write(f"{robot_id} {i} {int(time*1e9)} xxx\n")
         f.close()
         
-    print(f"Saved time data to {os.path.abspath(args.time_file)}")
+    if verbose:
+        print(f"Saved time data to {os.path.abspath(time_file)}")
 
-
-    
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Convert SegTrack to g2o format.')
@@ -106,4 +140,13 @@ if __name__ == '__main__':
     if args.time_file is None and args.output_time:
         args.time_file = args.output.replace('.g2o', '_time.txt')
     
-    main(args)
+    roman_map_pkl_to_g2o(
+        args.input,
+        args.output,
+        args.time_file,
+        args.robot_id,
+        args.min_keyframe_dist,
+        args.t_std,
+        args.r_std,
+        verbose=True
+    )

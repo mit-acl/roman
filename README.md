@@ -1,4 +1,4 @@
-# `segment_track` (to be renamed to ROMAN)
+# ROMAN
 
 ![demo](./media/tracking.png)
 

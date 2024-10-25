@@ -6,23 +6,13 @@ import open3d as o3d
 
 from robotdatapy.data.img_data import CameraParams
 
-from segment_track.segment import Segment
-from segment_track.observation import Observation
-from segment_track.global_nearest_neighbor import global_nearest_neighbor
+from roman.object.segment import Segment
+from roman.map.observation import Observation
+from roman.map.global_nearest_neighbor import global_nearest_neighbor
 
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-@dataclass
-class Cylinder():
-    """
-    A cylinder object
-    """
-    position: np.array
-    radius: float
-    height: float
-    
 
 class Tracker():
 
@@ -45,8 +35,6 @@ class Tracker():
         self.min_iou = min_iou
         self.min_sightings = min_sightings
         self.max_t_no_sightings = max_t_no_sightings
-        self.min_orb_matches = 5
-        self.num_orb_features = 10
         self.merge_objects = merge_objects
         self.merge_objects_iou_3d = merge_objects_iou
         self.merge_objects_iou_2d = 0.5
@@ -64,6 +52,7 @@ class Tracker():
         self.segment_graveyard = []
         self.id_counter = 0
         self.last_pose = None
+        self._T_camera_flu = None
 
     def update(self, t: float, pose: np.array, observations: List[Observation]):
         
@@ -76,10 +65,6 @@ class Tracker():
         associated_pairs = global_nearest_neighbor(
             self.segments + self.segment_nursery, observations, self.voxel_grid_similarity, self.min_iou
         )
-        # associated_pairs = global_nearest_neighbor(
-        #     self.segments + self.segment_nursery, observations, 
-        #     self.orb_similarity, self.min_orb_matches / self.num_orb_features
-        # )
 
         # separate segments associated with nursery and normal segments
         pairs_existing = [[seg_idx, obs_idx] for seg_idx, obs_idx \
@@ -197,24 +182,6 @@ class Tracker():
         if np.isclose(union, 0):
             return 0.0
         return float(intersection) / float(union)
-    
-    def orb_similarity(self, segment: Segment, observation: Observation):
-        """
-        Compute the similarity between the ORB descriptors of a segment and an observation
-        """
-        matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=False)
-
-        # find 2 best matches for each observation descriptor 
-        # (will use to throw away ambiguous matches)
-        matches = matcher.knnMatch(segment.last_observation.descriptors, 
-                                   observation.descriptors, k=2)
-
-        good_matches = []
-        for m, n in matches:
-            if m.distance < .75*n.distance:
-                good_matches.append(m)
-
-        return len(good_matches) / self.num_orb_features
 
     
     # def filter_segment_graveyard(self, rm_fun: callable):
@@ -243,7 +210,7 @@ class Tracker():
                 if seg.num_points == 0:
                     to_delete.append(seg)
                     # reason.append(f"Segment {seg.id} has no points")
-                elif seg.volume() < min_volume:
+                elif seg.volume < min_volume:
                     to_delete.append(seg)
                     # reason.append(f"Segment {seg.id} has volume {seg.volume} < {min_volume}")
                 elif extent[-1] < min_max_extent:
@@ -314,26 +281,6 @@ class Tracker():
                 if edited:
                     break
         return
-
-    def cylinder_intersection(self, c1: Cylinder, c2: Cylinder):
-        """
-        Compute the intersection volume between two cylinders
-        """
-        d = np.linalg.norm(c1.position[:2] - c2.position[:2])
-        if np.abs(c1.position[2] - c2.position[2]) > 0.5 * (c1.height + c2.height) \
-            or d > c1.radius + c2.radius: # no intersection
-            return 0.0
-        intersecting_height = \
-            (np.min([c1.position[2] + 0.5*c1.height, c2.position[2] + 0.5*c2.height]) # top
-            - np.max([c1.position[2] - 0.5*c1.height, c2.position[2] - 0.5*c2.height])) # bottom
-        if d <= np.abs(c1.radius - c2.radius): # one cylinder is inside the other
-            return np.pi * np.min([c1.radius, c2.radius])**2 * intersecting_height
-        r1 = c1.radius
-        r2 = c2.radius
-        return (r1**2 * np.arccos((d**2 + r1**2 - r2**2) / (2 * d * r1)) \
-            + r2**2 * np.arccos((d**2 + r2**2 - r1**2) / (2 * d * r2)) \
-            - 0.5 * np.sqrt((-d + r1 + r2) * (d + r1 - r2) * (d - r1 + r2) * (d + r1 + r2))) \
-            * intersecting_height
             
     def make_pickle_compatible(self):
         """
@@ -342,4 +289,15 @@ class Tracker():
         for seg in self.segments + self.segment_nursery + self.inactive_segments + self.segment_graveyard:
             seg.reset_obb()
         return
+    
+    def set_T_camera_flu(self, T_camera_flu: np.array):
+        """
+        Set the transformation matrix from camera frame to forward-left-up frame
+        """
+        self._T_camera_flu = T_camera_flu
+        return
+    
+    @property
+    def T_camera_flu(self):
+        return self._T_camera_flu
             

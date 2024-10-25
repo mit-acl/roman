@@ -9,7 +9,8 @@ from robotdatapy.data.pose_data import PoseData
 from robotdatapy.exceptions import NoDataNearTimeException
 from robotdatapy import transform
 
-from g2o_and_time_to_pose_data import g2o_and_time_to_pose_data, time_vertex_mapping
+from roman.offline_rpgo.g2o_and_time_to_pose_data \
+    import g2o_and_time_to_pose_data, time_vertex_mapping
 
 
 # class LoopClosure:
@@ -135,11 +136,12 @@ def extract_additional_lc(
 
     return extra_lc
 
-def combine_visual_object_lc(
+def combine_loop_closures(
     g2o_reference: str, 
     g2o_extra_lc: str, 
     vertex_times_reference: str, 
-    vertex_times_extra_lc: str
+    vertex_times_extra_lc: str,
+    output_file: str = None
 ) -> List[str]:
     """
     Combine two g2o files with timestamps into one g2o file with additional loop closures.
@@ -206,7 +208,16 @@ def combine_visual_object_lc(
     extra_lc = extract_additional_lc(loop_closures, pd_ref, pd_elc, tv_ref)
 
     # step 4: return the new g2o file lines
-    return g2o_lines_ref + ["# NEW LOOP CLOSURES"] + [str(lc) for lc in extra_lc]
+    g2o_file_lines = g2o_lines_ref + ["# NEW LOOP CLOSURES"] + [str(lc) for lc in extra_lc]
+
+    # step 5: write to file
+    if output_file is not None:
+        with open(output_file, 'w') as f:
+            for line in g2o_file_lines:
+                f.write(line.strip() + '\n')
+            f.close()
+            
+    return g2o_file_lines
 
 if __name__ == '__main__':
     import argparse
@@ -219,12 +230,6 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output', type=str, default=None, help='Path to output g2o file.')
     args = parser.parse_args()
 
-    new_g2o_lines = combine_visual_object_lc(
-        args.ref_g2o, args.extra_lc_g2o, args.ref_time, args.extra_lc_time
+    new_g2o_lines = combine_loop_closures(
+        args.ref_g2o, args.extra_lc_g2o, args.ref_time, args.extra_lc_time, args.output
     )
-
-    if args.output is not None:
-        with open(args.output, 'w') as f:
-            for line in new_g2o_lines:
-                f.write(line.strip() + '\n')
-            f.close()
