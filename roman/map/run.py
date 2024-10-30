@@ -197,6 +197,8 @@ class ROMANMapRunner:
             params['fastsam']['plane_filter_params'] = np.array([3.0, 1.0, 0.2])
         if 'rotate_img' not in params['fastsam']:
             params['fastsam']['rotate_img'] = None
+        if 'clip' not in params['fastsam']:
+            params['fastsam']['clip'] = True
         if 'yolo' not in params:
             params['yolo'] = {'imgsz': params['fastsam']['imgsz']}
             
@@ -390,7 +392,7 @@ class ROMANMapRunner:
             yolo_det_img_size=self.params['yolo']['imgsz'],
             allow_tblr_edges=[True, True, True, True],
             area_bounds=[img_area / (self.params['fastsam']['min_mask_len_div']**2), img_area / (self.params['fastsam']['max_mask_len_div']**2)],
-            clip_embedding=True
+            clip_embedding=self.params['fastsam']['clip']
         )
 
         return fastsam
