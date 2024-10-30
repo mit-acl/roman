@@ -242,7 +242,7 @@ class Segment(Object):
         
     @property
     def center(self):
-        if self._center_ref == 'bottom_median':
+        if self._center_ref == 'bottom_middle':
             pt = np.median(self.points, axis=0)
             pt[2] = np.min(self.points[:,2])
             return pt
