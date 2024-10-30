@@ -79,6 +79,7 @@ class Segment(Object):
         self.last_propagated_time = None
         self.semantic_descriptor = None
         self.semantic_descriptor_cnt = 0
+        self._center_ref = "mean" # TODO: make enum. For now: mean or bottom-middle
         
         self._integrate_points_from_observation(observation)
 
@@ -241,9 +242,16 @@ class Segment(Object):
         
     @property
     def center(self):
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(self.points)
-        return pcd.get_center().reshape(self.dim, 1)
+        if self._center_ref == 'bottom_median':
+            pt = np.median(self.points, axis=0)
+            pt[2] = np.min(self.points[:,2])
+            return pt
+        elif self._center_ref == 'mean':
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(self.points)
+            return pcd.get_center().reshape(self.dim, 1)
+        else:
+            assert False, "Invalid center reference point type"
         
     def get_voxel_grid(self, voxel_size: float) -> VoxelGrid:
         if self.num_points > 0:
@@ -467,4 +475,8 @@ class Segment(Object):
     def to_pickle(self):
         self.reset_obb()
         return self
+
+    def set_center_ref(self, new_center_ref):
+        assert new_center_ref in ['bottom_middle', 'mean']
+        c = new_center_ref
         
