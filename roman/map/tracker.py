@@ -267,7 +267,7 @@ class Tracker():
 
                     iou3d = seg1.get_voxel_grid(self.iou_voxel_size).iou(seg2.get_voxel_grid(self.iou_voxel_size))
 
-                    if iou3d > self.merge_objects_iou_3d or iou2d > self.merge_objects_iou_2d:
+                    if iou3d > self.merge_objects_iou_3d: # or iou2d > self.merge_objects_iou_2d:
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if seg1.num_points == 0:
