@@ -478,5 +478,5 @@ class Segment(Object):
 
     def set_center_ref(self, new_center_ref):
         assert new_center_ref in ['bottom_middle', 'mean']
-        c = new_center_ref
+        self._center_ref = new_center_ref
         
