@@ -22,6 +22,7 @@ class SubmapAlignParams:
     single_robot_lc_time_thresh: float = 50.0
     force_rm_lc_roll_pitch = True
     force_rm_upside_down = False
+    use_object_bottom_middle = False
     
     # registration params
     sigma: float = 0.4
