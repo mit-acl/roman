@@ -57,6 +57,7 @@ class SubmapAlignParams:
             roman_params.pca = self.method in ['pcavolgrav', 'spvg']
             roman_params.cos_min = self.cosine_min
             roman_params.cos_max = self.cosine_max
+            roman_params.epsilon_shape = self.epsilon_shape
             
             if self.method == 'standard':
                 method_name = f'{self.dim}D Point CLIPPER'
