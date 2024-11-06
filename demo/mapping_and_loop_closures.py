@@ -10,9 +10,10 @@ from roman.align.submap_align import submap_align
 from roman.offline_rpgo.extract_odom_g2o import roman_map_pkl_to_g2o
 from roman.offline_rpgo.g2o_file_fusion import create_config, g2o_file_fusion
 from roman.offline_rpgo.combine_loop_closures import combine_loop_closures
-from roman.offline_rpgo.plot_g2o import plot_g2o, DEFAULT_TRAJECTORY_COLORS
+from roman.offline_rpgo.plot_g2o import plot_g2o, DEFAULT_TRAJECTORY_COLORS, G2OPlotParams
 from roman.offline_rpgo.g2o_and_time_to_pose_data import g2o_and_time_to_pose_data
 from roman.offline_rpgo.evaluate import evaluate
+from roman.offline_rpgo.edit_g2o_edge_information import edit_g2o_edge_information
 
 import demo
 
@@ -35,6 +36,7 @@ if __name__ == '__main__':
     parser.add_argument('--skip-map', action='store_true', help='Skip mapping')
     parser.add_argument('--skip-align', action='store_true', help='Skip alignment')
     parser.add_argument('--skip-rpgo', action='store_true', help='Skip robust pose graph optimization')
+    parser.add_argument('--skip-indices', type=int, nargs='+', help='Skip specific runs in mapping and alignment')
     
     args = parser.parse_args()
 
@@ -45,9 +47,10 @@ if __name__ == '__main__':
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/sparse"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/dense"), exist_ok=True)
     
-    args.viz_open3d = False
+    assert args.sparse_pgo, "Only sparse pose graph optimization currently supported."
         
     if not args.skip_map:
+        args.viz_open3d = False
         
         assert args.params is not None or args.params_list is not None, \
             "Either --params or --params-list must be provided."
@@ -56,6 +59,8 @@ if __name__ == '__main__':
                 "Number of params files must match number of runs."
         
         for i, run in enumerate(args.runs):
+            if args.skip_indices and i in args.skip_indices:
+                continue
             if args.params_list:
                 args.params = args.params_list[i]
             # mkdir $output_dir/map
@@ -64,6 +69,7 @@ if __name__ == '__main__':
             # shell: export RUN=run
             os.environ['RUN'] = run
             
+            print(f"Mapping: {run}")
             demo.main(args)
         
     if not args.skip_align:
@@ -73,7 +79,11 @@ if __name__ == '__main__':
         #     sm_io.input_gt_pose_yaml = args.gt
             
         for i in range(len(args.runs)):
+            if args.skip_indices and i in args.skip_indices:
+                continue
             for j in range(i, len(args.runs)):
+                if args.skip_indices and j in args.skip_indices:
+                    continue
                 output_dir = os.path.join(args.output_dir, "align", f"{args.runs[i]}_{args.runs[j]}")
                 os.makedirs(output_dir, exist_ok=True)
                 input_files = [os.path.join(args.output_dir, "map", f"{args.runs[i]}.pkl"),
@@ -84,6 +94,7 @@ if __name__ == '__main__':
                     run_name="align",
                     lc_association_thresh=args.num_req_assoc,
                     input_gt_pose_yaml=[args.gt[i], args.gt[j]] if args.gt is not None else [None, None],
+                    robot_names=[args.runs[i], args.runs[j]],
                 )
                 sm_params.single_robot_lc = (i == j)
                 submap_align(sm_params=sm_params, sm_io=sm_io)
@@ -154,6 +165,16 @@ if __name__ == '__main__':
             vertex_times_extra_lc=odom_dense_all_time_file,
             output_file=final_g2o_file,
         )
+        
+        # change lc covar
+        # with open(os.path.expanduser(final_g2o_file), 'r') as f:
+        #     g2o_lines = f.readlines()
+        # # g2o_lines = edit_g2o_edge_information(g2o_lines, 0.1, np.deg2rad(0.5), loop_closures=True)
+        # g2o_lines = edit_g2o_edge_information(g2o_lines, 0.25, np.deg2rad(0.5), loop_closures=True)
+        # with open(os.path.expanduser(final_g2o_file), 'w') as f:
+        #     for line in g2o_lines:
+        #         f.write(line + '\n')
+        #     f.close()
             
         # run kimera centralized robust pose graph optimization
         result_g2o_file = os.path.join(args.output_dir, "offline_rpgo", "result.g2o")
@@ -164,11 +185,17 @@ if __name__ == '__main__':
         
         # plot results
         g2o_symbol_to_name = {chr(97 + i): args.runs[i] for i in range(len(args.runs))}
-        plot_g2o(
-            g2o_path=result_g2o_file,
-            g2o_symbol_to_name=g2o_symbol_to_name,
-            g2o_symbol_to_color=DEFAULT_TRAJECTORY_COLORS,
-        )
+        g2o_plot_params = G2OPlotParams()
+        fig, ax = plt.subplots(3, 1)
+        for i in range(3):
+            g2o_plot_params.axes = [(0, 1), (0, 2), (1, 2)][i]
+            plot_g2o(
+                g2o_path=result_g2o_file,
+                g2o_symbol_to_name=g2o_symbol_to_name,
+                g2o_symbol_to_color=DEFAULT_TRAJECTORY_COLORS,
+                ax=ax[i],
+                params=g2o_plot_params
+            )
         plt.savefig(os.path.join(args.output_dir, "offline_rpgo", "result.png"))
         print(f"Results saved to {os.path.join(args.output_dir, 'offline_rpgo', 'result.png')}")
         
