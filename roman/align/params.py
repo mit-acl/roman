@@ -16,7 +16,7 @@ class SubmapAlignParams:
     fusion_method: str = 'geometric_mean'
     submap_radius: float = 15.0
     submap_center_dist: float = 10.0
-    submap_center_time: float = 30.0 # time threshold between segments and submap center times
+    submap_center_time: float = 60.0 # time threshold between segments and submap center times
     submap_max_size: int = 40
     single_robot_lc: bool = False
     single_robot_lc_time_thresh: float = 50.0
@@ -43,7 +43,7 @@ class SubmapAlignParams:
             sim_fusion_method = clipperpy.invariants.ROMAN.PRODUCT
             
 
-        if self.method in ['standard', 'gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg']:
+        if self.method in ['standard', 'gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg', 'spv']:
             roman_params = ROMANParams()
             roman_params.point_dim = self.dim
             roman_params.sigma = self.sigma
@@ -52,9 +52,9 @@ class SubmapAlignParams:
             roman_params.fusion = sim_fusion_method
 
             roman_params.gravity = self.method in ['gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg']
-            roman_params.volume = self.method in ['pcavolgrav', 'extentvolgrav', 'spvg', 'sevg']
+            roman_params.volume = self.method in ['pcavolgrav', 'extentvolgrav', 'spvg', 'sevg', 'spv']
             roman_params.extent = self.method in ['extentvolgrav', 'sevg']
-            roman_params.pca = self.method in ['pcavolgrav', 'spvg']
+            roman_params.pca = self.method in ['pcavolgrav', 'spvg', 'spv']
             roman_params.cos_min = self.cosine_min
             roman_params.cos_max = self.cosine_max
             roman_params.epsilon_shape = self.epsilon_shape
