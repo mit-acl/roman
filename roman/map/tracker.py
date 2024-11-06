@@ -23,7 +23,7 @@ class Tracker():
             min_sightings: int,
             max_t_no_sightings: int,
             merge_objects: bool = False,
-            merge_objects_iou: float = 0.1,
+            merge_objects_iou: float = 0.25,
             mask_downsample_factor: int = 1,
             min_max_extent: float = 0.25, # to get rid of very small objects
             plane_prune_params: List[float] = [3.0, 3.0, 0.5], # to get rid of planar objects (likely background)

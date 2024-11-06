@@ -255,7 +255,8 @@ class ROMANMapRunner:
                 topic=expandvars_recursive(self.params["img_data"]["img_topic"]),
                 time_tol=self.params['segment_tracking']['dt'] / 2.0,
                 time_range=self.time_range,
-                compressed=self.params['img_data']['color_compressed']
+                compressed=self.params['img_data']['color_compressed'],
+                compressed_encoding='bgr8'
             )
             img_data.extract_params(expandvars_recursive(self.params['img_data']['cam_info_topic']))
         return img_data
