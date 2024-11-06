@@ -44,7 +44,7 @@ class G2OPlotParams:
     lc_linewidth: float = 2.0
     legend: bool = True
     unconnected_robot_transform: dict = None
-    axes: list = field(default_factory=lambda: [0, 1])
+    axes: tuple = (0, 1)
 
 def plot_g2o(
     g2o_path,
@@ -126,7 +126,8 @@ def plot_g2o(
                 continue
 
             color = params.colors['inlier' if inlier else 'outlier']['inter' if r1 != r2 else 'intra']
-            ax.plot([p1[params.axes[0]], p2[params.axes[0]]], [p1[params.axes[1]], p2[params.axes[1]]], color, linewidth=params.lc_linewidth, alpha=params.lc_alpha)
+            ax.plot([p1[params.axes[0]], p2[params.axes[0]]], [p1[params.axes[1]], p2[params.axes[1]]], 
+                    color, linewidth=params.lc_linewidth, alpha=params.lc_alpha)
 
     ax.grid(True)
 
