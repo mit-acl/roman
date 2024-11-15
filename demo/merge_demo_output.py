@@ -3,12 +3,12 @@ import os
 import pickle
 import argparse
 
-def main(args):
+def merge_demo_output(input_files, output_file):
     
     trackers, pose_history, times = [], [], []
 
-    for i in range(len(args.input)):
-        with open(os.path.expanduser(args.input[i]), 'rb') as f:
+    for i in range(len(input_files)):
+        with open(os.path.expanduser(input_files[i]), 'rb') as f:
             pickle_data = pickle.load(f)
             tr, ph, ti = pickle_data
             trackers.append(tr)
@@ -19,7 +19,7 @@ def main(args):
     pose_history_res = pose_history[0]
     times_res = times[0]
     
-    for i in range(1, len(args.input)):
+    for i in range(1, len(input_files)):
         for seg in trackers[i].segment_nursery + trackers[i].segments \
             + trackers[i].inactive_segments + trackers[i].segment_graveyard:
             seg.id += trackers_res.segment_graveyard[-1].id + int(1e5)
@@ -32,7 +32,7 @@ def main(args):
         pose_history_res += pose_history[i]
         times_res += times[i]
         
-    with open(os.path.expanduser(args.output), 'wb') as f:
+    with open(os.path.expanduser(output_file), 'wb') as f:
         pickle.dump((trackers_res, pose_history_res, times_res), f)
     
             
@@ -43,4 +43,4 @@ if __name__ == '__main__':
     parser.add_argument('--output', '-o', type=str, help='Output file')
     args = parser.parse_args()
     
-    main(args)
+    merge_demo_output(args.input, args.output)

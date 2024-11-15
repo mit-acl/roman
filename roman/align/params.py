@@ -16,21 +16,22 @@ class SubmapAlignParams:
     fusion_method: str = 'geometric_mean'
     submap_radius: float = 15.0
     submap_center_dist: float = 10.0
-    submap_center_time: float = 30.0 # time threshold between segments and submap center times
+    submap_center_time: float = 50.0 # time threshold between segments and submap center times
     submap_max_size: int = 40
     single_robot_lc: bool = False
     single_robot_lc_time_thresh: float = 50.0
     force_rm_lc_roll_pitch = True
-    force_rm_upside_down = False
+    force_rm_upside_down = True
+    use_object_bottom_middle = False
     
     # registration params
     sigma: float = 0.4
     epsilon: float = 0.6
-    mindist: float = 0.2
+    mindist: float = 0.4
     epsilon_shape: float = 0.0
     ransac_iter: int = int(1e6)
     cosine_min: float = 0.85
-    cosine_max: float = 0.95
+    cosine_max: float = 1.0
     semantics_dim: int = 768
     
     def get_object_registration(self):
@@ -42,7 +43,7 @@ class SubmapAlignParams:
             sim_fusion_method = clipperpy.invariants.ROMAN.PRODUCT
             
 
-        if self.method in ['standard', 'gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg']:
+        if self.method in ['standard', 'gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg', 'spv']:
             roman_params = ROMANParams()
             roman_params.point_dim = self.dim
             roman_params.sigma = self.sigma
@@ -51,11 +52,12 @@ class SubmapAlignParams:
             roman_params.fusion = sim_fusion_method
 
             roman_params.gravity = self.method in ['gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg']
-            roman_params.volume = self.method in ['pcavolgrav', 'extentvolgrav', 'spvg', 'sevg']
+            roman_params.volume = self.method in ['pcavolgrav', 'extentvolgrav', 'spvg', 'sevg', 'spv']
             roman_params.extent = self.method in ['extentvolgrav', 'sevg']
-            roman_params.pca = self.method in ['pcavolgrav', 'spvg']
+            roman_params.pca = self.method in ['pcavolgrav', 'spvg', 'spv']
             roman_params.cos_min = self.cosine_min
             roman_params.cos_max = self.cosine_max
+            roman_params.epsilon_shape = self.epsilon_shape
             
             if self.method == 'standard':
                 method_name = f'{self.dim}D Point CLIPPER'
@@ -102,8 +104,8 @@ class SubmapAlignInputOutput:
     input_gt_pose_yaml: List[str] = field(default_factory=lambda: [None, None])
     robot_names: List[str] = field(default_factory=lambda: ["0", "1"])
     lc_association_thresh: int = 4
-    g2o_t_std: float = 1.0
-    g2o_r_std: float = np.deg2rad(2.0)
+    g2o_t_std: float = 0.5
+    g2o_r_std: float = np.deg2rad(0.5)
     debug_show_maps: bool = False
     
     @property
