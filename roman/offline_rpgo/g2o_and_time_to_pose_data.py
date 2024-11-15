@@ -105,6 +105,8 @@ def load_gt_pose_data(gt_file):
         return PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
     elif gt_pose_args['type'] == 'csv':
         return PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
+    elif gt_pose_args['type'] == 'bag_tf':
+        return PoseData.from_bag_tf(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
     else:
         raise ValueError("Invalid pose data type")
 

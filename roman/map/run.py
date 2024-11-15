@@ -300,7 +300,7 @@ class ROMANMapRunner:
             if pose_file_type == 'bag':
                 pose_topic = expandvars_recursive(self.params['pose_data']['topic'])
                 csv_options = None
-            else:
+            elif pose_file_type == 'csv':
                 pose_topic = None
                 csv_options = self.params['pose_data']['csv_options']
             
@@ -315,6 +315,15 @@ class ROMANMapRunner:
             pose_data = PoseData.from_bag(
                 path=expanduser(pose_file_path),
                 topic=expandvars_recursive(pose_topic),
+                time_tol=pose_time_tol,
+                interp=True,
+                T_postmultiply=T_postmultiply
+            )
+        elif pose_file_type == 'bag_tf':
+            pose_data = PoseData.from_bag_tf(
+                path=expanduser(pose_file_path),
+                parent_frame=expandvars_recursive(self.params['pose_data']['parent']),
+                child_frame=expandvars_recursive(self.params['pose_data']['child']),
                 time_tol=pose_time_tol,
                 interp=True,
                 T_postmultiply=T_postmultiply
