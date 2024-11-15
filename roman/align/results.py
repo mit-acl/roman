@@ -102,7 +102,7 @@ def save_submap_align_results(sm_params: SubmapAlignParams, sm_io: SubmapAlignIn
                 if results.clipper_num_associations[i, j] < sm_io.lc_association_thresh:
                     continue
                 if (np.abs(times[0][submap_idxs[0][i]] - times[1][submap_idxs[1][j]]) < 
-                    sm_params.single_robot_lc_time_thresh):
+                    sm_params.single_robot_lc_time_thresh and sm_params.single_robot_lc):
                     continue
                 T_ci_cj = results.T_ij_hat_mat[i, j] # transform from center_j to center_i
                 T_odomi_ci = transform_rm_roll_pitch(submap_centers[0][i])
@@ -149,18 +149,21 @@ def save_submap_align_results(sm_params: SubmapAlignParams, sm_io: SubmapAlignIn
                     
                     segment: Segment
                     for segment in tracker.segment_graveyard + tracker.inactive_segments + tracker.segments:
-                        segment_json = {}
-                        segment_json['robot_name'] = sm_io.robot_names[i]
-                        segment_json['segment_index'] = segment.id
-                        segment_json['centroid_odom'] = np.mean(segment.points, axis=0).tolist()
-                        e = segment.normalized_eigenvalues()
-                        segment_json['shape_attributes'] = {'volume': segment.volume, 
-                                                            'linearity': segment.linearity(e), 
-                                                            'planarity': segment.planarity(e), 
-                                                            'scattering': segment.scattering(e)}
-                        segment_json['first_seen'] = time_to_secs_nsecs(segment.first_seen, as_dict=True)
-                        segment_json['last_seen'] = time_to_secs_nsecs(segment.last_seen, as_dict=True)
-                        sm_json['segments'].append(segment_json)
+                        try:
+                            segment_json = {}
+                            segment_json['robot_name'] = sm_io.robot_names[i]
+                            segment_json['segment_index'] = segment.id
+                            segment_json['centroid_odom'] = np.mean(segment.points, axis=0).tolist()
+                            e = segment.normalized_eigenvalues()
+                            segment_json['shape_attributes'] = {'volume': segment.volume, 
+                                                                'linearity': segment.linearity(e), 
+                                                                'planarity': segment.planarity(e), 
+                                                                'scattering': segment.scattering(e)}
+                            segment_json['first_seen'] = time_to_secs_nsecs(segment.first_seen, as_dict=True)
+                            segment_json['last_seen'] = time_to_secs_nsecs(segment.last_seen, as_dict=True)
+                            sm_json['segments'].append(segment_json)
+                        except:
+                            continue
                         
                     for j in range(len(submaps[i])):
                         t_j = times[i][submap_idxs[i][j]]
