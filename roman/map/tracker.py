@@ -22,7 +22,6 @@ class Tracker():
             min_iou: float,
             min_sightings: int,
             max_t_no_sightings: int,
-            merge_objects: bool = False,
             merge_objects_iou: float = 0.25,
             mask_downsample_factor: int = 1,
             min_max_extent: float = 0.25, # to get rid of very small objects
@@ -35,9 +34,8 @@ class Tracker():
         self.min_iou = min_iou
         self.min_sightings = min_sightings
         self.max_t_no_sightings = max_t_no_sightings
-        self.merge_objects = merge_objects
         self.merge_objects_iou_3d = merge_objects_iou
-        self.merge_objects_iou_2d = 0.5
+        self.merge_objects_iou_2d = 0.8
         self.mask_downsample_factor = mask_downsample_factor
         # self.min_volume = .25**3 # 25x25x25 cm^3
         self.min_max_extent = min_max_extent
@@ -267,7 +265,7 @@ class Tracker():
 
                     iou3d = seg1.get_voxel_grid(self.iou_voxel_size).iou(seg2.get_voxel_grid(self.iou_voxel_size))
 
-                    if iou3d > self.merge_objects_iou_3d: # or iou2d > self.merge_objects_iou_2d:
+                    if iou3d > self.merge_objects_iou_3d or iou2d > self.merge_objects_iou_2d:
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if seg1.num_points == 0:

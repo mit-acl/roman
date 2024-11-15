@@ -32,6 +32,8 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--num-req-assoc', type=int, help='Number of required associations', default=4)
     # parser.add_argument('--set-env-vars', type=str)
     parser.add_argument('--gt', type=str, nargs='+', help='Paths to ground truth pose yaml file')
+    parser.add_argument('--max-time', type=float, default=None, help='If the input data is too large, this allows a maximum time' +
+                        'to be set, such that if the mapping will be chunked into max_time increments and fused together')
 
     parser.add_argument('--skip-map', action='store_true', help='Skip mapping')
     parser.add_argument('--skip-align', action='store_true', help='Skip alignment')
@@ -100,7 +102,7 @@ if __name__ == '__main__':
                 submap_align(sm_params=sm_params, sm_io=sm_io)
                 
     t_std = 0.005 if not args.sparse_pgo else 0.1
-    r_std = np.deg2rad(0.025) if not args.sparse_pgo else np.deg2rad(0.5)
+    r_std = np.deg2rad(0.025) if not args.sparse_pgo else np.deg2rad(1.0)
     min_keyframe_dist = 0.01 if not args.sparse_pgo else 2.0
                 
     if not args.skip_rpgo:
@@ -186,7 +188,7 @@ if __name__ == '__main__':
         # plot results
         g2o_symbol_to_name = {chr(97 + i): args.runs[i] for i in range(len(args.runs))}
         g2o_plot_params = G2OPlotParams()
-        fig, ax = plt.subplots(3, 1)
+        fig, ax = plt.subplots(3, 1, figsize=(5,10))
         for i in range(3):
             g2o_plot_params.axes = [(0, 1), (0, 2), (1, 2)][i]
             plot_g2o(
