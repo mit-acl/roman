@@ -127,7 +127,11 @@ def create_submaps(
             if submap_align_params.use_object_bottom_middle:
                 segment.set_center_ref("bottom_middle")
             if segment.points is not None and len(segment.points) > 0:
-                object_maps[i].append(segment.minimal_data())
+                try:
+                    object_maps[i].append(segment.minimal_data())
+                except Exception as e:
+                    print(e)
+                    continue
 
     # create submaps
     submap_centers, submap_times, submap_idxs = \
@@ -253,6 +257,8 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 gt_pose_data[i] = PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
             elif gt_pose_args['type'] == 'csv':
                 gt_pose_data[i] = PoseData.from_csv(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
+            elif gt_pose_args['type'] == 'bag_tf':
+                gt_pose_data[i] = PoseData.from_bag_tf(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
             else:
                 raise ValueError("Invalid pose data type")
     
