@@ -1,6 +1,5 @@
 import numpy as np
 from numpy.linalg import norm
-import gtsam
 import cv2 as cv
 from typing import List
 import shapely
@@ -65,9 +64,6 @@ class Segment(Object):
         self.first_seen = observation.time
         self.last_seen = observation.time
         self.camera_params = camera_params
-        self.cal3ds2 = gtsam.Cal3DS2(camera_params.K[0,0], camera_params.K[1,1], 
-            camera_params.K[0,1], camera_params.K[0,2], camera_params.K[1,2], 
-            camera_params.D[0], camera_params.D[1], camera_params.D[2], camera_params.D[3])
         self.num_sightings = 1
         self.edited = True
         self.last_observation = observation

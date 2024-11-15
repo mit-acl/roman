@@ -38,10 +38,11 @@ class ROMANMapRunner:
         if verbose: print("Extracting time range...")
         self.time_range = self._extract_time_range(params)
 
-        if verbose: print("Loading image data...")
+        if verbose: 
+            print("Loading image data...")
+            print(f"Time range: {self.time_range}")
         self.img_data = self._load_img_data()
         if verbose:
-            print(f"Time range: {self.time_range}")
             self.t0 = self.img_data.t0
             self.tf = self.img_data.tf
 
@@ -99,7 +100,7 @@ class ROMANMapRunner:
         except NoDataNearTimeException:
             return None, None, None, None
         
-        observations = self.fastsam.run(t, pose, img, img_depth=img_depth)
+        observations = self.fastsam.run(img_t, pose, img, img_depth=img_depth)
         return img_t, observations, pose, img
 
     def update_segment_track(self, t, observations, pose, img): 

@@ -15,13 +15,13 @@ setup(
         'matplotlib', 
         'gtsam',
         'scikit-image',
-        'open3d==0.13.0',
+        'open3d==0.18.0',
         'yolov7-package',
         'shapely',
         'opencv-python',
         'pyyaml',
         'fastsam @ git+ssh://git@github.com/CASIA-IVA-Lab/FastSAM@4d153e9',
-        'robotdatapy @ git+ssh://git@github.com/mbpeterson70/robotdatapy@0e7853d'
+        'robotdatapy @ git+ssh://git@github.com/mbpeterson70/robotdatapy@51133a2'
     ],
 )
 
