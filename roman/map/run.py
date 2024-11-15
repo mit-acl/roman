@@ -38,10 +38,11 @@ class ROMANMapRunner:
         if verbose: print("Extracting time range...")
         self.time_range = self._extract_time_range(params)
 
-        if verbose: print("Loading image data...")
+        if verbose: 
+            print("Loading image data...")
+            print(f"Time range: {self.time_range}")
         self.img_data = self._load_img_data()
         if verbose:
-            print(f"Time range: {self.time_range}")
             self.t0 = self.img_data.t0
             self.tf = self.img_data.tf
 
@@ -99,7 +100,7 @@ class ROMANMapRunner:
         except NoDataNearTimeException:
             return None, None, None, None
         
-        observations = self.fastsam.run(t, pose, img, img_depth=img_depth)
+        observations = self.fastsam.run(img_t, pose, img, img_depth=img_depth)
         return img_t, observations, pose, img
 
     def update_segment_track(self, t, observations, pose, img): 
@@ -197,6 +198,8 @@ class ROMANMapRunner:
             params['fastsam']['plane_filter_params'] = np.array([3.0, 1.0, 0.2])
         if 'rotate_img' not in params['fastsam']:
             params['fastsam']['rotate_img'] = None
+        if 'clip' not in params['fastsam']:
+            params['fastsam']['clip'] = True
         if 'yolo' not in params:
             params['yolo'] = {'imgsz': params['fastsam']['imgsz']}
             
@@ -253,7 +256,8 @@ class ROMANMapRunner:
                 topic=expandvars_recursive(self.params["img_data"]["img_topic"]),
                 time_tol=self.params['segment_tracking']['dt'] / 2.0,
                 time_range=self.time_range,
-                compressed=self.params['img_data']['color_compressed']
+                compressed=self.params['img_data']['color_compressed'],
+                compressed_encoding='bgr8'
             )
             img_data.extract_params(expandvars_recursive(self.params['img_data']['cam_info_topic']))
         return img_data
@@ -390,7 +394,7 @@ class ROMANMapRunner:
             yolo_det_img_size=self.params['yolo']['imgsz'],
             allow_tblr_edges=[True, True, True, True],
             area_bounds=[img_area / (self.params['fastsam']['min_mask_len_div']**2), img_area / (self.params['fastsam']['max_mask_len_div']**2)],
-            clip_embedding=True
+            clip_embedding=self.params['fastsam']['clip']
         )
 
         return fastsam

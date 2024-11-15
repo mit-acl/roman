@@ -22,8 +22,7 @@ class Tracker():
             min_iou: float,
             min_sightings: int,
             max_t_no_sightings: int,
-            merge_objects: bool = False,
-            merge_objects_iou: float = 0.1,
+            merge_objects_iou: float = 0.25,
             mask_downsample_factor: int = 1,
             min_max_extent: float = 0.25, # to get rid of very small objects
             plane_prune_params: List[float] = [3.0, 3.0, 0.5], # to get rid of planar objects (likely background)
@@ -35,9 +34,8 @@ class Tracker():
         self.min_iou = min_iou
         self.min_sightings = min_sightings
         self.max_t_no_sightings = max_t_no_sightings
-        self.merge_objects = merge_objects
         self.merge_objects_iou_3d = merge_objects_iou
-        self.merge_objects_iou_2d = 0.5
+        self.merge_objects_iou_2d = 0.8
         self.mask_downsample_factor = mask_downsample_factor
         # self.min_volume = .25**3 # 25x25x25 cm^3
         self.min_max_extent = min_max_extent

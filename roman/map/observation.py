@@ -19,8 +19,6 @@ class Observation():
     mask: np.ndarray = None
     mask_downsampled: np.ndarray = None
     point_cloud: np.ndarray = None  # n-by-3 matrix. Each row is a 3D point.
-    keypoints: List[cv.KeyPoint] = None
-    descriptors: np.ndarray = None
     clip_embedding: np.ndarray = None
     voxel_grid: Dict[float, VoxelGrid] = field(default_factory=dict)
 

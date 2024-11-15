@@ -124,6 +124,8 @@ def create_submaps(
     for i, tracker in enumerate(trackers):
         segment: Segment
         for segment in tracker.segments + tracker.inactive_segments + tracker.segment_graveyard:
+            if submap_align_params.use_object_bottom_middle:
+                segment.set_center_ref("bottom_middle")
             if segment.points is not None and len(segment.points) > 0:
                 object_maps[i].append(segment.minimal_data())
 

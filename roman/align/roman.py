@@ -31,6 +31,7 @@ class ROMANParams:
 
     cos_min: float = 0.85
     cos_max: float = 0.95
+    epsilon_shape: float = None
 
 
 class ROMAN(ObjectRegistration):
@@ -63,7 +64,9 @@ class ROMAN(ObjectRegistration):
         self.iparams.ratio_weight = 1.0
         self.iparams.cosine_weight = 1.0
 
-        self.iparams.ratio_epsilon = np.zeros(ratio_feature_dim)
+        self.iparams.ratio_epsilon = np.zeros(ratio_feature_dim) \
+            if params.epsilon_shape is None \
+            else np.ones(ratio_feature_dim) *  params.epsilon_shape 
         self.iparams.cosine_min = params.cos_min
         self.iparams.cosine_max = params.cos_max
 
