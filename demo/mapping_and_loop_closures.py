@@ -49,8 +49,6 @@ if __name__ == '__main__':
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/sparse"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/dense"), exist_ok=True)
     
-    assert args.sparse_pgo, "Only sparse pose graph optimization currently supported."
-        
     if not args.skip_map:
         args.viz_open3d = False
         
@@ -159,14 +157,17 @@ if __name__ == '__main__':
         g2o_file_fusion(g2o_fusion_config, dense_g2o_file, thresh=args.num_req_assoc)
 
         # Add loop closures to odometry g2o files
-        final_g2o_file = os.path.join(args.output_dir, "offline_rpgo", "odom_and_lc.g2o")
-        combine_loop_closures(
-            g2o_reference=odom_sparse_all_g2o_file, 
-            g2o_extra_lc=dense_g2o_file, 
-            vertex_times_reference=odom_sparse_all_time_file,
-            vertex_times_extra_lc=odom_dense_all_time_file,
-            output_file=final_g2o_file,
-        )
+        if args.sparse_pgo:
+            final_g2o_file = os.path.join(args.output_dir, "offline_rpgo", "odom_and_lc.g2o")
+            combine_loop_closures(
+                g2o_reference=odom_sparse_all_g2o_file, 
+                g2o_extra_lc=dense_g2o_file, 
+                vertex_times_reference=odom_sparse_all_time_file,
+                vertex_times_extra_lc=odom_dense_all_time_file,
+                output_file=final_g2o_file,
+            )
+        else:
+            final_g2o_file = dense_g2o_file
         
         # change lc covar
         # with open(os.path.expanduser(final_g2o_file), 'r') as f:
@@ -204,7 +205,8 @@ if __name__ == '__main__':
         # Save csv files with resulting trajectories
         for i, run in enumerate(args.runs):
             pose_data = g2o_and_time_to_pose_data(result_g2o_file, 
-                                                  odom_sparse_all_time_file, robot_id=i)
+                                                  odom_sparse_all_time_file if args.sparse_pgo else odom_dense_all_time_file, 
+                                                  robot_id=i)
             pose_data.to_csv(os.path.join(args.output_dir, "offline_rpgo", f"{run}.csv"))
             print(f"Saving {run} pose data to {os.path.join(args.output_dir, 'offline_rpgo', f'{run}.csv')}")
 
@@ -212,4 +214,4 @@ if __name__ == '__main__':
         if args.gt is not None:
             print("ATE results:")
             print("============")
-            print(evaluate(result_g2o_file, odom_sparse_all_time_file, {i: args.gt[i] for i in range(len(args.gt))}))
+            print(evaluate(result_g2o_file, odom_sparse_all_time_file  if args.sparse_pgo else odom_dense_all_time_file, {i: args.gt[i] for i in range(len(args.gt))}))
