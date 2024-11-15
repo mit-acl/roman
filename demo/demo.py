@@ -18,11 +18,11 @@ from threading import Thread
 from roman.map.run import ROMANMapRunner
 
 from robotdatapy.data import ImgData
+from merge_demo_output import merge_demo_output
 
-def main(args):
-    with open(args.params, 'r') as f:
-        params = yaml.safe_load(f)
 
+def run(args, params):
+    
     runner = ROMANMapRunner(params, verbose=True, viz_map=args.viz_map, 
                             viz_observations=args.viz_observations, save_viz=args.save_img_data)
 
@@ -110,12 +110,39 @@ def main(args):
                 pcd_list.append(pcd)
         
         o3d.visualization.draw_geometries(poses_list + pcd_list)
+    
+    del runner
+    return
+
+def main(args):
+    with open(args.params, 'r') as f:
+        params = yaml.safe_load(f)
+        
+        if args.max_time is not None:
+            output = args.output
+            try:
+                mapping_iter = 0
+                while True:
+                    params['time'] = {
+                        't0': args.max_time * mapping_iter, 
+                        'tf': args.max_time * (mapping_iter + 1),
+                        'relative': True}
+                    args.output = f"{output}_{mapping_iter}"
+                    run(args, params)
+                    mapping_iter += 1
+            except:
+                demo_output_files = [f"{output}_{mi}.pkl" for mi in range(mapping_iter)]
+                merge_demo_output(demo_output_files, f"{output}.pkl")
+        
+        else:
+            run(args, params)
 
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--params', type=str, help='Path to params file', required=True)
+    parser.add_argument('--max-time', type=float, default=None)
     parser.add_argument('-o', '--output', type=str, help='Path to output file', required=False, default=None)
     parser.add_argument('-m', '--viz-map', action='store_true', help='Visualize map')
     parser.add_argument('-v', '--viz-observations', action='store_true', help='Visualize observations')
