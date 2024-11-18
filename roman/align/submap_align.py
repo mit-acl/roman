@@ -59,7 +59,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
         submap_params = SubmapParams(
             radius=sm_params.submap_radius,
             distance=sm_params.submap_center_dist,
-            max_size=sm_params.max_submap_size,
+            max_size=sm_params.submap_max_size,
             time_threshold=sm_params.submap_center_time,
             use_minimal_data=True
         )
