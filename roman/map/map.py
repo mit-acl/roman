@@ -34,6 +34,28 @@ class ROMANMap:
             times=self.times,
             poses_are_flu=self.poses_are_flu
         )
+        
+    @classmethod
+    def concatenate(cls, roman_maps: list):
+        reference = roman_maps[0]
+        if len(roman_maps) == 2:
+            other = deepcopy(roman_maps[1])
+            assert reference.poses_are_flu == other.poses_are_flu
+            max_seg_id = max([seg.id for seg in reference.segments])
+            for segment in other.segments:
+                segment.id += max_seg_id
+            return cls(
+                segments=reference.segments + other.segments,
+                trajectory=reference.trajectory + other.trajectory,
+                times=reference.times + other.times,
+                poses_are_flu=reference.poses_are_flu
+            )
+        
+        else:
+            while len(roman_maps) > 1:
+                concatenated = cls.concatenate(roman_maps[:2])
+                roman_maps = concatenated  + roman_maps[2:]
+            return concatenated
 
 @dataclass
 class Submap:
