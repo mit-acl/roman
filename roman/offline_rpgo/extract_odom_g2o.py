@@ -70,6 +70,8 @@ def extract_odom_g2o(poses: List[np.array], times: List[float], I: np.array,
         if min_keyframe_dist is not None:
             if next_i == len(poses) - 1:
                 idx_list.append(j)
+        elif i == len(poses) - 2:
+            idx_list.append(i + 1)
         
     for new_i, i in enumerate(idx_list):
         pose = poses[i]
