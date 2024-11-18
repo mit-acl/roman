@@ -14,7 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-class Tracker():
+class Mapper():
 
     def __init__(
             self,
@@ -287,6 +287,17 @@ class Tracker():
         for seg in self.segments + self.segment_nursery + self.inactive_segments + self.segment_graveyard:
             seg.reset_obb()
         return
+    
+    def get_segment_map(self) -> List[Segment]:
+        """
+        Get the segment map
+        """
+        segment_map = self.remove_bad_segments(
+            self.segment_graveyard + self.inactive_segments + 
+            self.segments)
+        for seg in segment_map:
+            seg.reset_obb()
+        return segment_map
     
     def set_T_camera_flu(self, T_camera_flu: np.array):
         """

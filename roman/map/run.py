@@ -13,8 +13,9 @@ from robotdatapy.camera import CameraParams
 
 from roman.object.segment import Segment
 from roman.viz import draw
-from roman.map.tracker import Tracker
+from roman.map.mapper import Mapper
 from roman.map.fastsam_wrapper import FastSAMWrapper
+from roman.map.map import ROMANMap
 
 @dataclass
 class ProcessingTimes:
@@ -130,6 +131,15 @@ class ROMANMapRunner:
             self.viz_imgs.append(img_ret)
 
         return img_ret
+    
+    def get_map(self):
+        self.mapper.make_pickle_compatible()
+        return ROMANMap(
+            segments=self.mapper.get_segment_map(),
+            trajectory=self.poses_flu_history,
+            times=self.times_history,
+            poses_are_flu=True
+        )
 
     def _check_params(self, params: dict) -> dict:
         """
@@ -408,14 +418,14 @@ class ROMANMapRunner:
 
         return fastsam
 
-    def _load_mapper(self) -> Tracker:
+    def _load_mapper(self) -> Mapper:
         """
-        Creates a Tracker object from the params dictionary.
+        Creates a Mapper object from the params dictionary.
 
         Returns:
-            Tracker: ROMAN mapper.
+            Mapper: ROMAN mapper.
         """
-        mapper = Tracker(
+        mapper = Mapper(
             camera_params=self.img_data.camera_params,
             min_iou=self.params['segment_tracking']['min_iou'],
             min_sightings=self.params['segment_tracking']['min_sightings'],
