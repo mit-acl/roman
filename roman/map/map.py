@@ -1,15 +1,17 @@
 import numpy as np
 from numpy.linalg import norm
+from scipy.spatial.transform import Rotation as Rot
+
 import os
 import pickle
 from copy import deepcopy
-
 from dataclasses import dataclass
 from typing import List
+import json
 
 from robotdatapy.data.pose_data import PoseData
 
-from roman.object.segment import Segment
+from roman.object.segment import Segment, SegmentMinimalData
 from roman.utils import transform_rm_roll_pitch
 
 @dataclass(frozen=True)
@@ -34,6 +36,12 @@ class ROMANMap:
             times=self.times,
             poses_are_flu=self.poses_are_flu
         )
+        
+    def get_segment_by_id(self, seg_id) -> Segment:
+        for seg in self.segments:
+            if seg.id == seg_id:
+                return seg
+        return None
         
     @classmethod
     def from_pickle(cls, pickle_file: str):
@@ -74,7 +82,7 @@ class ROMANMap:
         else:
             while len(roman_maps) > 1:
                 concatenated = cls.concatenate(roman_maps[:2])
-                roman_maps = concatenated  + roman_maps[2:]
+                roman_maps = [concatenated]  + roman_maps[2:]
             return concatenated
 
 @dataclass
@@ -201,6 +209,70 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
             sm.segments = segments_sorted_by_dist[:submap_params.max_size]
     return submaps
 
+
+
+def load_segment_slam_segments(json_file: str, robot_name=None, as_dict=False):
+    with open(json_file, 'r') as f: 
+        data = json.load(f)
+    
+    segments = {}
+    for seg in data['segments']:
+        if robot_name is not None and seg['robot_name'] != robot_name:
+            continue
+        centroid = np.array([seg['centroid_odom']['x'], seg['centroid_odom']['y'], seg['centroid_odom']['z']]) #[:sm_params.dim]
+        new_seg = SegmentMinimalData(
+            id=seg['segment_index'],
+            center=centroid,
+            volume=seg['shape_attributes']['volume'],
+            linearity=seg['shape_attributes']['linearity'],
+            planarity=seg['shape_attributes']['planarity'],
+            scattering=seg['shape_attributes']['scattering'],
+            extent=None,
+            semantic_descriptor=None,
+            first_seen=seg['first_seen']['seconds'] + seg['first_seen']['nanoseconds'] * 1e-9,
+            last_seen=seg['last_seen']['seconds'] + seg['last_seen']['nanoseconds'] * 1e-9
+        )
+        segments[seg['segment_index']] = new_seg
+        
+    if as_dict:
+        return segments
+    return list(segments.values())
+    
+
+def load_segment_slam_submap(json_file: str, segment_frame_is_odom=True, robot_name=None):
+    
+    assert segment_frame_is_odom, "Only segment frame in odom is supported"
+    # TODO: support other segment frames
+    
+    with open(json_file, 'r') as f: 
+        data = json.load(f)
+            
+    segments = load_segment_slam_segments(json_file, robot_name, as_dict=True)
+            
+    submaps = []
+    for submap_json in data['submaps']:
+        if robot_name is not None and submap_json['robot_name'] != robot_name:
+            continue
+        center = np.eye(4)
+        center[:3,3] = np.array([
+            submap_json['T_odom_submap']['tx'], 
+            submap_json['T_odom_submap']['ty'], 
+            submap_json['T_odom_submap']['tz']
+        ])
+        center[:3,:3] = Rot.from_quat([
+            submap_json['T_odom_submap']['qx'], 
+            submap_json['T_odom_submap']['qy'], 
+            submap_json['T_odom_submap']['qz'], 
+            submap_json['T_odom_submap']['qw']
+        ]).as_matrix()
+        submaps.append(Submap(
+            id=submap_json['submap_index'],
+            time=submap_json['stamp'] * 1e-9,
+            segments=[deepcopy(segments[seg_id]) for seg_id in submap_json['segment_indices']],
+            pose_flu=center,
+            segment_frame='odom'
+        ))
+    return submaps
 
 
 # def load_segment_slam_submaps(json_files: List[str], 
