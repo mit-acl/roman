@@ -1,7 +1,9 @@
 import numpy as np
 import cv2 as cv
+import open3d as o3d
 
 from roman.object.segment import Segment
+from roman.map.map import ROMANMap
 
 def draw(t, img, pose, tracker, fastsam, observations, reprojected_bboxs, viz_bbox=False, viz_mask=False):
 
@@ -87,3 +89,114 @@ def draw(t, img, pose, tracker, fastsam, observations, reprojected_bboxs, viz_bb
     elif viz_mask:
         img_ret = img_fastsam
     return img_ret
+
+def visualize_3d(
+    roman_map: ROMANMap, 
+    id_range=None, 
+    time_range=None,
+    points_bounds = np.array([[np.inf, -np.inf], [np.inf, -np.inf], [np.inf, -np.inf]]),
+    show_labels=False, 
+    show_origin=True,
+    show_poses=True,
+    min_pose_dist=0.5
+):
+        
+    poses_list = []
+    pcd_list = []
+    label_list = []
+    
+    if time_range is not None:
+        time_range = np.array(time_range) + roman_map.times[0]
+
+    for seg in roman_map.segments:
+        # if seg.extent[0] < 2.0 or seg.extent[1] > 1.0:
+        #     continue
+        if id_range is not None:
+            if not (seg.id > id_range[0] and seg.id < id_range[1]):
+                continue
+        if time_range is not None:
+            if seg.first_seen > time_range[1] or seg.last_seen < time_range[0]:
+                continue
+        seg_points = seg.points
+        if seg_points is not None:
+            for i in range(3):
+                points_bounds[i, 0] = min(points_bounds[i, 0], np.min(seg_points[:, i]))
+                points_bounds[i, 1] = max(points_bounds[i, 1], np.max(seg_points[:, i]))
+            num_pts = seg_points.shape[0]
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(seg_points)
+            color = np.repeat(np.array(seg.viz_color).reshape((1,3))/255., num_pts, axis=0)
+            pcd.colors = o3d.utility.Vector3dVector(color)
+            pcd_list.append(pcd)
+            if show_labels:
+                # label = [f"id: {seg.id}", f"volume: {seg.volume():.2f}", 
+                #         f"extent: [{seg.extent[0]:.2f}, {seg.extent[1]:.2f}, {seg.extent[2]:.2f}]"]
+                label = [f"id: {seg.id}"]
+                for i in range(len(label)):
+                    label_list.append((np.median(pcd.points, axis=0) + np.array([0, 0, -0.15*i]), label[i]))
+                    
+    print(f"Displaying {len(pcd_list)} objects.")
+
+    displayed_positions = []
+    for i, Twb in enumerate(roman_map.trajectory):
+        if np.any(Twb[:3,3] < points_bounds[:,0]) or np.any(Twb[:3,3] > points_bounds[:,1]):
+            continue
+        if displayed_positions and \
+            np.linalg.norm(Twb[:3,3] - np.array(displayed_positions[-1])) < min_pose_dist:
+            continue
+        if time_range is not None:
+            t = roman_map.times[i]
+            if t < time_range[0] or t > time_range[1]:
+                continue
+        
+        displayed_positions.append(Twb[:3,3])
+        pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=2.0)
+        pose_obj.transform(Twb)
+        poses_list.append(pose_obj)
+
+    if show_origin:
+        origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
+        poses_list.append(origin)
+    else:
+        origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
+        T = np.eye(4)
+        T[:3,3] = np.mean(displayed_positions, axis=0)
+        origin.transform(T)
+        poses_list.append(origin)
+    
+    app = o3d.visualization.gui.Application.instance
+    app.initialize()
+    vis = o3d.visualization.O3DVisualizer()
+    vis.show_skybox(False)
+
+    mat = o3d.visualization.rendering.MaterialRecord()
+    mat.shader = 'defaultUnlit'
+    mat.point_size = 5.0
+
+    for i, obj in enumerate(pcd_list):
+        vis.add_geometry(f"pcd-{i}", obj, mat)
+    for label in label_list:
+        vis.add_3d_label(*label)
+    if show_poses:
+        for i, obj in enumerate(poses_list):
+            vis.add_geometry(f"pose-{i}", obj)
+
+    K = np.array([[200, 0, 200],
+                [0, 200, 200],
+                [0, 0, 1]]).astype(np.float64)
+    if show_origin:
+        T_inv = np.array([[1,   0,  0, 0],
+                        [0,   0,  1, -5],
+                        [0,   -1, 0, 0],
+                        [0,   0,  0, 1]]).astype(np.float64)
+    else:
+        mean_position = np.mean(displayed_positions, axis=0)
+        T_inv = np.array([[1,   0,  0, 0],
+                        [0,   -1,  0, 0],
+                        [0,   0, -1, 20],
+                        [0,   0,  0, 1]]).astype(np.float64)
+        T_inv[:3,3] += mean_position
+    T = np.linalg.inv(T_inv)
+    vis.setup_camera(K, T, 400, 400)
+    app.add_window(vis)
+    app.run()
