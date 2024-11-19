@@ -77,7 +77,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     clipper_angle_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     clipper_dist_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     clipper_num_associations = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
-    robots_nearby_mat = np.zerps((len(submaps[0]), len(submaps[1])))*np.nan
+    robots_nearby_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     clipper_percent_associations = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     submap_yaw_diff_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     timing_list = []
@@ -94,8 +94,8 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     for i in tqdm(range(len(submaps[0]))):
         for j in (range(len(submaps[1]))):
             
-            submap_distance = norm(submaps[0][i].position - submaps[1][j].position)
-            if submap_distance < sm_params.submap_radius:
+            submap_distance = norm(submaps[0][i].position_gt - submaps[1][j].position_gt)
+            if submap_distance < sm_params.submap_radius*2:
                 robots_nearby_mat[i, j] = submap_distance
 
             submap_i = deepcopy(submaps[0][i])
@@ -126,17 +126,17 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
             # register the submaps
             try:
                 start_t = time.time()
-                associations = registration.register(submap_i, submap_j)
+                associations = registration.register(submap_i.segments, submap_j.segments)
                 timing_list.append(time.time() - start_t)
                 
                 if sm_params.dim == 2:
-                    T_ij_hat = registration.T_align(submap_i, submap_j, associations)
+                    T_ij_hat = registration.T_align(submap_i.segments, submap_j.segments, associations)
                     T_error = np.linalg.inv(T_ij_hat) @ T_ij
                     _, _, theta = transform_to_xytheta(T_error)
                     dist = np.linalg.norm(T_error[:sm_params.dim, 3])
 
                 elif sm_params.dim == 3:
-                    T_ij_hat = registration.T_align(submap_i, submap_j, associations)
+                    T_ij_hat = registration.T_align(submap_i.segments, submap_j.segments, associations)
                     if sm_params.force_rm_upside_down:
                         xyzrpy = transform_to_xyzrpy(T_ij_hat)
                         if np.abs(xyzrpy[3]) > np.deg2rad(90.) or np.abs(xyzrpy[4]) > np.deg2rad(90.):
