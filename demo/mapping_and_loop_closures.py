@@ -24,6 +24,8 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--params', default=None, type=str, help='Path to params file', required=False)
     parser.add_argument('--params-list', type=str, default=None, nargs='+', help='Path to multiple params files')
     parser.add_argument('-o', '--output-dir', type=str, help='Path to output directory', required=True, default=None)
+    parser.add_argument('--align-params', type=str, help='Path to alignment params file', default=None)
+    
     parser.add_argument('-m', '--viz-map', action='store_true', help='Visualize map')
     parser.add_argument('-v', '--viz-observations', action='store_true', help='Visualize observations')
     parser.add_argument('--vid-rate', type=float, help='Video playback rate', default=1.0)
@@ -73,7 +75,7 @@ if __name__ == '__main__':
             demo.main(args)
         
     if not args.skip_align:
-        sm_params = SubmapAlignParams()
+        sm_params = SubmapAlignParams() if args.align_params is None else SubmapAlignParams.from_yaml(args.align_params)
         # TODO: support ground truth pose file for validation
         # if args.gt:
         #     sm_io.input_gt_pose_yaml = args.gt
