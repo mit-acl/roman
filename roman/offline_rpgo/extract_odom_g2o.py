@@ -6,11 +6,7 @@ from typing import List
 
 from robotdatapy import transform
 
-def extract_roman_map_data(pkl_file):
-    with open(os.path.expanduser(pkl_file), 'rb') as f:
-        pickle_data = pickle.load(f)
-        tracker, poses, times = pickle_data
-        return tracker, poses, times
+from roman.map.map import ROMANMap
 
 def create_information_matrix(t_std, r_std):
     I_t = 1 / (t_std**2)
@@ -96,11 +92,11 @@ def roman_map_pkl_to_g2o(
     I = create_information_matrix(t_std, r_std)
     
     # open input ROMAN map pkl file
-    _, poses, times = extract_roman_map_data(pkl_file)
+    roman_map = ROMANMap.from_pickle(pkl_file)
     
     # extract g2o data
     vertex_lines, edge_lines, selected_times = \
-        extract_odom_g2o(poses, times, I, min_keyframe_dist)
+        extract_odom_g2o(roman_map.trajectory, roman_map.times, I, min_keyframe_dist)
             
     with open(os.path.expanduser(g2o_file), 'w') as f:
         for line in vertex_lines + edge_lines:
@@ -112,8 +108,6 @@ def roman_map_pkl_to_g2o(
     
     if time_file is None:
         return
-    
-    assert times is not None, "No time data found in pickle file."
     
     with open(os.path.expanduser(time_file), 'w') as f:
         for i, time in enumerate(selected_times):

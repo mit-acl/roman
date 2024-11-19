@@ -77,7 +77,7 @@ def save_submap_align_results(sm_params: SubmapAlignParams, sm_io: SubmapAlignIn
         
     # stores the submaps, associated objects, ground truth object overlap, and ground truth and estimated submap transformations
     # TODO: save non-minimal data representation of segments
-    submaps_pkl = [[[obj.to_pickle() for obj in sm] for sm in sms] for sms in submaps]
+    submaps_pkl = [[[seg.to_pickle() for seg in sm.segments] for sm in sms] for sms in submaps]
     pkl_file = open(sm_io.output_viz, 'wb')
     # submaps for robot i, submaps for robot j, associated object indices, matrix of how much overlap is between submaps, ground truth T_ij, estimated T_ij
     pickle.dump([submaps_pkl[0], submaps_pkl[1], results.associated_objs_mat, results.robots_nearby_mat, results.T_ij_mat, results.T_ij_hat_mat], pkl_file)
@@ -98,7 +98,7 @@ def save_submap_align_results(sm_params: SubmapAlignParams, sm_io: SubmapAlignIn
     I = np.diag([I_t, I_t, I_t, I_r, I_r, I_r])
     
     json_output = []
-    pose_data = [PoseData.from_times_and_poses(submap.times, submap.poses) for submap in submaps]
+    pose_data = [PoseData.from_times_and_poses(rm.times, rm.trajectory) for rm in roman_maps]
 
     with open(sm_io.output_g2o, 'w') as f:
         for i in range(len(submaps[0])):
@@ -188,7 +188,7 @@ def save_submap_align_results(sm_params: SubmapAlignParams, sm_io: SubmapAlignIn
                             'robot_name': sm_io.robot_names[i],
                             'seconds': int(t_j),
                             'nanoseconds': int((t_j % 1) * 1e9),
-                            'segment_indices': [obj.id for obj in submaps[i][j]]
+                            'segment_indices': [segment.id for segment in submaps[i][j].segments]
                         })
                     json.dump(sm_json, f, indent=4)
                     f.close()

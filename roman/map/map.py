@@ -36,9 +36,29 @@ class ROMANMap:
         )
         
     @classmethod
+    def from_pickle(cls, pickle_file: str):
+        # extract pickled data
+        with open(os.path.expanduser(pickle_file), 'rb') as f:
+            pickle_data = pickle.load(f)
+            
+            if type(pickle_data) == cls:
+                roman_map = pickle_data
+            else:
+                assert len(pickle_data) == 3
+                mapper, poses, times = pickle_data
+                roman_map = cls(
+                    segments=mapper.get_segment_map(),
+                    trajectory=poses,
+                    times=times
+                )
+        return roman_map
+        
+    @classmethod
     def concatenate(cls, roman_maps: list):
         reference = roman_maps[0]
-        if len(roman_maps) == 2:
+        if len(roman_maps) == 1:
+            return reference
+        elif len(roman_maps) == 2:
             other = deepcopy(roman_maps[1])
             assert reference.poses_are_flu == other.poses_are_flu
             max_seg_id = max([seg.id for seg in reference.segments])
@@ -78,6 +98,13 @@ class Submap:
     @property
     def position(self):
         return self.pose_flu[:3,3]
+    
+    @property
+    def position_gt(self):
+        return self.pose_flu_gt[:3,3]
+
+    def __len__(self):
+        return len(self.segments)
 
 @dataclass
 class SubmapParams:
