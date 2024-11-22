@@ -94,9 +94,9 @@ class ROMANMapRunner:
     def update_fastsam(self, t):
 
         try:
-            img = self.img_data.img(t)
-            img_depth = self.depth_data.img(t)
             img_t = self.img_data.nearest_time(t)
+            img = self.img_data.img(img_t)
+            img_depth = self.depth_data.img(img_t)
             pose = self.pose_data.T_WB(img_t)
         except NoDataNearTimeException:
             return None, None, None, None
