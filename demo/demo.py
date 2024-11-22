@@ -24,7 +24,9 @@ from merge_demo_output import merge_demo_output
 def run(args, params):
     
     runner = ROMANMapRunner(params, verbose=True, viz_map=args.viz_map, 
-                            viz_observations=args.viz_observations, save_viz=args.save_img_data)
+                            viz_observations=args.viz_observations, 
+                            viz_3d=args.viz_3d,
+                            save_viz=args.save_img_data)
 
     # Setup logging
     # TODO: add support for logfile
@@ -49,8 +51,15 @@ def run(args, params):
         else:
             width = runner.img_data.camera_params.height
             height = runner.img_data.camera_params.width
+        num_panes = 0
+        if args.viz_map:
+            num_panes += 1
+        if args.viz_observations:
+            num_panes += 1
+        if args.viz_open3d:
+            num_panes += 1
         video = cv.VideoWriter(video_file, fc, fps, 
-                               (width*(2 if (args.viz_map and args.viz_observations) else 1), height))
+                               (width*num_panes, height))
 
     for t in runner.times():
         img_t = runner.update(t)
@@ -89,26 +98,6 @@ def run(args, params):
         print(f"Saving visualization to {img_data_path}")
         img_data = ImgData(times=runner.times_history, imgs=runner.viz_imgs, data_type='raw')
         img_data.to_zip(img_data_path)
-
-    if args.viz_open3d:
-        poses_list = []
-        pcd_list = []
-        for Twb in runner.poses_flu_history:
-            pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.2)
-            pose_obj.transform(Twb)
-            poses_list.append(pose_obj)
-        for seg in runner.mapper.segments + runner.mapper.inactive_segments + runner.mapper.segment_graveyard:
-            seg_points = seg.points
-            if seg_points is not None:
-                num_pts = seg_points.shape[0]
-                pcd = o3d.geometry.PointCloud()
-                pcd.points = o3d.utility.Vector3dVector(seg_points)
-                rand_color = np.random.uniform(0, 1, size=(1,3))
-                rand_color = np.repeat(rand_color, num_pts, axis=0)
-                pcd.colors = o3d.utility.Vector3dVector(rand_color)
-                pcd_list.append(pcd)
-        
-        o3d.visualization.draw_geometries(poses_list + pcd_list)
     
     del runner
     return
