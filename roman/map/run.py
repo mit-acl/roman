@@ -1,9 +1,11 @@
 import numpy as np
+import cv2 as cv
 
 from os.path import expandvars, expanduser
 from typing import Tuple
 from dataclasses import dataclass
 import time
+from copy import deepcopy
 
 from robotdatapy.data.img_data import ImgData
 from robotdatapy.data.pose_data import PoseData
@@ -12,8 +14,8 @@ from robotdatapy.data.robot_data import NoDataNearTimeException
 from robotdatapy.camera import CameraParams
 
 from roman.object.segment import Segment
-from roman.viz import draw
-from roman.map.mapper import Mapper
+from roman.viz import visualize_map_on_img, visualize_observations_on_img
+from roman.map.mapper import Mapper, MapperParams
 from roman.map.fastsam_wrapper import FastSAMWrapper
 from roman.map.map import ROMANMap
 
@@ -63,8 +65,6 @@ class ROMANMapRunner:
         self.viz_map = viz_map
         self.viz_observations = viz_observations
         self.save_viz = save_viz
-        self.times_history = []
-        self.poses_flu_history = []
         self.viz_imgs = []
         self.processing_times = ProcessingTimes([], [], [])
 
@@ -120,26 +120,12 @@ class ROMANMapRunner:
             self.mapper.update(t, pose, observations)
 
         if self.viz_map or self.viz_observations:
-            img_ret = draw(t, img, pose, self.mapper, self.fastsam, observations, reprojected_bboxs, self.viz_map, self.viz_observations)
+            img_ret = self.draw(t, img, pose,observations, reprojected_bboxs)
 
-        # have T_WC, want T_WB
-        # T_WB = T_WC @ T_CB
-        self.poses_flu_history.append(pose @ self.mapper.T_camera_flu)
-        
-        self.times_history.append(t)
         if self.save_viz:
             self.viz_imgs.append(img_ret)
 
         return img_ret
-    
-    def get_map(self):
-        self.mapper.make_pickle_compatible()
-        return ROMANMap(
-            segments=self.mapper.get_segment_map(),
-            trajectory=self.poses_flu_history,
-            times=self.times_history,
-            poses_are_flu=True
-        )
 
     def _check_params(self, params: dict) -> dict:
         """
@@ -425,17 +411,42 @@ class ROMANMapRunner:
         Returns:
             Mapper: ROMAN mapper.
         """
-        mapper = Mapper(
+        params = MapperParams(
             camera_params=self.img_data.camera_params,
             min_iou=self.params['segment_tracking']['min_iou'],
             min_sightings=self.params['segment_tracking']['min_sightings'],
             max_t_no_sightings=self.params['segment_tracking']['max_t_no_sightings'],
             mask_downsample_factor=self.params['segment_tracking']['mask_downsample_factor']
         )
+        mapper = Mapper(params)
         if 'T_camera_flu' in self.params['pose_data']:
             mapper.set_T_camera_flu(self._find_transformation(self.params['pose_data']['T_camera_flu']))
         else:
             mapper.set_T_camera_flu(np.eye(4))
         return mapper
 
+    def draw(self, t, img, pose, observations, reprojected_bboxs):
+        img_orig = deepcopy(img)
+        
+        if len(img_orig.shape) == 2:
+            img = np.concatenate([img_orig[...,None]]*3, axis=2)
+            
+        if self.viz_map:
+            img = visualize_map_on_img(t, pose, img, self.mapper)
 
+        if self.viz_observations:
+            img_fastsam = visualize_observations_on_img(t, img_orig, self.mapper, observations, reprojected_bboxs)
+                
+        # rotate images
+        img = self.fastsam.apply_rotation(img)
+        if self.viz_observations:
+            img_fastsam = self.fastsam.apply_rotation(img_fastsam)
+                
+        # concatenate images
+        if self.viz_observations and self.viz_map:
+            img_ret = np.concatenate([img, img_fastsam], axis=1)
+        elif self.viz_map:
+            img_ret = img
+        elif self.viz_observations:
+            img_ret = img_fastsam
+        return img_ret
