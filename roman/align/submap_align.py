@@ -94,7 +94,10 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     for i in tqdm(range(len(submaps[0]))):
         for j in (range(len(submaps[1]))):
             
-            submap_distance = norm(submaps[0][i].position_gt - submaps[1][j].position_gt)
+            if submaps[0][i].has_gt and submaps[1][j].has_gt:
+                submap_distance = norm(submaps[0][i].position_gt - submaps[1][j].position_gt)
+            else:
+                submap_distance = norm(submaps[0][i].position - submaps[1][j].position)
             if submap_distance < sm_params.submap_radius*2:
                 robots_nearby_mat[i, j] = submap_distance
 

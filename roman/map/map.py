@@ -110,6 +110,10 @@ class Submap:
     @property
     def position_gt(self):
         return self.pose_flu_gt[:3,3]
+    
+    @property
+    def has_gt(self):
+        return self.pose_flu_gt is not None
 
     def __len__(self):
         return len(self.segments)
