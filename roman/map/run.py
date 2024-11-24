@@ -118,6 +118,9 @@ class ROMANMapRunner:
 
         if len(observations) > 0:
             self.mapper.update(t, pose, observations)
+        else:
+            self.mapper.poses_flu_history.append(pose @ self.mapper._T_camera_flu)
+            self.mapper.times_history.append(t)
 
         if self.viz_map or self.viz_observations:
             img_ret = self.draw(t, img, pose,observations, reprojected_bboxs)
@@ -181,7 +184,7 @@ class ROMANMapRunner:
         if 'erosion_size' not in params['fastsam']:
             params['fastsam']['erosion_size'] = 3
         if 'max_depth' not in params['fastsam']:
-            params['fastsam']['max_depth'] = 8.0
+            params['fastsam']['max_depth'] = 7.5
         if 'ignore_labels' not in params['fastsam']:
             params['fastsam']['ignore_labels'] = []
         if 'use_keep_labels' not in params['fastsam']:
