@@ -3,37 +3,18 @@ import os
 import pickle
 import argparse
 
+from roman.map.map import load_roman_map, ROMANMap
+
 def merge_demo_output(input_files, output_file):
     
-    trackers, pose_history, times = [], [], []
-
-    for i in range(len(input_files)):
-        with open(os.path.expanduser(input_files[i]), 'rb') as f:
-            pickle_data = pickle.load(f)
-            tr, ph, ti = pickle_data
-            trackers.append(tr)
-            pose_history.append(ph)
-            times.append(ti)
+    roman_maps = []
+    for input_file in input_files:
+        roman_maps.append(load_roman_map(input_file))
             
-    trackers_res = trackers[0]
-    pose_history_res = pose_history[0]
-    times_res = times[0]
-    
-    for i in range(1, len(input_files)):
-        for seg in trackers[i].segment_nursery + trackers[i].segments \
-            + trackers[i].inactive_segments + trackers[i].segment_graveyard:
-            seg.id += trackers_res.segment_graveyard[-1].id + int(1e5)
-
-        trackers_res.segments += trackers[i].segments
-        trackers_res.segment_nursery += trackers[i].segment_nursery
-        trackers_res.inactive_segments += trackers[i].inactive_segments
-        trackers_res.segment_graveyard += trackers[i].segment_graveyard
-        
-        pose_history_res += pose_history[i]
-        times_res += times[i]
+    merged = ROMANMap.concatenate(roman_maps)
         
     with open(os.path.expanduser(output_file), 'wb') as f:
-        pickle.dump((trackers_res, pose_history_res, times_res), f)
+        pickle.dump(merged, f)
     
             
 if __name__ == '__main__':

@@ -1,9 +1,11 @@
 import numpy as np
+import cv2 as cv
 
 from os.path import expandvars, expanduser
 from typing import Tuple
 from dataclasses import dataclass
 import time
+from copy import deepcopy
 
 from robotdatapy.data.img_data import ImgData
 from robotdatapy.data.pose_data import PoseData
@@ -12,9 +14,10 @@ from robotdatapy.data.robot_data import NoDataNearTimeException
 from robotdatapy.camera import CameraParams
 
 from roman.object.segment import Segment
-from roman.viz import draw
-from roman.map.tracker import Tracker
+from roman.viz import visualize_map_on_img, visualize_observations_on_img
+from roman.map.mapper import Mapper, MapperParams
 from roman.map.fastsam_wrapper import FastSAMWrapper
+from roman.map.map import ROMANMap
 
 @dataclass
 class ProcessingTimes:
@@ -62,8 +65,6 @@ class ROMANMapRunner:
         self.viz_map = viz_map
         self.viz_observations = viz_observations
         self.save_viz = save_viz
-        self.times_history = []
-        self.poses_flu_history = []
         self.viz_imgs = []
         self.processing_times = ProcessingTimes([], [], [])
 
@@ -93,9 +94,9 @@ class ROMANMapRunner:
     def update_fastsam(self, t):
 
         try:
-            img = self.img_data.img(t)
-            img_depth = self.depth_data.img(t)
             img_t = self.img_data.nearest_time(t)
+            img = self.img_data.img(img_t)
+            img_depth = self.depth_data.img(img_t)
             pose = self.pose_data.T_WB(img_t)
         except NoDataNearTimeException:
             return None, None, None, None
@@ -117,15 +118,13 @@ class ROMANMapRunner:
 
         if len(observations) > 0:
             self.mapper.update(t, pose, observations)
+        else:
+            self.mapper.poses_flu_history.append(pose @ self.mapper._T_camera_flu)
+            self.mapper.times_history.append(t)
 
         if self.viz_map or self.viz_observations:
-            img_ret = draw(t, img, pose, self.mapper, self.fastsam, observations, reprojected_bboxs, self.viz_map, self.viz_observations)
+            img_ret = self.draw(t, img, pose,observations, reprojected_bboxs)
 
-        # have T_WC, want T_WB
-        # T_WB = T_WC @ T_CB
-        self.poses_flu_history.append(pose @ self.mapper.T_camera_flu)
-        
-        self.times_history.append(t)
         if self.save_viz:
             self.viz_imgs.append(img_ret)
 
@@ -185,7 +184,7 @@ class ROMANMapRunner:
         if 'erosion_size' not in params['fastsam']:
             params['fastsam']['erosion_size'] = 3
         if 'max_depth' not in params['fastsam']:
-            params['fastsam']['max_depth'] = 8.0
+            params['fastsam']['max_depth'] = 7.5
         if 'ignore_labels' not in params['fastsam']:
             params['fastsam']['ignore_labels'] = []
         if 'use_keep_labels' not in params['fastsam']:
@@ -408,24 +407,49 @@ class ROMANMapRunner:
 
         return fastsam
 
-    def _load_mapper(self) -> Tracker:
+    def _load_mapper(self) -> Mapper:
         """
-        Creates a Tracker object from the params dictionary.
+        Creates a Mapper object from the params dictionary.
 
         Returns:
-            Tracker: ROMAN mapper.
+            Mapper: ROMAN mapper.
         """
-        mapper = Tracker(
+        params = MapperParams(
             camera_params=self.img_data.camera_params,
             min_iou=self.params['segment_tracking']['min_iou'],
             min_sightings=self.params['segment_tracking']['min_sightings'],
             max_t_no_sightings=self.params['segment_tracking']['max_t_no_sightings'],
             mask_downsample_factor=self.params['segment_tracking']['mask_downsample_factor']
         )
+        mapper = Mapper(params)
         if 'T_camera_flu' in self.params['pose_data']:
             mapper.set_T_camera_flu(self._find_transformation(self.params['pose_data']['T_camera_flu']))
         else:
             mapper.set_T_camera_flu(np.eye(4))
         return mapper
 
+    def draw(self, t, img, pose, observations, reprojected_bboxs):
+        img_orig = deepcopy(img)
+        
+        if len(img_orig.shape) == 2:
+            img = np.concatenate([img_orig[...,None]]*3, axis=2)
+            
+        if self.viz_map:
+            img = visualize_map_on_img(t, pose, img, self.mapper)
 
+        if self.viz_observations:
+            img_fastsam = visualize_observations_on_img(t, img_orig, self.mapper, observations, reprojected_bboxs)
+                
+        # rotate images
+        img = self.fastsam.apply_rotation(img)
+        if self.viz_observations:
+            img_fastsam = self.fastsam.apply_rotation(img_fastsam)
+                
+        # concatenate images
+        if self.viz_observations and self.viz_map:
+            img_ret = np.concatenate([img, img_fastsam], axis=1)
+        elif self.viz_map:
+            img_ret = img
+        elif self.viz_observations:
+            img_ret = img_fastsam
+        return img_ret

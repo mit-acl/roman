@@ -3,6 +3,7 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import List
 import os
+import yaml
 
 import clipperpy
 from roman.align.roman import ROMAN, ROMANParams
@@ -33,6 +34,12 @@ class SubmapAlignParams:
     cosine_min: float = 0.85
     cosine_max: float = 1.0
     semantics_dim: int = 768
+
+    @classmethod
+    def from_yaml(cls, yaml_file):
+        with open(yaml_file, 'r') as f:
+            params = yaml.full_load(f)
+        return cls(**params)
     
     def get_object_registration(self):
         if self.fusion_method == 'geometric_mean':
