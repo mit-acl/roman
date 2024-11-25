@@ -19,6 +19,8 @@ from roman.object.object import Object
 
 class SegmentMinimalData(Object):
     
+    # TODO: Handle center ref for segment minimal data
+    
     def __init__(
         self,
         id: int,

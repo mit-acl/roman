@@ -65,13 +65,12 @@ def run(args, params):
     print(f"Run duration was {runner.tf - runner.t0:.2f} seconds")
     print(f"Compute per second: {(time.time() - wc_t0) / (runner.tf - runner.t0):.2f}")
 
-    print(f"Number of poses: {len(runner.poses_flu_history)}.")
+    print(f"Number of poses: {len(runner.mapper.poses_flu_history)}.")
 
     if args.output:
         pkl_path = os.path.expanduser(expandvars(args.output)) + ".pkl"
         pkl_file = open(pkl_path, 'wb')
-        runner.mapper.make_pickle_compatible()
-        pickle.dump([runner.mapper, runner.poses_flu_history, runner.times_history], pkl_file, -1)
+        pickle.dump(runner.mapper.get_roman_map(), pkl_file, -1)
         logging.info(f"Saved tracker, poses_flu_history to file: {pkl_path}.")
         pkl_file.close()
 

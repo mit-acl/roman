@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List
+from typing import List, Tuple
 from dataclasses import dataclass
 import cv2 as cv
 import open3d as o3d
@@ -9,40 +9,33 @@ from robotdatapy.data.img_data import CameraParams
 from roman.object.segment import Segment
 from roman.map.observation import Observation
 from roman.map.global_nearest_neighbor import global_nearest_neighbor
+from roman.map.map import ROMANMap
 
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-class Tracker():
+@dataclass
+class MapperParams():
 
-    def __init__(
-            self,
-            camera_params: CameraParams,
-            min_iou: float,
-            min_sightings: int,
-            max_t_no_sightings: int,
-            merge_objects_iou: float = 0.25,
-            mask_downsample_factor: int = 1,
-            min_max_extent: float = 0.25, # to get rid of very small objects
-            plane_prune_params: List[float] = [3.0, 3.0, 0.5], # to get rid of planar objects (likely background)
-            segment_graveyard_time: float = 15.0, # time after which an inactive segment is sent to the graveyard
-            segment_graveyard_dist: float = 10.0, # distance traveled after which an inactive segment is sent to the graveyard
-            iou_voxel_size: float = 0.2
-    ):
-        self.camera_params = camera_params
-        self.min_iou = min_iou
-        self.min_sightings = min_sightings
-        self.max_t_no_sightings = max_t_no_sightings
-        self.merge_objects_iou_3d = merge_objects_iou
-        self.merge_objects_iou_2d = 0.8
-        self.mask_downsample_factor = mask_downsample_factor
-        # self.min_volume = .25**3 # 25x25x25 cm^3
-        self.min_max_extent = min_max_extent
-        self.plane_prune_params = plane_prune_params
-        self.segment_graveyard_time = segment_graveyard_time
-        self.segment_graveyard_dist = segment_graveyard_dist
-        self.iou_voxel_size = iou_voxel_size
+    camera_params: CameraParams
+    min_iou: float
+    min_sightings: int
+    max_t_no_sightings: int
+    merge_objects_iou_3d: float = 0.25
+    merge_objects_iou_2d = 0.8
+    mask_downsample_factor: int = 1
+    min_max_extent: float = 0.25 # to get rid of very small objects
+    plane_prune_params: Tuple[float] = (3.0, 3.0, 0.5) # to get rid of planar objects (likely background)
+    segment_graveyard_time: float = 15.0 # time after which an inactive segment is sent to the graveyard
+    segment_graveyard_dist: float = 10.0 # distance traveled after which an inactive segment is sent to the graveyard
+    iou_voxel_size: float = 0.2
+    segment_voxel_size: float = 0.05
+
+class Mapper():
+
+    def __init__(self, params: MapperParams):
+        self.params = params
 
         self.segment_nursery = []
         self.segments = []
@@ -50,9 +43,16 @@ class Tracker():
         self.segment_graveyard = []
         self.id_counter = 0
         self.last_pose = None
-        self._T_camera_flu = None
+        self.poses_flu_history = []
+        self.times_history = []
+        self._T_camera_flu = np.eye(4)
 
     def update(self, t: float, pose: np.array, observations: List[Observation]):
+
+        # have T_WC, want T_WB
+        # T_WB = T_WC @ T_CB
+        self.poses_flu_history.append(pose @ self._T_camera_flu)
+        self.times_history.append(t)
         
         # store last pose
         self.last_pose = pose.copy()
@@ -61,7 +61,7 @@ class Tracker():
         # mask_similarity = lambda seg, obs: max(self.mask_similarity(seg, obs, projected=False), 
         #                                        self.mask_similarity(seg, obs, projected=True))
         associated_pairs = global_nearest_neighbor(
-            self.segments + self.segment_nursery, observations, self.voxel_grid_similarity, self.min_iou
+            self.segments + self.segment_nursery, observations, self.voxel_grid_similarity, self.params.min_iou
         )
 
         # separate segments associated with nursery and normal segments
@@ -88,14 +88,14 @@ class Tracker():
 
         # handle moving existing segments to inactive
         to_rm = [seg for seg in self.segments \
-                    if t - seg.last_seen > self.max_t_no_sightings \
+                    if t - seg.last_seen > self.params.max_t_no_sightings \
                         or seg.num_points == 0]
         for seg in to_rm:
             if seg.num_points == 0:
                 self.segments.remove(seg)
                 continue
             try:
-                seg.final_cleanup()
+                seg.final_cleanup(epsilon=self.params.segment_voxel_size*5.0)
                 self.inactive_segments.append(seg)
                 self.segments.remove(seg)
             except: # too few points to form clusters
@@ -103,21 +103,22 @@ class Tracker():
             
         # handle moving inactive segments to graveyard
         to_rm = [seg for seg in self.inactive_segments \
-                    if t - seg.last_seen > self.segment_graveyard_time \
-                        or np.linalg.norm(seg.last_observation.pose[:3,3] - pose[:3,3]) > self.segment_graveyard_dist]
+                    if t - seg.last_seen > self.params.segment_graveyard_time \
+                        or np.linalg.norm(seg.last_observation.pose[:3,3] - pose[:3,3]) \
+                            > self.params.segment_graveyard_dist]
         for seg in to_rm:
             self.segment_graveyard.append(seg)
             self.inactive_segments.remove(seg)
 
         to_rm = [seg for seg in self.segment_nursery \
-                    if t - seg.last_seen > self.max_t_no_sightings \
+                    if t - seg.last_seen > self.params.max_t_no_sightings \
                         or seg.num_points == 0]
         for seg in to_rm:
             self.segment_nursery.remove(seg)
 
         # handle moving segments from nursery to normal segments
         to_upgrade = [seg for seg in self.segment_nursery \
-                        if seg.num_sightings >= self.min_sightings]
+                        if seg.num_sightings >= self.params.min_sightings]
         for seg in to_upgrade:
             self.segment_nursery.remove(seg)
             self.segments.append(seg)
@@ -127,7 +128,7 @@ class Tracker():
         new_observations = [obs for idx, obs in enumerate(observations) \
                             if idx not in associated_obs]
         for obs in new_observations:
-            new_seg = Segment(obs, self.camera_params, self.id_counter)
+            new_seg = Segment(obs, self.params.camera_params, self.id_counter, self.params.segment_voxel_size)
             if new_seg.num_points == 0: # guard from observations coming in with no points
                 continue
             self.segment_nursery.append(new_seg)
@@ -141,7 +142,7 @@ class Tracker():
         """
         Compute the similarity between the voxel grids of a segment and an observation
         """
-        voxel_size = self.iou_voxel_size
+        voxel_size = self.params.iou_voxel_size
         segment_voxel_grid = segment.get_voxel_grid(voxel_size)
         observation_voxel_grid = observation.get_voxel_grid(voxel_size)
         return segment_voxel_grid.iou(observation_voxel_grid)
@@ -156,12 +157,13 @@ class Tracker():
             if segment_propagated_mask is None:
                 iou = 0.0
             else:
-                iou = Tracker.compute_iou(segment_propagated_mask, observation.mask_downsampled)
+                iou = Mapper.compute_iou(segment_propagated_mask, observation.mask_downsampled)
 
         # compute the similarity using the projected mask rather than last mask
         else:
-            segment_mask = segment.reconstruct_mask(observation.pose, downsample_factor=self.mask_downsample_factor)
-            iou = Tracker.compute_iou(segment_mask, observation.mask_downsampled)
+            segment_mask = segment.reconstruct_mask(observation.pose, 
+                            downsample_factor=self.params.mask_downsample_factor)
+            iou = Mapper.compute_iou(segment_mask, observation.mask_downsampled)
         return iou
     
     @staticmethod
@@ -181,14 +183,6 @@ class Tracker():
             return 0.0
         return float(intersection) / float(union)
 
-    
-    # def filter_segment_graveyard(self, rm_fun: callable):
-    #     """
-    #     Filter the segment graveyard when rm_fun returns True
-    #     """
-    #     self.segment_graveyard = [seg for seg in self.segment_graveyard if not rm_fun(seg)]
-    #     return
-    
     def remove_bad_segments(self, segments: List[Segment], min_volume: float=0.0, min_max_extent: float=0.0, plane_prune_params: List[float]=[np.inf, np.inf, 0.0]):
         """
         Remove segments that have small volumes or have no points
@@ -239,7 +233,11 @@ class Tracker():
         n = 0
         edited = True
 
-        self.inactive_segments = self.remove_bad_segments(self.inactive_segments, min_max_extent=self.min_max_extent, plane_prune_params=self.plane_prune_params)
+        self.inactive_segments = self.remove_bad_segments(
+            self.inactive_segments, 
+            min_max_extent=self.params.min_max_extent, 
+            plane_prune_params=self.params.plane_prune_params
+        )
         self.segments = self.remove_bad_segments(self.segments)
 
         # repeatedly try to merge until no further merges are possible
@@ -263,9 +261,10 @@ class Tracker():
                     union2d = np.logical_or(maks1, maks2).sum()
                     iou2d = intersection2d / union2d
 
-                    iou3d = seg1.get_voxel_grid(self.iou_voxel_size).iou(seg2.get_voxel_grid(self.iou_voxel_size))
+                    iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
+                        seg2.get_voxel_grid(self.params.iou_voxel_size))
 
-                    if iou3d > self.merge_objects_iou_3d or iou2d > self.merge_objects_iou_2d:
+                    if iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d:
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if seg1.num_points == 0:
@@ -282,11 +281,37 @@ class Tracker():
             
     def make_pickle_compatible(self):
         """
-        Make the tracker object pickle compatible
+        Make the Mapper object pickle compatible
         """
         for seg in self.segments + self.segment_nursery + self.inactive_segments + self.segment_graveyard:
             seg.reset_obb()
         return
+    
+    def get_segment_map(self) -> List[Segment]:
+        """
+        Get the segment map
+        """
+        segment_map = self.remove_bad_segments(
+            self.segment_graveyard + self.inactive_segments + 
+            self.segments)
+        for seg in segment_map:
+            seg.reset_obb()
+        return segment_map
+    
+    def get_roman_map(self) -> ROMANMap:
+        """
+        Return the full ROMAN map.
+
+        Returns:
+            ROMANMap: Map of objects
+        """
+        segment_map = self.get_segment_map()
+        return ROMANMap(
+            segments=segment_map,
+            trajectory=self.poses_flu_history,
+            times=self.times_history,
+            poses_are_flu=True
+        )
     
     def set_T_camera_flu(self, T_camera_flu: np.array):
         """
