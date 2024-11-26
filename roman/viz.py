@@ -78,8 +78,7 @@ def visualize_observations_on_img(t, img, mapper, observations, reprojected_bbox
         cv.rectangle(img_fastsam, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
                     np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=rand_color.tolist(), thickness=2)
     
-def visualize_3d_on_img(t: float, pose_flu: np.ndarray, mapper: Mapper, 
-                        recent_poses: List[np.ndarray]) -> np.ndarray:
+def visualize_3d_on_img(t: float, pose_flu: np.ndarray, mapper: Mapper) -> np.ndarray:
     """
     Visualizes a 3D map onto an image (with camera params used by the mapper).
 
@@ -96,7 +95,7 @@ def visualize_3d_on_img(t: float, pose_flu: np.ndarray, mapper: Mapper,
     # TODO: don't draw the whole map
     # use time range to limit this?
     pcd_list, label_list, poses_list = \
-        visualize_3d(mapper.get_roman_map(), show_origin=False, time_range=[t-30.0, t],
+        visualize_3d(mapper.get_roman_map(), show_origin=False, time_range=[t-15.0, t],
                      time_range_relative=False, show_poses=True, offscreen=True)
     behind_m = 5.0 # number of meters behind current camera pose
     above_m = 3.0
@@ -257,18 +256,7 @@ def render_3d_on_img(
 
     if show_poses:
         try:
-            # pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
-            # pose = np.array([
-            #     [-1.0, 0.0, 0.0, 0.0],
-            #     [0.0, 0.0, 1.0, 0.0],
-            #     [0.0, 1.0, 0.0, 0.0],
-            #     [0.0, 0.0, 0.0, 1.0]
-            # ])
-            # pose_obj.transform(pose)
-            # # scene.add_geometry(f"thingy", pose_obj, pose_mat)
-            # poses_list.insert(0, pose_obj)
             for i, pose_obj in enumerate(poses_list):
-                # print(pose_obj)
                 scene.add_geometry(f"pose-{i}", pose_obj, pose_mat)
         except:
             pass
@@ -278,19 +266,3 @@ def render_3d_on_img(
     o3d_img = cv.cvtColor(np.asarray(o3d_img), cv.COLOR_RGB2BGR)
     scene.clear_geometry()
     return o3d_img
-
-# if t - last_pose_time > pose_time_spacing:
-#     last_pose_time = t
-#     try:
-#         Twc = pose_data.pose(t)
-#         pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
-#         Twb = Twc @ T_RDFFLU
-#         pose_obj.transform(Twb)
-#         visualized_poses.append(pose_obj)
-#     except NoDataNearTimeException:
-#         pass
-
-# # o3d.visualization.draw_geometries([visible_pcd], width=640, height=480)
-# pose_mat = o3d.visualization.rendering.MaterialRecord()
-# for i, pose_obj in enumerate(visualized_poses):
-#     scene.add_geometry(f"pose-{i}", pose_obj, pose_mat)
