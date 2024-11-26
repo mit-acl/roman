@@ -14,7 +14,7 @@ from robotdatapy.data.robot_data import NoDataNearTimeException
 from robotdatapy.camera import CameraParams
 
 from roman.object.segment import Segment
-from roman.viz import visualize_map_on_img, visualize_observations_on_img
+from roman.viz import visualize_map_on_img, visualize_observations_on_img, visualize_3d_on_img
 from roman.map.mapper import Mapper, MapperParams
 from roman.map.fastsam_wrapper import FastSAMWrapper
 from roman.map.map import ROMANMap
@@ -35,7 +35,7 @@ def expandvars_recursive(path):
 
 class ROMANMapRunner:
     def __init__(self, params: dict, verbose=False, viz_map=False, 
-                 viz_observations=False, save_viz=False):
+                 viz_observations=False, viz_3d=False, save_viz=False):
         self.params = self._check_params(params)
 
         if verbose: print("Extracting time range...")
@@ -53,7 +53,7 @@ class ROMANMapRunner:
         self.depth_data = self._load_depth_data()
 
         if verbose: print("Loading pose data...")
-        self.pose_data = self._load_pose_data()
+        self.camera_pose_data = self._load_pose_data()
         
         if verbose: print("Setting up FastSAM...")
         self.fastsam = self._load_fastsam_wrapper()
@@ -64,6 +64,7 @@ class ROMANMapRunner:
         self.verbose = verbose
         self.viz_map = viz_map
         self.viz_observations = viz_observations
+        self.viz_3d = viz_3d
         self.save_viz = save_viz
         self.viz_imgs = []
         self.processing_times = ProcessingTimes([], [], [])
@@ -79,10 +80,10 @@ class ROMANMapRunner:
         img_output = None
         update_t0 = time.time()
 
-        img_time, observations, pose, img = self.update_fastsam(t)
+        img_time, observations, pose_odom_camera, img = self.update_fastsam(t)
         update_t1 = time.time()
-        if observations is not None and pose is not None and img is not None:
-            img_output = self.update_segment_track(img_time, observations, pose, img)
+        if observations is not None and pose_odom_camera is not None and img is not None:
+            img_output = self.update_segment_track(img_time, observations, pose_odom_camera, img)
         
         update_t2 = time.time()
         self.processing_times.map_times.append(update_t2 - update_t1)
@@ -97,14 +98,14 @@ class ROMANMapRunner:
             img_t = self.img_data.nearest_time(t)
             img = self.img_data.img(img_t)
             img_depth = self.depth_data.img(img_t)
-            pose = self.pose_data.T_WB(img_t)
+            pose_odom_camera = self.camera_pose_data.T_WB(img_t)
         except NoDataNearTimeException:
             return None, None, None, None
         
-        observations = self.fastsam.run(img_t, pose, img, img_depth=img_depth)
-        return img_t, observations, pose, img
+        observations = self.fastsam.run(img_t, pose_odom_camera, img, img_depth=img_depth)
+        return img_t, observations, pose_odom_camera, img
 
-    def update_segment_track(self, t, observations, pose, img): 
+    def update_segment_track(self, t, observations, pose_odom_camera, img): 
 
         # collect reprojected masks
         reprojected_bboxs = []
@@ -112,18 +113,18 @@ class ROMANMapRunner:
         if self.viz_observations:
             segment: Segment
             for i, segment in enumerate(self.mapper.segments + self.mapper.inactive_segments):
-                bbox = segment.reprojected_bbox(pose)
+                bbox = segment.reprojected_bbox(pose_odom_camera)
                 if bbox is not None:
                     reprojected_bboxs.append((segment.id, bbox))
 
         if len(observations) > 0:
-            self.mapper.update(t, pose, observations)
+            self.mapper.update(t, pose_odom_camera, observations)
         else:
-            self.mapper.poses_flu_history.append(pose @ self.mapper._T_camera_flu)
+            self.mapper.poses_flu_history.append(pose_odom_camera @ self.mapper._T_camera_flu)
             self.mapper.times_history.append(t)
 
-        if self.viz_map or self.viz_observations:
-            img_ret = self.draw(t, img, pose,observations, reprojected_bboxs)
+        if self.viz_map or self.viz_observations or self.viz_3d:
+            img_ret = self.draw(t, img, pose_odom_camera, observations, reprojected_bboxs)
 
         if self.save_viz:
             self.viz_imgs.append(img_ret)
@@ -428,17 +429,20 @@ class ROMANMapRunner:
             mapper.set_T_camera_flu(np.eye(4))
         return mapper
 
-    def draw(self, t, img, pose, observations, reprojected_bboxs):
+    def draw(self, t, img, pose_odom_camera, observations, reprojected_bboxs):
         img_orig = deepcopy(img)
         
         if len(img_orig.shape) == 2:
             img = np.concatenate([img_orig[...,None]]*3, axis=2)
             
         if self.viz_map:
-            img = visualize_map_on_img(t, pose, img, self.mapper)
+            img = visualize_map_on_img(t, pose_odom_camera, img, self.mapper)
 
         if self.viz_observations:
             img_fastsam = visualize_observations_on_img(t, img_orig, self.mapper, observations, reprojected_bboxs)
+        
+        if self.viz_3d:
+            img_3d = visualize_3d_on_img(t, pose_odom_camera @ self.mapper.T_camera_flu, self.mapper)
                 
         # rotate images
         img = self.fastsam.apply_rotation(img)
@@ -446,10 +450,12 @@ class ROMANMapRunner:
             img_fastsam = self.fastsam.apply_rotation(img_fastsam)
                 
         # concatenate images
-        if self.viz_observations and self.viz_map:
-            img_ret = np.concatenate([img, img_fastsam], axis=1)
-        elif self.viz_map:
-            img_ret = img
-        elif self.viz_observations:
-            img_ret = img_fastsam
+        img_ret = np.zeros((img.shape[0], 0, img.shape[2]), dtype=np.uint8)
+        if self.viz_map:
+            img_ret = np.hstack([img_ret, img])
+        if self.viz_3d:
+            img_ret = np.hstack([img_ret, img_3d])
+        if self.viz_observations:
+            img_ret = np.hstack([img_ret, img_fastsam])
+
         return img_ret
