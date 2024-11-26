@@ -56,7 +56,7 @@ def run(args, params):
             num_panes += 1
         if args.viz_observations:
             num_panes += 1
-        if args.viz_open3d:
+        if args.viz_3d:
             num_panes += 1
         video = cv.VideoWriter(video_file, fc, fps, 
                                (width*num_panes, height))
@@ -134,7 +134,7 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output', type=str, help='Path to output file', required=False, default=None)
     parser.add_argument('-m', '--viz-map', action='store_true', help='Visualize map')
     parser.add_argument('-v', '--viz-observations', action='store_true', help='Visualize observations')
-    parser.add_argument('-3', '--viz-open3d', action='store_true', help='Visualize in 3D')
+    parser.add_argument('-3', '--viz-3d', action='store_true', help='Visualize in 3D')
     parser.add_argument('--vid-rate', type=float, help='Video playback rate', default=1.0)
     parser.add_argument('-d', '--save-img-data', action='store_true', help='Save video frames as ImgData class')
     args = parser.parse_args()

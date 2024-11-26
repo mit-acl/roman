@@ -119,6 +119,9 @@ class ROMANMapRunner:
 
         if len(observations) > 0:
             self.mapper.update(t, pose_odom_camera, observations)
+        else:
+            self.mapper.poses_flu_history.append(pose_odom_camera @ self.mapper._T_camera_flu)
+            self.mapper.times_history.append(t)
 
         if self.viz_map or self.viz_observations or self.viz_3d:
             img_ret = self.draw(t, img, pose_odom_camera, observations, reprojected_bboxs)
@@ -182,7 +185,7 @@ class ROMANMapRunner:
         if 'erosion_size' not in params['fastsam']:
             params['fastsam']['erosion_size'] = 3
         if 'max_depth' not in params['fastsam']:
-            params['fastsam']['max_depth'] = 8.0
+            params['fastsam']['max_depth'] = 7.5
         if 'ignore_labels' not in params['fastsam']:
             params['fastsam']['ignore_labels'] = []
         if 'use_keep_labels' not in params['fastsam']:
@@ -439,7 +442,7 @@ class ROMANMapRunner:
             img_fastsam = visualize_observations_on_img(t, img_orig, self.mapper, observations, reprojected_bboxs)
         
         if self.viz_3d:
-            img_3d = visualize_3d_on_img(t, pose_odom_camera @ self.mapper.T_camera_flu, self.mapper, [])
+            img_3d = visualize_3d_on_img(t, pose_odom_camera @ self.mapper.T_camera_flu, self.mapper)
                 
         # rotate images
         img = self.fastsam.apply_rotation(img)
