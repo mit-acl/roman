@@ -36,6 +36,7 @@ class Mapper():
 
     def __init__(self, params: MapperParams):
         self.params = params
+        self.camera_params = params.camera_params
 
         self.segment_nursery = []
         self.segments = []

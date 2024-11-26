@@ -1,9 +1,16 @@
 import numpy as np
 import cv2 as cv
 import open3d as o3d
+from scipy.spatial.transform import Rotation as Rot
+
+from typing import List
+
+from robotdatapy.camera import CameraParams
+from robotdatapy.transform import T_FLURDF
 
 from roman.object.segment import Segment
 from roman.map.map import ROMANMap
+from roman.map.mapper import Mapper
 
 def visualize_map_on_img(t, pose, img, mapper):
     segment: Segment
@@ -20,7 +27,7 @@ def visualize_map_on_img(t, pose, img, mapper):
         #     color = (255, 0, 0)
         # else:
         #     color = (180, 0, 180)
-        color = segment.viz_color
+        color = segment.viz_color[::-1]
         for i in range(len(outline) - 1):
             start_point = tuple(outline[i].astype(np.int32))
             end_point = tuple(outline[i+1].astype(np.int32))
@@ -71,23 +78,62 @@ def visualize_observations_on_img(t, img, mapper, observations, reprojected_bbox
         cv.rectangle(img_fastsam, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
                     np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=rand_color.tolist(), thickness=2)
     
+def visualize_3d_on_img(t: float, pose_flu: np.ndarray, mapper: Mapper) -> np.ndarray:
+    """
+    Visualizes a 3D map onto an image (with camera params used by the mapper).
+
+    Args:
+        t (float): mapping time
+        pose_flu (np.ndarray): pose of the body flu
+        mapper (Mapper): Mapper object
+        recent_poses (List[np.ndarray]): list of recent poses used to smooth out
+            this visualization's camera pose
+
+    Returns:
+        np.ndarray: visualization image
+    """
+    # TODO: don't draw the whole map
+    # use time range to limit this?
+    pcd_list, label_list, poses_list = \
+        visualize_3d(mapper.get_roman_map(), show_origin=False, time_range=[t-15.0, t],
+                     time_range_relative=False, show_poses=True, offscreen=True)
+    behind_m = 5.0 # number of meters behind current camera pose
+    above_m = 3.0
+    downward_angle = 15.0 # angle looking down
+    # R_camera_behind = Rot.from_euler('xyz', [-downward_angle, 0.0, 0.0], degrees=True).as_matrix()
+    # T_camera_behind = np.eye(4)
+    # T_camera_behind[:3,:3] = R_camera_behind
+    # T_camera_behind[:3,3] = np.array([0., -above_m, -behind_m])
+    # # above_angle_deg = 30.0 # angle above the camera pose
+    # # above_m = behind_m * np.tan(np.deg2rad(above_angle_deg))
+    R_flu_behind = Rot.from_euler('xyz', [0.0, downward_angle, 0.0], degrees=True).as_matrix()
+    T_flu_behind = np.eye(4)
+    T_flu_behind[:3,:3] = R_flu_behind
+    T_flu_behind[:3,3] = np.array([-behind_m, 0.0, above_m,])
+    # behind_camera_pose = pose_camera @ T_camera_behind
+    behind_camera_pose = pose_flu @ T_flu_behind @ T_FLURDF
+    return render_3d_on_img(pcd_list, label_list, poses_list, 
+                            behind_camera_pose, mapper.camera_params)
 
 def visualize_3d(
     roman_map: ROMANMap, 
     id_range=None, 
     time_range=None,
-    points_bounds = np.array([[np.inf, -np.inf], [np.inf, -np.inf], [np.inf, -np.inf]]),
+    time_range_relative=True,
+    points_bounds = np.array([[-np.inf, np.inf], [-np.inf, np.inf], [-np.inf, np.inf]]),
+    offscreen=False,
     show_labels=False, 
     show_origin=True,
     show_poses=True,
     min_pose_dist=0.5
 ):
         
+    # poses_list = [o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)]
     poses_list = []
     pcd_list = []
     label_list = []
     
-    if time_range is not None:
+    if time_range is not None and time_range_relative:
         time_range = np.array(time_range) + roman_map.times[0]
 
     for seg in roman_map.segments:
@@ -117,9 +163,10 @@ def visualize_3d(
                 for i in range(len(label)):
                     label_list.append((np.median(pcd.points, axis=0) + np.array([0, 0, -0.15*i]), label[i]))
                     
-    print(f"Displaying {len(pcd_list)} objects.")
+    # print(f"Displaying {len(pcd_list)} objects.")
 
     displayed_positions = []
+    print(f"Len of roman_map.trajectory: {len(roman_map.trajectory)}")
     for i, Twb in enumerate(roman_map.trajectory):
         if np.any(Twb[:3,3] < points_bounds[:,0]) or np.any(Twb[:3,3] > points_bounds[:,1]):
             continue
@@ -132,7 +179,7 @@ def visualize_3d(
                 continue
         
         displayed_positions.append(Twb[:3,3])
-        pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=2.0)
+        pose_obj = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
         pose_obj.transform(Twb)
         poses_list.append(pose_obj)
 
@@ -140,12 +187,20 @@ def visualize_3d(
         origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
         poses_list.append(origin)
     else:
-        origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
-        T = np.eye(4)
-        T[:3,3] = np.mean(displayed_positions, axis=0)
-        origin.transform(T)
-        poses_list.append(origin)
-    
+        pass
+        # origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
+        # T = np.eye(4)
+        # T[:3,3] = np.mean(displayed_positions, axis=0)
+        # origin.transform(T)
+        # poses_list.append(origin)
+    if not offscreen:
+        render3d_onscreen(pcd_list, label_list, poses_list, displayed_positions,
+                      show_poses=show_poses, show_origin=show_origin)
+    else:
+        return pcd_list, label_list, poses_list
+
+def render3d_onscreen(pcd_list, label_list, poses_list, displayed_positions, 
+                      show_poses=True, show_origin=True):
     app = o3d.visualization.gui.Application.instance
     app.initialize()
     vis = o3d.visualization.O3DVisualizer()
@@ -182,3 +237,32 @@ def visualize_3d(
     vis.setup_camera(K, T, 400, 400)
     app.add_window(vis)
     app.run()
+    
+def render_3d_on_img(
+    pcd_list: List[o3d.geometry.TriangleMesh], 
+    label_list: List[o3d.geometry.TriangleMesh],
+    poses_list: List[o3d.geometry.TriangleMesh], 
+    camera_pose: np.ndarray, 
+    camera_params: CameraParams, 
+    show_poses=True
+):
+    renderer = o3d.visualization.rendering.OffscreenRenderer(camera_params.width, camera_params.height)
+    scene = renderer.scene
+    renderer.setup_camera(camera_params.K, np.linalg.inv(camera_pose), camera_params.width, camera_params.height)
+
+    pose_mat = o3d.visualization.rendering.MaterialRecord()
+    pt_mat = o3d.visualization.rendering.MaterialRecord()
+    pt_mat.point_size = 5.0
+
+    if show_poses:
+        try:
+            for i, pose_obj in enumerate(poses_list):
+                scene.add_geometry(f"pose-{i}", pose_obj, pose_mat)
+        except:
+            pass
+    for i, obj in enumerate(pcd_list):
+        scene.add_geometry(f"pcd-{i}", obj, pt_mat)
+    o3d_img = renderer.render_to_image()
+    o3d_img = cv.cvtColor(np.asarray(o3d_img), cv.COLOR_RGB2BGR)
+    scene.clear_geometry()
+    return o3d_img

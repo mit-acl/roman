@@ -28,6 +28,7 @@ if __name__ == '__main__':
     
     parser.add_argument('-m', '--viz-map', action='store_true', help='Visualize map')
     parser.add_argument('-v', '--viz-observations', action='store_true', help='Visualize observations')
+    parser.add_argument('-3', '--viz-3d', action='store_true', help='Visualize 3D')
     parser.add_argument('--vid-rate', type=float, help='Video playback rate', default=1.0)
     parser.add_argument('-d', '--save-img-data', action='store_true', help='Save video frames as ImgData class')
     parser.add_argument('-s', '--sparse-pgo', action='store_true', help='Use sparse pose graph optimization')
@@ -52,7 +53,6 @@ if __name__ == '__main__':
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/dense"), exist_ok=True)
     
     if not args.skip_map:
-        args.viz_open3d = False
         
         assert args.params is not None or args.params_list is not None, \
             "Either --params or --params-list must be provided."
