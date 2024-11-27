@@ -1,0 +1,14 @@
+type: "csv"
+path: "${KMD_GT_PATH}/${ROBOT}.csv"
+csv_options:
+  cols:
+    time: ["#timestamp_kf"]
+    position: ["x", "y", "z"]
+    orientation: ["qx", "qy", "qz", "qw"]
+  col_nums:
+    time: [0]
+    position: [1, 2, 3]
+    orientation: [5, 6, 7, 4]
+  timescale: .000000001
+interp: True
+time_tol: 10.0

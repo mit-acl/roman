@@ -25,6 +25,8 @@ if __name__ == '__main__':
     parser.add_argument('--params-list', type=str, default=None, nargs='+', help='Path to multiple params files')
     parser.add_argument('-o', '--output-dir', type=str, help='Path to output directory', required=True, default=None)
     parser.add_argument('--align-params', type=str, help='Path to alignment params file', default=None)
+    parser.add_argument('-e', '--run-env', type=str, help='This argument will be set as an environment variable for each run.' +
+                        'e.g, "-r run1 run2 --run-env NAME" will set the environment variable NAME=run1 and NAME=run2')
     
     parser.add_argument('-m', '--viz-map', action='store_true', help='Visualize map')
     parser.add_argument('-v', '--viz-observations', action='store_true', help='Visualize observations')
@@ -34,7 +36,8 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--sparse-pgo', action='store_true', help='Use sparse pose graph optimization')
     parser.add_argument('-n', '--num-req-assoc', type=int, help='Number of required associations', default=4)
     # parser.add_argument('--set-env-vars', type=str)
-    parser.add_argument('--gt', type=str, nargs='+', help='Paths to ground truth pose yaml file')
+    parser.add_argument('--gt', type=str, help='Path to ground truth pose yaml file (use with run-env to set robot names)')
+    parser.add_argument('--gt-list', type=str, nargs='+', help='Paths to ground truth pose yaml file')
     parser.add_argument('--max-time', type=float, default=None, help='If the input data is too large, this allows a maximum time' +
                         'to be set, such that if the mapping will be chunked into max_time increments and fused together')
 
@@ -51,6 +54,15 @@ if __name__ == '__main__':
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/sparse"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/dense"), exist_ok=True)
+    
+    # setup ground truth files
+    gt_files = []
+    if args.gt is not None:
+        gt_files = [args.gt for _ in range(len(args.runs))]
+    elif args.gt_list is not None:
+        gt_files = args.gt_list
+    else:
+        gt_files = [None for _ in range(len(args.runs))]
     
     if not args.skip_map:
         
@@ -69,7 +81,8 @@ if __name__ == '__main__':
             args.output = os.path.join(args.output_dir, "map", f"{run}")
                 
             # shell: export RUN=run
-            os.environ['RUN'] = run
+            if args.run_env is not None:
+                os.environ[args.run_env] = run
             
             print(f"Mapping: {run}")
             demo.main(args)
@@ -77,8 +90,6 @@ if __name__ == '__main__':
     if not args.skip_align:
         sm_params = SubmapAlignParams() if args.align_params is None else SubmapAlignParams.from_yaml(args.align_params)
         # TODO: support ground truth pose file for validation
-        # if args.gt:
-        #     sm_io.input_gt_pose_yaml = args.gt
             
         for i in range(len(args.runs)):
             if args.skip_indices and i in args.skip_indices:
@@ -95,8 +106,9 @@ if __name__ == '__main__':
                     output_dir=output_dir,
                     run_name="align",
                     lc_association_thresh=args.num_req_assoc,
-                    input_gt_pose_yaml=[args.gt[i], args.gt[j]] if args.gt is not None else [None, None],
+                    input_gt_pose_yaml=[gt_files[i], gt_files[j]],
                     robot_names=[args.runs[i], args.runs[j]],
+                    robot_env=args.run_env,
                 )
                 sm_params.single_robot_lc = (i == j)
                 submap_align(sm_params=sm_params, sm_io=sm_io)
@@ -216,4 +228,11 @@ if __name__ == '__main__':
         if args.gt is not None:
             print("ATE results:")
             print("============")
-            print(evaluate(result_g2o_file, odom_sparse_all_time_file  if args.sparse_pgo else odom_dense_all_time_file, {i: args.gt[i] for i in range(len(args.gt))}))
+            print(evaluate(
+                result_g2o_file, 
+                odom_sparse_all_time_file  if args.sparse_pgo else odom_dense_all_time_file, 
+                {i: gt_files[i] for i in range(len(gt_files))},
+                {i: args.runs[i] for i in range(len(args.runs))},
+                args.run_env,
+                output_dir=args.output_dir
+            ))

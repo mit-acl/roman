@@ -1,15 +1,16 @@
+import matplotlib.pyplot as plt
 import copy
 from typing import Dict
 
-from evo.tools import plot
 from evo.core import metrics
 from evo.core import sync
 
 from roman.offline_rpgo.g2o_and_time_to_pose_data import gt_csv_est_g2o_to_pose_data
 
-def evaluate(est_g2o_file: str, est_time_file: str, gt_files: Dict[int, str]):
+def evaluate(est_g2o_file: str, est_time_file: str, gt_files: Dict[int, str], 
+             run_names: Dict[int, str] = None, run_env: str = None, output_dir: str = None):
     pd_est, pd_gt = gt_csv_est_g2o_to_pose_data(
-        est_g2o_file, est_time_file, gt_files)
+        est_g2o_file, est_time_file, gt_files, run_names, run_env)
         
     traj_ref = pd_gt.to_evo()
     traj_est = pd_est.to_evo()
@@ -28,6 +29,22 @@ def evaluate(est_g2o_file: str, est_time_file: str, gt_files: Dict[int, str]):
         data = (traj_ref, traj_est_aligned) 
     else:
         data = (traj_ref, traj_est)
+    
+    if output_dir is not None:
+        # evo/pyqt/opencv do not play well together - 
+        # only make this plot of everything is importing okay
+        try:
+            from evo.tools import plot
+            
+            fig = plt.figure()
+            traj_by_label = {
+                "estimate (aligned)": traj_est_aligned,
+                "reference": traj_ref
+            }
+            plot.trajectories(fig, traj_by_label, plot.PlotMode.xyz)
+            plt.savefig(f"{output_dir}/offline_rpgo/aligned_gt_est.png")
+        except:
+            print("WARNING: loading evo plotting failed, likely due to qt issues.")
         
     ape_metric = metrics.APE(pose_relation)
     ape_metric.process_data(data)
