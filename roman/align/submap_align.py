@@ -43,6 +43,10 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     # load ground truth pose data
     for i, yaml_file in enumerate(sm_io.input_gt_pose_yaml):
         if yaml_file is not None:
+            # set environment variable so an individual param file is not needed
+            # for each robot / run
+            if sm_io.robot_env is not None:
+                os.environ[sm_io.robot_env] = sm_io.robot_names[i]
             # load yaml file
             with open(os.path.expanduser(yaml_file), 'r') as f:
                 gt_pose_args = yaml.safe_load(f)
