@@ -50,7 +50,7 @@ class SubmapAlignParams:
             sim_fusion_method = clipperpy.invariants.ROMAN.PRODUCT
             
 
-        if self.method in ['standard', 'gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg', 'spv']:
+        if self.method in ['standard', 'gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg', 'spv', 'semanticgrav']:
             roman_params = ROMANParams()
             roman_params.point_dim = self.dim
             roman_params.sigma = self.sigma
@@ -58,7 +58,7 @@ class SubmapAlignParams:
             roman_params.min_dist = self.mindist
             roman_params.fusion = sim_fusion_method
 
-            roman_params.gravity = self.method in ['gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg']
+            roman_params.gravity = self.method in ['gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg', 'semanticgrav']
             roman_params.volume = self.method in ['pcavolgrav', 'extentvolgrav', 'spvg', 'sevg', 'spv']
             roman_params.extent = self.method in ['extentvolgrav', 'sevg']
             roman_params.pca = self.method in ['pcavolgrav', 'spvg', 'spv']
@@ -66,21 +66,22 @@ class SubmapAlignParams:
             roman_params.cos_max = self.cosine_max
             roman_params.epsilon_shape = self.epsilon_shape
             
-            if self.method == 'standard':
-                method_name = f'{self.dim}D Point CLIPPER'
-            elif self.method == 'gravity':
-                method_name = 'Gravity Guided CLIPPER'
-                roman_params.gravity = True
-            elif self.method == 'pcavolgrav':
-                method_name = f'Gravity Guided PCA feature-based Volume Registration'
-            elif self.method == 'extentvolgrav':
-                method_name = f'Gravity Guided Extent-based Volume Registration'
-            elif self.method == 'spvg':
-                method_name = 'CLIP Semantic + PCA + Volume + Gravity'
+            if self.method in ['spvg', 'sevg', 'semanticgrav']:
                 roman_params.semantics_dim = self.semantics_dim
-            elif self.method == 'sevg':
-                method_name = 'Semantic + Extent + Volume + Gravity'
-                roman_params.semantics_dim = self.semantics_dim
+            
+            # if self.method == 'standard':
+            #     method_name = f'{self.dim}D Point CLIPPER'
+            # elif self.method == 'gravity':
+            #     method_name = 'Gravity Guided CLIPPER'
+            #     roman_params.gravity = True
+            # elif self.method == 'pcavolgrav':
+            #     method_name = f'Gravity Guided PCA feature-based Volume Registration'
+            # elif self.method == 'extentvolgrav':
+            #     method_name = f'Gravity Guided Extent-based Volume Registration'
+            # elif self.method == 'spvg':
+            #     method_name = 'CLIP Semantic + PCA + Volume + Gravity'
+            # elif self.method == 'sevg':
+            #     method_name = 'Semantic + Extent + Volume + Gravity'
 
             registration = ROMAN(roman_params)
 
@@ -110,6 +111,7 @@ class SubmapAlignInputOutput:
     input_type_json: bool = False
     input_gt_pose_yaml: List[str] = field(default_factory=lambda: [None, None])
     robot_names: List[str] = field(default_factory=lambda: ["0", "1"])
+    robot_env: str = None
     lc_association_thresh: int = 4
     g2o_t_std: float = 0.5
     g2o_r_std: float = np.deg2rad(0.5)

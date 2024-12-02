@@ -110,7 +110,9 @@ def load_gt_pose_data(gt_file):
     else:
         raise ValueError("Invalid pose data type")
 
-def gt_csv_est_g2o_to_pose_data(est_g2o_file: str, est_time_file: str, gt_csv_files: Dict[int, str]) -> Tuple[PoseData, PoseData]:
+def gt_csv_est_g2o_to_pose_data(est_g2o_file: str, est_time_file: str, 
+        gt_csv_files: Dict[int, str], run_names: Dict[int, str] = None, 
+        run_env: str = None) -> Tuple[PoseData, PoseData]:
     """
     Generates two comparable PoseData objects from ground truth and estimated multi-robot poses.
     Designed for Kimera-Multi dataset where ground truth is stored in a csv file and estimated poses
@@ -126,8 +128,11 @@ def gt_csv_est_g2o_to_pose_data(est_g2o_file: str, est_time_file: str, gt_csv_fi
         Tuple[PoseData, PoseData]: Estimated and ground truth PoseData objects
     """
     
-    pose_data_gt = [load_gt_pose_data(gt_csv_files[i])
-                    for i in sorted(gt_csv_files.keys())]
+    pose_data_gt = []
+    for i in sorted(gt_csv_files.keys()):
+        if run_names is not None:
+            os.environ[run_env] = run_names[i]
+        pose_data_gt.append(load_gt_pose_data(gt_csv_files[i]))
     pose_data_est = [g2o_and_time_to_pose_data(est_g2o_file, est_time_file, i)
                      for i in sorted(gt_csv_files.keys())]
     
