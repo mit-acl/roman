@@ -57,11 +57,13 @@ if __name__ == '__main__':
     
     # setup ground truth files
     gt_files = []
+    has_gt = True
     if args.gt is not None:
         gt_files = [args.gt for _ in range(len(args.runs))]
     elif args.gt_list is not None:
         gt_files = args.gt_list
     else:
+        has_gt = False
         gt_files = [None for _ in range(len(args.runs))]
     
     if not args.skip_map:
@@ -225,7 +227,7 @@ if __name__ == '__main__':
             print(f"Saving {run} pose data to {os.path.join(args.output_dir, 'offline_rpgo', f'{run}.csv')}")
 
         # Report ATE results
-        if args.gt is not None:
+        if has_gt:
             print("ATE results:")
             print("============")
             print(evaluate(
