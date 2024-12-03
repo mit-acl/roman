@@ -10,7 +10,7 @@ from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat, \
 from robotdatapy.data.pose_data import PoseData
 
 from roman.utils import transform_rm_roll_pitch
-from roman.map.map import ROMANMap
+from roman.map.map import ROMANMap, SubmapParams
 from roman.align.params import SubmapAlignInputOutput, SubmapAlignParams
 
 from roman.object.segment import Segment
@@ -26,6 +26,8 @@ class SubmapAlignResults:
     T_ij_mat: np.array
     T_ij_hat_mat: np.array
     timing_list: List[float]
+    submap_align_params: SubmapAlignParams
+    submap_io: SubmapAlignInputOutput
 
 def time_to_secs_nsecs(t, as_dict=False):
     seconds = int(t)
@@ -35,12 +37,11 @@ def time_to_secs_nsecs(t, as_dict=False):
     else:
         return {'seconds': seconds, 'nanoseconds': nanoseconds}
 
-def save_submap_align_results(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput, submaps, results: SubmapAlignResults,
-                              roman_maps: List[ROMANMap]):
+def save_submap_align_results(results: SubmapAlignResults, submaps, roman_maps: List[ROMANMap]):
     # Create plots
     fig, ax = plt.subplots(1, 5, figsize=(20, 5), dpi=500)
     fig.subplots_adjust(wspace=.3)
-    fig.suptitle(sm_io.run_name)
+    fig.suptitle(results.submap_io.run_name)
 
     mp = ax[0].imshow(results.robots_nearby_mat, cmap='viridis', vmin=0)
     fig.colorbar(mp, fraction=0.03, pad=0.04)
@@ -67,46 +68,44 @@ def save_submap_align_results(sm_params: SubmapAlignParams, sm_io: SubmapAlignIn
         ax[i].set_ylabel("submap index (robot 1)")
         ax[i].grid(False)
 
-    plt.savefig(sm_io.output_img)
+    plt.savefig(results.submap_io.output_img)
         
     # for saving matrix results instead of image
-    pkl_file = open(sm_io.output_matrix, 'wb')
+    pkl_file = open(results.submap_io.output_matrix, 'wb')
     pickle.dump([results.robots_nearby_mat, results.clipper_angle_mat, results.clipper_dist_mat, 
                  results.clipper_num_associations, results.submap_yaw_diff_mat], pkl_file)
     pkl_file.close()
         
     # stores the submaps, associated objects, ground truth object overlap, and ground truth and estimated submap transformations
     # TODO: save non-minimal data representation of segments
-    submaps_pkl = [[[seg.to_pickle() for seg in sm.segments] for sm in sms] for sms in submaps]
-    pkl_file = open(sm_io.output_viz, 'wb')
-    # submaps for robot i, submaps for robot j, associated object indices, matrix of how much overlap is between submaps, ground truth T_ij, estimated T_ij
-    pickle.dump([submaps_pkl[0], submaps_pkl[1], results.associated_objs_mat, results.robots_nearby_mat, results.T_ij_mat, results.T_ij_hat_mat], pkl_file)
+    pkl_file = open(results.submap_io.output_pkl, 'wb')
+    pickle.dump(results, pkl_file)
     pkl_file.close()
 
-    with open(sm_io.output_timing, 'w') as f:
+    with open(results.submap_io.output_timing, 'w') as f:
         f.write(f"Total number of submaps: {len(submaps[0])} x {len(submaps[1])} = {len(submaps[0])*len(submaps[1])}\n")
         f.write(f"Average time per registration: {np.mean(results.timing_list):.4f} seconds\n")
         f.write(f"Total time: {np.sum(results.timing_list):.4f} seconds\n")
         f.write(f"Total number of objects: {np.sum([len(submap) for submap in submaps[0] + submaps[1]])}\n")
         f.write(f"Average number of obects per map: {np.mean([len(submap) for submap in submaps[0] + submaps[1]]):.2f}\n")
     
-    with open(sm_io.output_params, 'w') as f:
-        f.write(f"{sm_params}")
+    with open(results.submap_io.output_params, 'w') as f:
+        f.write(f"{results.submap_align_params}")
 
-    I_t = 1 / (sm_io.g2o_t_std**2)
-    I_r = 1 / (sm_io.g2o_r_std**2)
+    I_t = 1 / (results.submap_io.g2o_t_std**2)
+    I_r = 1 / (results.submap_io.g2o_r_std**2)
     I = np.diag([I_t, I_t, I_t, I_r, I_r, I_r])
     
     json_output = []
     pose_data = [PoseData.from_times_and_poses(rm.times, rm.trajectory) for rm in roman_maps]
 
-    with open(sm_io.output_g2o, 'w') as f:
+    with open(results.submap_io.output_g2o, 'w') as f:
         for i in range(len(submaps[0])):
             for j in range(len(submaps[1])):
-                if results.clipper_num_associations[i, j] < sm_io.lc_association_thresh:
+                if results.clipper_num_associations[i, j] < results.submap_io.lc_association_thresh:
                     continue
                 if (np.abs(submaps[0][i].time - submaps[1][j].time) < 
-                    sm_params.single_robot_lc_time_thresh and sm_params.single_robot_lc):
+                    results.submap_align_params.single_robot_lc_time_thresh and results.submap_align_params.single_robot_lc):
                     continue
                 T_ci_cj = results.T_ij_hat_mat[i, j] # transform from center_j to center_i
                 T_odomi_ci = submaps[0][i].pose_gravity_aligned # center i in odom frame
@@ -120,7 +119,7 @@ def save_submap_align_results(sm_params: SubmapAlignParams, sm_io: SubmapAlignIn
                 json_output.append({
                     'seconds': [int(submaps[0][i].time), int(submaps[1][j].time)],
                     'nanoseconds': [int((submaps[0][i].time % 1) * 1e9), int((submaps[1][j].time % 1) * 1e9)],
-                    'names': sm_io.robot_names,
+                    'names': results.submap_io.robot_names,
                     'translation': t.tolist(),
                     'rotation': q.tolist(),
                     'rotation_convention': 'xyzw',
@@ -141,11 +140,11 @@ def save_submap_align_results(sm_params: SubmapAlignParams, sm_io: SubmapAlignIn
                 f.write("\n")
         f.close()
             
-        with open(sm_io.output_lc_json, 'w') as f:
+        with open(results.submap_io.output_lc_json, 'w') as f:
             json.dump(json_output, f, indent=4)
             f.close()
             
-        for i, output_sm in enumerate(sm_io.output_submaps):
+        for i, output_sm in enumerate(results.submap_io.output_submaps):
             roman_map = roman_maps[i]
             if output_sm is not None:
                 with open(output_sm, 'w') as f:
@@ -157,7 +156,7 @@ def save_submap_align_results(sm_params: SubmapAlignParams, sm_io: SubmapAlignIn
                     for segment in roman_map.segments:
                         try:
                             segment_json = {}
-                            segment_json['robot_name'] = sm_io.robot_names[i]
+                            segment_json['robot_name'] = results.submap_io.robot_names[i]
                             segment_json['segment_index'] = segment.id
                             segment_json['centroid_odom'] = np.mean(segment.points, axis=0).tolist()
                             e = segment.normalized_eigenvalues()
@@ -185,7 +184,7 @@ def save_submap_align_results(sm_params: SubmapAlignParams, sm_io: SubmapAlignIn
                                 'qz': xyzquat_submap[5],
                                 'qw': xyzquat_submap[6],
                             },
-                            'robot_name': sm_io.robot_names[i],
+                            'robot_name': results.submap_io.robot_names[i],
                             'seconds': int(t_j),
                             'nanoseconds': int((t_j % 1) * 1e9),
                             'segment_indices': [segment.id for segment in submaps[i][j].segments]

@@ -11,6 +11,7 @@ import json
 
 from robotdatapy.data.pose_data import PoseData
 
+from roman.align.params import SubmapAlignParams
 from roman.object.segment import Segment, SegmentMinimalData
 from roman.utils import transform_rm_roll_pitch
 
@@ -42,6 +43,10 @@ class ROMANMap:
             if seg.id == seg_id:
                 return seg
         return None
+    
+    def make_picklable(self):
+        for seg in self.segments:
+            seg.reset_obb()
         
     @classmethod
     def from_pickle(cls, pickle_file: str):
@@ -127,6 +132,15 @@ class SubmapParams:
     time_threshold: float = np.inf
     object_center_ref: str = 'mean'
     use_minimal_data: bool = True
+
+    @classmethod
+    def from_submap_align_params(cls, submap_align_params: SubmapAlignParams):
+        return cls(
+            radius=submap_align_params.submap_radius,
+            distance=submap_align_params.submap_center_dist,
+            max_size=submap_align_params.submap_max_size,
+            time_threshold=submap_align_params.submap_center_time,
+        )
 
 def load_roman_map(map_file: str) -> ROMANMap:
     """
