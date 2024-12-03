@@ -60,13 +60,8 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 raise ValueError("Invalid pose data type")
     
     if sm_io.input_type_pkl:
-        submap_params = SubmapParams(
-            radius=sm_params.submap_radius,
-            distance=sm_params.submap_center_dist,
-            max_size=sm_params.submap_max_size,
-            time_threshold=sm_params.submap_center_time,
-            use_minimal_data=True
-        )
+        submap_params = SubmapParams.from_submap_align_params(sm_params)
+        submap_params.use_minimal_data = True
         roman_maps = [load_roman_map(sm_io.inputs[i]) for i in range(2)]
         submaps = [submaps_from_roman_map(
             roman_maps[i], submap_params, gt_pose_data[i]) for i in range(2)]
@@ -188,5 +183,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
         T_ij_hat_mat=T_ij_hat_mat,
         associated_objs_mat=associated_objs_mat,
         timing_list=timing_list,
+        submap_align_params=sm_params,
+        submap_io=sm_io
     )
-    save_submap_align_results(sm_params, sm_io, submaps, results, roman_maps)
+    save_submap_align_results(results, submaps, roman_maps)

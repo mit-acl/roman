@@ -8,24 +8,20 @@ from tqdm import tqdm
 from typing import List
 import open3d as o3d
 
-from robot_utils.robot_data.pose_data import PoseData
-from robot_utils.transform import transform_2_xytheta
-from robot_utils.geometry import circle_intersection
-
-from roman.object.segment import Segment
-from roman.map.tracker import Tracker
+from robotdatapy.data import PoseData
 
 from roman.object.pointcloud_object import PointCloudObject
+from roman.align.results import SubmapAlignResults
+from roman.map.map import submaps_from_roman_map, ROMANMap, SubmapParams, Submap
 
-def create_ptcld_geometries(submap, color, submap_offset=np.array([0,0,0]), include_label=True):
+def create_ptcld_geometries(submap: Submap, color, submap_offset=np.array([0,0,0]), include_label=True):
     ocd_list = []
     label_list = []
     
-    ptcldobj: PointCloudObject
-    for ptcldobj in submap:
+    for seg in submap.segments:
         pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(ptcldobj.get_points())
-        num_pts = ptcldobj.get_points().shape[0]
+        pcd.points = o3d.utility.Vector3dVector(seg.points)
+        num_pts = seg.points.shape[0]
         rand_color = np.random.uniform(0, 1) * color
         rand_color = np.repeat(rand_color, num_pts, axis=0)
         pcd.colors = o3d.utility.Vector3dVector(rand_color)
@@ -33,9 +29,9 @@ def create_ptcld_geometries(submap, color, submap_offset=np.array([0,0,0]), incl
         ocd_list.append(pcd)
         
         if include_label:
-            label = [f"id: {ptcldobj.id}", f"volume: {ptcldobj.volume:.2f}", 
-                    f"extent: [{ptcldobj.extent[0]:.2f}, {ptcldobj.extent[1]:.2f}, {ptcldobj.extent[2]:.2f}]"]
-            for i in range(3):
+            label = [f"id: {seg.id}", f"volume: {seg.volume:.2f}"] 
+                    # f"extent: [{ptcldobj.extent[0]:.2f}, {ptcldobj.extent[1]:.2f}, {ptcldobj.extent[2]:.2f}]"]
+            for i in range(2):
                 label_list.append((np.median(pcd.points, axis=0) + 
                                 np.array([0, 0, -0.15*i]), label[i]))
     
@@ -49,19 +45,33 @@ parser.add_argument('--no-text', action='store_true')
 args = parser.parse_args()
 output_viz_file = os.path.expanduser(args.output_viz_file)
 
+# Load result data
+
+print('Loading data...')
 pkl_file = open(output_viz_file, 'rb')
-submaps_0, submaps_1, associated_objs_mat, robots_nearby_mat, T_ij_mat, T_ij_hat_mat = pickle.load(pkl_file)
+results: SubmapAlignResults
+results = pickle.load(pkl_file)
+roman_maps = [ROMANMap.from_pickle(results.submap_io.inputs[i]) for i in range(2)]
+submap_params = SubmapParams.from_submap_align_params(results.submap_align_params)
+submap_params.use_minimal_data = False
+if results.submap_io.input_gt_pose_yaml != [None, None]:
+    gt_pose_data = [PoseData.from_yaml(yaml_file) for yaml_file in results.submap_io.input_gt_pose_yaml]
+submaps = [submaps_from_roman_map(
+    roman_maps[i], submap_params, gt_pose_data[i]) for i in range(2)]
 pkl_file.close()
-print(f'Loaded {len(submaps_0)} and {len(submaps_1)} submaps.')
+print(f'Loaded {len(submaps[0])} and {len(submaps[1])} submaps.')
+
+# grab variables from results
+associated_objs_mat = results.associated_objs_mat
 
 if args.idx is None:
-    clipper_num_associations  =  np.zeros((len(submaps_0), len(submaps_1)))*np.nan
+    clipper_num_associations  =  np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
 
     max_i = 0
     max_j = 0
     max_num = 0
-    for i in range(len(submaps_0)):
-        for j in range(len(submaps_1)):
+    for i in range(len(submaps[0])):
+        for j in range(len(submaps[1])):
             clipper_num_associations[i, j] =  len(associated_objs_mat[i][j])
             if len(associated_objs_mat[i][j]) > max_num:
                 max_num = len(associated_objs_mat[i][j])
@@ -75,22 +85,6 @@ if args.idx is None:
     plt.colorbar(fraction=0.03, pad=0.04)
     plt.show()
 
-# Same dir
-# idx_0 = max_i+1
-# idx_1 = max_j-1
-
-# West Point
-# idx_0 = 8
-# # idx_1 = 27
-# idx_1 = 28
-# # idx_0 = max_i+1
-# # idx_1 = max_j-1
-# # print(idx_0)
-# # print(idx_1)
-
-# acl_jackal2/sparkal2 perpendicular
-# idx
-
 if args.idx is not None:
   idx_0, idx_1 = args.idx
 else:
@@ -101,10 +95,10 @@ else:
 association = associated_objs_mat[idx_0][idx_1]
 print(associated_objs_mat[idx_0][idx_1])
 associated_objs_mat[idx_0-1][idx_1-1]
-submap_0 = [PointCloudObject.from_pickle(data) for data in submaps_0[idx_0]]
-submap_1 = [PointCloudObject.from_pickle(data) for data in submaps_1[idx_1]]
-for obj in submap_0 + submap_1:
-  obj.use_bottom_median_as_center()
+submap_0 = submaps[0][idx_0]
+submap_1 = submaps[1][idx_1]
+# for obj in submap_0 + submap_1:
+#   obj.use_bottom_median_as_center()
 print(f'Submap pair ({idx_0}, {idx_1}) contains {len(submap_0)} and {len(submap_1)} objects.')
 print(f'Clipper finds {len(association)} associations.')
 
