@@ -130,7 +130,7 @@ def gt_csv_est_g2o_to_pose_data(est_g2o_file: str, est_time_file: str,
     
     pose_data_gt = []
     for i in sorted(gt_csv_files.keys()):
-        if run_names is not None:
+        if run_names is not None and run_env is not None:
             os.environ[run_env] = run_names[i]
         pose_data_gt.append(load_gt_pose_data(gt_csv_files[i]))
     pose_data_est = [g2o_and_time_to_pose_data(est_g2o_file, est_time_file, i)
