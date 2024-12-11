@@ -28,6 +28,17 @@ class SubmapAlignResults:
     timing_list: List[float]
     submap_align_params: SubmapAlignParams
     submap_io: SubmapAlignInputOutput
+    
+    def save(self):
+        pkl_file = open(self.submap_io.output_pkl, 'wb')
+        pickle.dump(self, pkl_file)
+        pkl_file.close()
+        
+    @classmethod
+    def load(self, file_path):
+        pkl_file = open(file_path, 'rb')
+        return pickle.load(pkl_file)
+        
 
 def time_to_secs_nsecs(t, as_dict=False):
     seconds = int(t)
