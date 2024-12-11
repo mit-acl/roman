@@ -1,0 +1,4 @@
+[submodule "dependencies/clipper"]
+	path = dependencies/clipper
+	url = git@gitlab.com:mit-acl/sparse_mapping/clipper.git
+	branch = roman

@@ -2,13 +2,22 @@
 
 ![demo](./media/tracking.png)
 
-Open-set object mapping pipeline. 
-Objects are detected using [FastSAM](https://github.com/CASIA-IVA-Lab/FastSAM).
-3D point cloud observations are created by using FastSAM masks on depth images, which are then merged into object tracks in real-time, using voxel-based data association.
+Welcome to ROMAN(<ins>R</ins>obust <ins>O</ins>bject <ins>M</ins>ap <ins>A</ins>lignment A<ins>n</ins>ywhere).
+ROMAN is a view-invariant global localization method that maps open-set objects and uses the geometry, shape, and semantics of objects to find the transformation between a current pose and previously created object map.
+
+Included in this repository is code for open-set object mapping and object map registration using our robust data association algorithm.
 
 # Install
 
-`cd` into this directory and `pip install .`
+First, activate any virtual environment you would like to use with ROMAN.
+
+Then, clone and install with:
+
+```
+git clone git@github.com:mit-acl/roman.git
+cd roman
+
+```
 
 # Demo
 
