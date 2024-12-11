@@ -166,4 +166,3 @@ cython_debug/
 *.png
 output/
 output_old/
-dependencies/
