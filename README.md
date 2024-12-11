@@ -9,14 +9,13 @@ Included in this repository is code for open-set object mapping and object map r
 
 # Install
 
-First, activate any virtual environment you would like to use with ROMAN.
+First, **activate any virtual environment you would like to use with ROMAN**.
 
 Then, clone and install with:
 
 ```
 git clone git@github.com:mit-acl/roman.git
-cd roman
-
+./roman/install.sh
 ```
 
 # Demo
