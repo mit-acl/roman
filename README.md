@@ -8,6 +8,7 @@ ROMAN is a view-invariant global localization method that maps open-set objects 
 This enables loop closure between robots even when a scene is observed from *opposite views.*
 
 Included in this repository is code for open-set object mapping and object map registration using our robust data association algorithm.
+For ROS1/2 integration, please see the roman_ros repo.
 
 ## Citation
 
@@ -94,8 +95,9 @@ The output includes map visualization, loop closure accuracy results, and pose g
 ROMAN requires RGB-D images and odometry information. ROMAN should be runnable on any data with this information, using [robotdatapy](https://github.com/mbpeterson70/robotdatapy) to interface [pose data](https://github.com/mbpeterson70/robotdatapy/blob/main/robotdatapy/data/pose_data.py) and [image data](https://github.com/mbpeterson70/robotdatapy/blob/main/robotdatapy/data/img_data.py). Currently supported data types include ROS1/2 bags, zip files of images, and csv files for poses, with additional data sources in development. 
 Click [here](./demo/README.md/#custom-data) for more information on running on custom data.
 
----
+## Acknowledgements
 
 This research is supported by Ford Motor Company, DSTA, ONR, and
 ARL DCIST under Cooperative Agreement Number W911NF-17-2-0181.
 
+Additional thanks to Yun Chang for his help in interfacing with Kimera-RPGO.
