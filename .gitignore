@@ -1,3 +1,5 @@
+demo_output
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -163,6 +165,5 @@ cython_debug/
 *.pkl
 *.mp4
 *.pt
-*.png
 output/
 output_old/

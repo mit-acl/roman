@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import argparse
 from typing import List
 import os
+import yaml
 
 from roman.align.params import SubmapAlignInputOutput, SubmapAlignParams
 from roman.align.submap_align import submap_align
@@ -14,6 +15,7 @@ from roman.offline_rpgo.plot_g2o import plot_g2o, DEFAULT_TRAJECTORY_COLORS, G2O
 from roman.offline_rpgo.g2o_and_time_to_pose_data import g2o_and_time_to_pose_data
 from roman.offline_rpgo.evaluate import evaluate
 from roman.offline_rpgo.edit_g2o_edge_information import edit_g2o_edge_information
+from roman.offline_rpgo.params import OfflineRPGOParams
 
 import mapping
 
@@ -21,10 +23,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-r', '--runs', type=str, nargs="+", 
                         help='Run names. Individual map files will be saved using these names.')
-    parser.add_argument('-p', '--params', default=None, type=str, help='Path to params file', required=False)
-    parser.add_argument('--params-list', type=str, default=None, nargs='+', help='Path to multiple params files')
+    parser.add_argument('-p', '--params', default=None, type=str, help='Path to params directory.' +
+                        ' Params can include mapping.yaml with mapping parameters. gt_pose.yaml with ground' +
+                        ' truth parameters for evaluation. submap_align.yaml for loop closure parameters.' +
+                        ' offline_rpgo.yaml for pose graph optimization parameters. Only mapping.yaml is required,' +
+                        ' although a list of mapping params can be given with --mapping-params instead.' +
+                        ' When loading these files, --run-env will be set with the run name.', required=False)
+    parser.add_argument('--mapping-params', nargs='+', default=None, type=str, required=False,
+                        help='List of paths to mapping parameters. Must match number of runs. Overrides --params.')
     parser.add_argument('-o', '--output-dir', type=str, help='Path to output directory', required=True, default=None)
-    parser.add_argument('--align-params', type=str, help='Path to alignment params file', default=None)
     parser.add_argument('-e', '--run-env', type=str, help='This argument will be set as an environment variable for each run.' +
                         'e.g, "-r run1 run2 --run-env NAME" will set the environment variable NAME=run1 and NAME=run2')
     
@@ -36,8 +43,6 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--sparse-pgo', action='store_true', help='Use sparse pose graph optimization')
     parser.add_argument('-n', '--num-req-assoc', type=int, help='Number of required associations', default=4)
     # parser.add_argument('--set-env-vars', type=str)
-    parser.add_argument('--gt', type=str, help='Path to ground truth pose yaml file (use with run-env to set robot names)')
-    parser.add_argument('--gt-list', type=str, nargs='+', help='Paths to ground truth pose yaml file')
     parser.add_argument('--max-time', type=float, default=None, help='If the input data is too large, this allows a maximum time' +
                         'to be set, such that if the mapping will be chunked into max_time increments and fused together')
 
@@ -45,8 +50,40 @@ if __name__ == '__main__':
     parser.add_argument('--skip-align', action='store_true', help='Skip alignment')
     parser.add_argument('--skip-rpgo', action='store_true', help='Skip robust pose graph optimization')
     parser.add_argument('--skip-indices', type=int, nargs='+', help='Skip specific runs in mapping and alignment')
-    
+
     args = parser.parse_args()
+
+    # setup params
+    assert args.params is not None or args.mapping_params is not None, \
+        "Either --params or --mapping-params must be provided."
+    if args.mapping_params:
+        assert len(args.mapping_params) == len(args.runs), \
+            "Number of mapping params must match number of runs."
+    has_mapping_params_list = args.mapping_params is not None
+    has_params_dir = args.params is not None
+    if has_mapping_params_list:
+        mapping_params_list = args.mapping_params
+    if has_params_dir:
+        mapping_params_list = [os.path.join(args.params, f"mapping.yaml") for run in args.runs]
+        params_dir = args.params
+        submap_align_params_path = os.path.join(args.params, f"submap_align.yaml")
+        submap_align_params = SubmapAlignParams.from_yaml(submap_align_params_path) \
+            if os.path.exists(submap_align_params_path) else SubmapAlignParams()
+        offline_rpgo_params_path = os.path.join(args.params, f"offline_rpgo.yaml")
+        offline_rpgo_params = OfflineRPGOParams.from_yaml(offline_rpgo_params_path) \
+            if os.path.exists(os.path.join(args.params, "offline_rpgo.yaml")) else OfflineRPGOParams()
+            
+    else:
+        submap_align_params = SubmapAlignParams()
+        offline_rpgo_params = OfflineRPGOParams()
+
+    # ground truth pose files
+    if has_params_dir and os.path.exists(os.path.join(params_dir, "gt_pose.yaml")):
+        has_gt = True
+        gt_files = [os.path.join(params_dir, "gt_pose.yaml") for _ in range(len(args.runs))]
+    else:
+        has_gt = False
+        gt_files = [None for _ in range(len(args.runs))]
 
     # create output directories
     os.makedirs(os.path.join(args.output_dir, "map"), exist_ok=True)
@@ -55,33 +92,16 @@ if __name__ == '__main__':
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/sparse"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/dense"), exist_ok=True)
     
-    # setup ground truth files
-    gt_files = []
-    has_gt = True
-    if args.gt is not None:
-        gt_files = [args.gt for _ in range(len(args.runs))]
-    elif args.gt_list is not None:
-        gt_files = args.gt_list
-    else:
-        has_gt = False
-        gt_files = [None for _ in range(len(args.runs))]
-    
     if not args.skip_map:
-        
-        assert args.params is not None or args.params_list is not None, \
-            "Either --params or --params-list must be provided."
-        if args.params_list:
-            assert len(args.params_list) == len(args.runs), \
-                "Number of params files must match number of runs."
         
         for i, run in enumerate(args.runs):
             if args.skip_indices and i in args.skip_indices:
                 continue
-            if args.params_list:
-                args.params = args.params_list[i]
+                
             # mkdir $output_dir/map
             args.output = os.path.join(args.output_dir, "map", f"{run}")
-                
+            args.params = mapping_params_list[i]
+
             # shell: export RUN=run
             if args.run_env is not None:
                 os.environ[args.run_env] = run
@@ -90,7 +110,6 @@ if __name__ == '__main__':
             mapping.mapping(args)
         
     if not args.skip_align:
-        sm_params = SubmapAlignParams() if args.align_params is None else SubmapAlignParams.from_yaml(args.align_params)
         # TODO: support ground truth pose file for validation
             
         for i in range(len(args.runs)):
@@ -112,14 +131,11 @@ if __name__ == '__main__':
                     robot_names=[args.runs[i], args.runs[j]],
                     robot_env=args.run_env,
                 )
-                sm_params.single_robot_lc = (i == j)
-                submap_align(sm_params=sm_params, sm_io=sm_io)
-                
-    t_std = 0.005 if not args.sparse_pgo else 0.1
-    r_std = np.deg2rad(0.025) if not args.sparse_pgo else np.deg2rad(1.0)
-    min_keyframe_dist = 0.01 if not args.sparse_pgo else 2.0
-                
+                submap_align_params.single_robot_lc = (i == j)
+                submap_align(sm_params=submap_align_params, sm_io=sm_io)
+                       
     if not args.skip_rpgo:
+        min_keyframe_dist = 0.01 if not args.sparse_pgo else 2.0
         # Create g2o files for odometry
         for i, run in enumerate(args.runs):
             roman_map_pkl_to_g2o(
@@ -128,8 +144,8 @@ if __name__ == '__main__':
                 time_file=os.path.join(args.output_dir, "offline_rpgo/sparse", f"{run}.time.txt"),
                 robot_id=i,
                 min_keyframe_dist=min_keyframe_dist,
-                t_std=t_std,
-                r_std=r_std,
+                t_std=offline_rpgo_params.odom_t_std,
+                r_std=offline_rpgo_params.odom_r_std,
                 verbose=True
             )
             
@@ -140,8 +156,8 @@ if __name__ == '__main__':
                 time_file=os.path.join(args.output_dir, "offline_rpgo/dense", f"{run}.time.txt"),
                 robot_id=i,
                 min_keyframe_dist=None,
-                t_std=0.005,
-                r_std=np.deg2rad(0.025),
+                t_std=offline_rpgo_params.odom_t_std,
+                r_std=offline_rpgo_params.odom_r_std,
                 verbose=True
             )
         
@@ -186,21 +202,24 @@ if __name__ == '__main__':
             final_g2o_file = dense_g2o_file
         
         # change lc covar
-        # with open(os.path.expanduser(final_g2o_file), 'r') as f:
-        #     g2o_lines = f.readlines()
-        # # g2o_lines = edit_g2o_edge_information(g2o_lines, 0.1, np.deg2rad(0.5), loop_closures=True)
-        # g2o_lines = edit_g2o_edge_information(g2o_lines, 0.25, np.deg2rad(0.5), loop_closures=True)
-        # with open(os.path.expanduser(final_g2o_file), 'w') as f:
-        #     for line in g2o_lines:
-        #         f.write(line + '\n')
-        #     f.close()
+        with open(os.path.expanduser(final_g2o_file), 'r') as f:
+            g2o_lines = f.readlines()
+        g2o_lines = edit_g2o_edge_information(g2o_lines, offline_rpgo_params.lc_t_std, 
+                                              offline_rpgo_params.lc_r_std, loop_closures=True)
+        with open(os.path.expanduser(final_g2o_file), 'w') as f:
+            for line in g2o_lines:
+                f.write(line + '\n')
+            f.close()
             
         # run kimera centralized robust pose graph optimization
         result_g2o_file = os.path.join(args.output_dir, "offline_rpgo", "result.g2o")
         ros_launch_command = f"roslaunch kimera_centralized_pgmo offline_g2o_solver.launch \
             g2o_file:={final_g2o_file} \
             output_path:={os.path.join(args.output_dir, 'offline_rpgo')}"
-        os.system(ros_launch_command)
+        rpgo_command = f"/home/masonbp/code/Kimera-RPGO/build/RpgoReadG2o 3d {final_g2o_file}" \
+            + f" -1.0 -1.0 0.9 {os.path.join(args.output_dir, 'offline_rpgo')} v"
+        os.system(rpgo_command)
+        # os.system(ros_launch_command)
         
         # plot results
         g2o_symbol_to_name = {chr(97 + i): args.runs[i] for i in range(len(args.runs))}
