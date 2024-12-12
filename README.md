@@ -28,7 +28,10 @@ M.B. Peterson, Y.X. Jia, Y. Tian and J.P. How, "ROMAN: Open-Set Object Map Align
 
 ![System diagram](./media/system_diagram.png)
 
+## Dependencies
 
+Direct dependencies, [CLIPPER](https://github.com/mit-acl/CLIPPER) and [Kimera-RPGO](https://github.com/MIT-SPARK/Kimera-RPGO) are installed with the install script. 
+If you would like to use Kimera-RPGO with ROMAN (required for full demo), please also follow the [Kimera-RPGO dependency instructions](https://github.com/MIT-SPARK/Kimera-RPGO#Dependencies).
 
 ## Install
 
@@ -58,8 +61,8 @@ export ROMAN_DEMO_DATA=<path to the demo>
 ```
 mkdir demo_output
 python3 demo/demo.py \
-    -r sparkal1 sparkal2 \
-    -p demo/params/demo -e ROBOT \
+    -r sparkal1 sparkal2 -e ROBOT \
+    -p demo/params/demo \
     -o demo_output
 ```
 
