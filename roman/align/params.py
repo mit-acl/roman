@@ -6,7 +6,7 @@ import os
 import yaml
 
 import clipperpy
-from roman.align.roman import ROMAN, ROMANParams
+from roman.align.roman_registration import ROMANRegistration, ROMANParams
 from roman.align.ransac_reg import RansacReg
 from roman.align.dist_reg_with_pruning import DistRegWithPruning, GravityConstraintError
 
@@ -21,9 +21,9 @@ class SubmapAlignParams:
     submap_max_size: int = 40
     single_robot_lc: bool = False
     single_robot_lc_time_thresh: float = 50.0
-    force_rm_lc_roll_pitch = True
-    force_rm_upside_down = True
-    use_object_bottom_middle = False
+    force_rm_lc_roll_pitch: bool = True
+    force_rm_upside_down: bool = True
+    use_object_bottom_middle: bool = False
     
     # registration params
     sigma: float = 0.4
@@ -83,7 +83,7 @@ class SubmapAlignParams:
             # elif self.method == 'sevg':
             #     method_name = 'Semantic + Extent + Volume + Gravity'
 
-            registration = ROMAN(roman_params)
+            registration = ROMANRegistration(roman_params)
 
         elif self.method == 'prunevol':
             method_name = f'{self.dim}D Volume-based Pruning'
@@ -126,8 +126,8 @@ class SubmapAlignInputOutput:
         return os.path.join(self.output_dir, f'{self.run_name}.matrix.pkl')
     
     @property
-    def output_viz(self):
-        return os.path.join(self.output_dir, f'{self.run_name}.viz.pkl')
+    def output_pkl(self):
+        return os.path.join(self.output_dir, f'{self.run_name}.pkl')
     
     @property
     def output_timing(self):
