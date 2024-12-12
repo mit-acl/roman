@@ -216,8 +216,9 @@ if __name__ == '__main__':
         ros_launch_command = f"roslaunch kimera_centralized_pgmo offline_g2o_solver.launch \
             g2o_file:={final_g2o_file} \
             output_path:={os.path.join(args.output_dir, 'offline_rpgo')}"
+        roman_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
         rpgo_read_g2o_executable = \
-            f"{os.path.realpath(__file__)}/../dependencies/Kimera-RPGO/build/RpgoReadG2o"
+            f"{roman_path}/dependencies/Kimera-RPGO/build/RpgoReadG2o"
         rpgo_command = f"{rpgo_read_g2o_executable} 3d {final_g2o_file}" \
             + f" -1.0 -1.0 0.9 {os.path.join(args.output_dir, 'offline_rpgo')} v"
         os.system(rpgo_command)
