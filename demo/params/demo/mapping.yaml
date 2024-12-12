@@ -5,7 +5,6 @@ img_data:
   depth_img_topic: /${ROBOT}/forward/depth/image_rect_raw
   depth_cam_info_topic: /${ROBOT}/forward/depth/camera_info
   depth_compressed: False
-  depth_compressed_rvl: False
 
 pose_data:
   file_type: bag
