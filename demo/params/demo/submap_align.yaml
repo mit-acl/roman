@@ -1,0 +1,12 @@
+dim: 3
+method: 'spvg'
+fusion_method: 'geometric_mean'
+submap_radius: 15.0
+submap_center_dist: 10.0
+submap_center_time: 50.0 
+submap_max_size: 40
+single_robot_lc: False
+single_robot_lc_time_thresh: 50.0
+force_rm_lc_roll_pitch: False
+force_rm_upside_down: True
+use_object_bottom_middle: True

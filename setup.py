@@ -21,7 +21,7 @@ setup(
         'opencv-python',
         'pyyaml',
         'fastsam @ git+ssh://git@github.com/CASIA-IVA-Lab/FastSAM@4d153e9',
-        'robotdatapy @ git+ssh://git@github.com/mbpeterson70/robotdatapy@51133a2'
+        'robotdatapy>=1.0.0'
     ],
 )
 

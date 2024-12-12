@@ -34,7 +34,7 @@ class ROMANParams:
     epsilon_shape: float = None
 
 
-class ROMAN(ObjectRegistration):
+class ROMANRegistration(ObjectRegistration):
     def __init__(self, params: ROMANParams):
         super().__init__(dim=params.point_dim)
 
