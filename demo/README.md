@@ -21,7 +21,8 @@ To run ROMAN on played back data or in real-time, use the `roman_ros` repository
 If you are interested in loading in another type of data, the [ROMANMapRunner class](../roman/map/run.py) can be edited to load other data types using the `robotdatapy` [PoseData](https://github.com/mbpeterson70/robotdatapy/blob/main/robotdatapy/data/pose_data.py) and [ImgData](https://github.com/mbpeterson70/robotdatapy/blob/main/robotdatapy/data/img_data.py) interfaces.
 
 To run ROMAN on your data, start by copying the [demo params directory](./params/demo).
-Within [mapping.yaml](./params/demo/mapping.yaml), the `img_data` and `pose_data` fields will need to be edited to load your data.
+Within [mapping.yaml](./params/demo/mapping.yaml), the `img_data` and `pose_data` fields will need to be edited to load your data as explained in the following sections.
+Pass the updated params directory in using the `-p` argument.
 
 ### Loading ROS Image Data
 
@@ -73,3 +74,7 @@ parent: <parent frame_id>
 child: <child frame_id>
 inv: <Whether the transformation from /tf_static should be inverted or not>
 ```
+
+### Using environment variables in data paths/topics
+
+To enable using the same set of parameters on different robot data, demo.py can be run with the `-e` argument to export a desired environment variable with the run names specified with the `-r` command. As an example, if you have two robots, julius and augustus, you can use `-r julius augustus` and in the path field of `img_data`, specify the path as `"${ROBOT_ENV_VAR}.bag`. Then use `-e ROBOT_ENV_VAR` so that ROMAN will correctly grab `julius.bag` for the julius run and `augustus.bag` for the augustus run.
