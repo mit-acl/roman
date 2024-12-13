@@ -1,6 +1,6 @@
 [submodule "dependencies/clipper"]
 	path = dependencies/clipper
-	url = git@gitlab.com:mit-acl/sparse_mapping/clipper.git
+	url = https://github.com/mit-acl/clipper
 	branch = roman
 [submodule "dependencies/Kimera-RPGO"]
 	path = dependencies/Kimera-RPGO
