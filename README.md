@@ -8,7 +8,7 @@ ROMAN is a view-invariant global localization method that maps open-set objects 
 This enables loop closure between robots even when a scene is observed from *opposite views.*
 
 Included in this repository is code for open-set object mapping and object map registration using our robust data association algorithm.
-For ROS1/2 integration, please see the [roman_ros](https://github.com/mit-acl/roman_ros) repo.
+For ROS1/2 integration, please see the [roman_ros](https://github.com/mit-acl/roman_ros) repo. Additionally, the ROMAN project website can be viewed [here](https://acl.mit.edu/ROMAN-project/).
 
 ## Citation
 
