@@ -8,7 +8,7 @@ ROMAN is a view-invariant global localization method that maps open-set objects 
 This enables loop closure between robots even when a scene is observed from *opposite views.*
 
 Included in this repository is code for open-set object mapping and object map registration using our robust data association algorithm.
-For ROS1/2 integration, please see the roman_ros repo.
+For ROS1/2 integration, please see the [roman_ros](https://github.com/mit-acl/roman_ros) repo.
 
 ## Citation
 
@@ -67,13 +67,17 @@ We demonstrate ROMAN's open-set object mapping and object-based loop closure to 
 Instructions for running the demo:
 
 1. Download a small portion of the [Kimera Multi Data](https://github.com/MIT-SPARK/Kimera-Multi-Data) that is used for the ROMAN SLAM demo. The data subset is available for download [here](https://drive.google.com/drive/folders/1ANdi4IyroWzJmd85ap1V-IMF8-I9haUB?usp=sharing).
-2. In your `.bashrc` or in the terminal where you will run the ROMAN demo export the following environment variable: 
+
+2. Download FastSAM model weights [here](https://drive.google.com/file/d/1m1sjY4ihXBU1fZXdQ-Xdj-mDltW-2Rqv/view).
+
+3. In your `.bashrc` or in the terminal where you will run the ROMAN demo export the following environment variables: 
 
 ```
-export ROMAN_DEMO_DATA=<path to the demo>
+export ROMAN_DEMO_DATA=<path to the demo data>
+export FASTSAM_WEIGHTS_PATH=<path to weights downloaded in step 2>
 ```
 
-3. `cd` into this repo and run the following to start the demo
+4. `cd` into this repo and run the following to start the demo
 
 ```
 mkdir demo_output
