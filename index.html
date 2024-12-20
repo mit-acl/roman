@@ -93,6 +93,16 @@
                   <span>Code</span>
                   </a>
               </span>
+              <!-- ROS Wrapper Link. -->
+              <span class="link-block">
+                <a href="https://github.com/mit-acl/roman_ros"
+                   class="external-link button is-normal is-rounded is-dark">
+                  <span class="icon">
+                      <i class="fab fa-github"></i>
+                  </span>
+                  <span>ROS</span>
+                  </a>
+              </span>
               <!-- Dataset Link. -->
               <!-- <span class="link-block">
                 <a href=""
@@ -115,16 +125,24 @@
   <div class="container is-max-desktop">
     <div class="hero-body">
       <!-- Image Section -->
+      <div class="image-section" align="center">
+        <iframe width="720" height="360"
+        src="https://www.youtube.com/embed/t2LlSiHKOyY?autoplay=1&mute=1">
+        </iframe>
+        <!-- <img src="./static/images/wp_teaser.png" alt="Example Image"> -->
+      </div>
       <div class="image-section">
-        <img src="./static/images/wp_teaser.png" alt="Example Image">
-        <p class="caption">Pair of segment submaps matched by two
-robots traveling in opposite directions in an off-road environment.
- Associated segments found by the proposed method are connected by lines and projected
-onto the image plane. (Top) Each pair of associated segments is
-drawn with the same color. The remaining, unmatched segments are
-shown in random colors and all other background points are shown
-in gray. (Bottom) The same associated segments and their convex
-hulls are visualized in the original image observations.</p>
+        <p class="caption">
+          ROMAN 
+          (<u>R</u>obust <u>O</u>bject <u>M</u>ap 
+          <u>A</u>lignment A<u>n</u>ywhere) 
+          is a view-invariant global localization method that 
+          maps open-set objects and uses the geometry, shape, and 
+          semantics of objects to find the transformation between a 
+          current pose and previously created object map. 
+          This enables loop closure between robots even when a scene 
+          is observed from opposite views.
+        </p>
       </div>
     </div>
   </div>
