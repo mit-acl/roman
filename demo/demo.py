@@ -227,9 +227,10 @@ if __name__ == '__main__':
         # plot results
         g2o_symbol_to_name = {chr(97 + i): args.runs[i] for i in range(len(args.runs))}
         g2o_plot_params = G2OPlotParams()
-        fig, ax = plt.subplots(3, 1, figsize=(5,10))
+        fig, ax = plt.subplots(3, 1, figsize=(7,14), gridspec_kw={'height_ratios': [3, 1, 1]})
         for i in range(3):
             g2o_plot_params.axes = [(0, 1), (0, 2), (1, 2)][i]
+            g2o_plot_params.legend = (i == 0)
             plot_g2o(
                 g2o_path=result_g2o_file,
                 g2o_symbol_to_name=g2o_symbol_to_name,
