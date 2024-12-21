@@ -94,10 +94,10 @@ def run(args, params):
             f.write(f"total: {np.sum(runner.processing_times.total_times):.2f}\n")
     
     if args.save_img_data:
-        img_data_path = os.path.expanduser(expandvars(args.output)) + ".img_data.zip"
+        img_data_path = os.path.expanduser(expandvars(args.output)) + ".img_data.npz"
         print(f"Saving visualization to {img_data_path}")
-        img_data = ImgData(times=runner.times_history, imgs=runner.viz_imgs, data_type='raw')
-        img_data.to_zip(img_data_path)
+        img_data = ImgData(times=runner.mapper.times_history, imgs=runner.viz_imgs, data_type='raw')
+        img_data.to_npz(img_data_path)
     
     del runner
     return
