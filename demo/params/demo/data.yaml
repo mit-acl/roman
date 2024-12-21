@@ -1,0 +1,16 @@
+img_data:
+  path: "${ROMAN_DEMO_DATA}/${ROBOT}_camera.bag"
+  img_topic: /${ROBOT}/forward/color/image_raw/compressed
+  cam_info_topic: /${ROBOT}/forward/color/camera_info
+  depth_img_topic: /${ROBOT}/forward/depth/image_rect_raw
+  depth_cam_info_topic: /${ROBOT}/forward/depth/camera_info
+  depth_compressed: False
+
+pose_data:
+  file_type: bag
+  path: ${ROMAN_DEMO_DATA}/${ROBOT}_vio.bag
+  topic: /${ROBOT}/kimera_vio_ros/odometry
+  time_tol: 10.0
+  T_camera_flu:
+    input_type: "string"
+    string: "T_RDFFLU"
