@@ -18,23 +18,22 @@ def visualize_map_on_img(t, pose, img, mapper):
         # only draw segments seen in the last however many seconds
         if segment.last_seen < t - mapper.params.segment_graveyard_time - 10:
             continue
-        outline = segment.outline_2d(pose)
-        if outline is None:
-            continue
-        # if i < len(tracker.segments):
-        #     color = (0, 255, 0)
-        # elif i < len(tracker.segments) + len(tracker.inactive_segments):
-        #     color = (255, 0, 0)
-        # else:
-        #     color = (180, 0, 180)
-        color = segment.viz_color[::-1]
-        for i in range(len(outline) - 1):
-            start_point = tuple(outline[i].astype(np.int32))
-            end_point = tuple(outline[i+1].astype(np.int32))
-            img = cv.line(img, start_point, end_point, color, thickness=2)
+        img = visualize_segment_on_img(segment, pose, img)
+    return img
 
-        img = cv.putText(img, str(segment.id), (np.array(outline[0]) + np.array([10., 10.])).astype(np.int32), 
-                        cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+def visualize_segment_on_img(segment: Segment, pose: np.ndarray, img: np.ndarray):
+    outline = segment.outline_2d(pose)
+    if outline is None:
+        return img
+
+    color = segment.viz_color[::-1]
+    for i in range(len(outline) - 1):
+        start_point = tuple(outline[i].astype(np.int32))
+        end_point = tuple(outline[i+1].astype(np.int32))
+        img = cv.line(img, start_point, end_point, color, thickness=2)
+
+    img = cv.putText(img, str(segment.id), (np.array(outline[0]) + np.array([10., 10.])).astype(np.int32), 
+                    cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
     return img
 
 def visualize_observations_on_img(t, img, mapper, observations, reprojected_bboxs):
