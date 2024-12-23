@@ -1,7 +1,20 @@
+###########################################################
+#
+# utils.py
+#
+# ROMAN package utility functions
+#
+# Authors: Mason Peterson
+#
+# Dec. 23, 2024
+#
+###########################################################
+
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import List
 from scipy.spatial.transform import Rotation as Rot
+from os.path import expandvars, expanduser
 
 from roman.object.object import Object
 
@@ -139,3 +152,11 @@ def rotation_rm_roll_pitch(R):
 def transform_rm_roll_pitch(T):
     T[:3,:3] = Rot.from_euler('z', Rot.from_matrix(T[:3,:3]).as_euler('ZYX')[0]).as_matrix()
     return T
+
+def expandvars_recursive(path):
+    """Recursively expands environment variables in the given path."""
+    while True:
+        expanded_path = expandvars(path)
+        if expanded_path == path:
+            return expanduser(expanded_path)
+        path = expanded_path

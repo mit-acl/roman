@@ -1,5 +1,15 @@
 #########################################
+# 
+# fastsam_wrapper.py
+#
+# A Python wrapper for sending RGBD images to FastSAM and using segmentation 
+# masks to create object observations.
+# 
 # Authors: Jouko Kinnari, Mason Peterson, Lucas Jia, Annika Thomas
+# 
+# Dec. 21, 2024
+#
+#########################################
 
 
 import cv2 as cv
@@ -14,8 +24,13 @@ from PIL import Image
 from fastsam import FastSAMPrompt
 from fastsam import FastSAM
 import clip
-from roman.map.observation import Observation
 import logging
+
+from robotdatapy.camera import CameraParams
+
+from roman.map.observation import Observation
+from roman.params.fastsam_params import FastSAMParams
+from roman.utils import expandvars_recursive
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARN)
@@ -94,6 +109,38 @@ class FastSAMWrapper():
         assert self.device == 'cuda' or self.device == 'cpu', "Device should be 'cuda' or 'cpu'."
         assert self.rotate_img is None or self.rotate_img == 'CW' or self.rotate_img == 'CCW' \
             or self.rotate_img == '180', "Invalid rotate_img option."
+            
+    @classmethod
+    def from_params(cls, params: FastSAMParams, depth_cam_params: CameraParams):
+        fastsam = cls(
+            weights=expandvars_recursive(params.weights_path),
+            imgsz=params.imgsz,
+            device=params.device,
+            mask_downsample_factor=params.mask_downsample_factor,
+            rotate_img=params.rotate_img
+        )
+        fastsam.setup_rgbd_params(
+            depth_cam_params=depth_cam_params, 
+            max_depth=params.max_depth,
+            depth_scale=params.depth_scale,
+            voxel_size=params.voxel_size,
+            erosion_size=params.erosion_size,
+            plane_filter_params=params.plane_filter_params
+        )
+
+        img_area = depth_cam_params.width * depth_cam_params.height
+        fastsam.setup_filtering(
+            ignore_labels=params.ignore_labels,
+            use_keep_labels=params.use_keep_labels,
+            keep_labels=params.keep_labels,
+            keep_labels_option=params.keep_labels_option,
+            yolo_det_img_size=params.yolo_imgsz,
+            allow_tblr_edges=[True, True, True, True],
+            area_bounds=[img_area / (params.min_mask_len_div**2), img_area / (params.max_mask_len_div**2)],
+            clip_embedding=params.clip
+        )
+
+        return fastsam
             
     def setup_filtering(self,
         ignore_labels = [],
