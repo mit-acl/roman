@@ -240,7 +240,7 @@ class DataParams:
             if self.time_params is not None:
                 if self.time_params['relative']:
                     topic_t0 = ImgData.topic_t0(img_file_path, 
-                        expandvars_recursive(self.img_data_params.img_topic))
+                        expandvars_recursive(self.img_data_params.topic))
                     time_range = [topic_t0 + self.time_params['t0'], 
                                   topic_t0 + self.time_params['tf']]
                 else:

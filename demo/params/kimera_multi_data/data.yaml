@@ -1,5 +1,5 @@
 dt: 0.166666666666666667
-runs: ["sparkal1", "sparkal2"]
+runs: ["acl_jackal", "acl_jackal2", "sparkal1", "sparkal2", "hathor", "thoth"]
 run_env: "ROBOT"
 
 img_data:
