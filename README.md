@@ -82,10 +82,11 @@ export FASTSAM_WEIGHTS_PATH=<path to weights downloaded in step 2>
 ```
 mkdir demo_output
 python3 demo/demo.py \
-    -r sparkal1 sparkal2 -e ROBOT \
     -p demo/params/demo \
     -o demo_output
 ```
+
+Here, the `-p` argument specifies the parameter directory and the `-o` argument specifies the output directory.
 
 Optionally, the mapping process can be visualized with the `-m` argument to show the map projected on the camera image as it is created or `-3` command to show a 3D visualization of the map.
 However, these will cause the demo to run slower. 
