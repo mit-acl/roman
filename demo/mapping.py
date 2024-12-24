@@ -1,3 +1,15 @@
+###########################################################
+#
+# mapping.py
+#
+# Demo code for running ROMAN mapping
+#
+# Authors: Mason Peterson, Yulun Tian, Lucas Jia
+#
+# Dec. 21, 2024
+#
+###########################################################
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, FFMpegWriter
@@ -16,14 +28,36 @@ from os.path import expandvars
 from threading import Thread
 
 from roman.map.run import ROMANMapRunner
+from roman.params.data_params import DataParams
+from roman.params.mapper_params import MapperParams
+from roman.params.fastsam_params import FastSAMParams
+from roman.utils import expandvars_recursive
 
 from robotdatapy.data import ImgData
 from merge_demo_output import merge_demo_output
 
+def extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=None):
+    assert os.path.exists(data_params_path), "Data params file does not exist."
+    data_params = DataParams.from_yaml(data_params_path, run=run_name)
+        
+    if os.path.exists(fastsam_params_path):
+        fastsam_params = FastSAMParams.from_yaml(fastsam_params_path, run=run_name)
+    else:
+        fastsam_params = FastSAMParams()
 
-def run(args, params):
+    if os.path.exists(mapper_params_path):
+        mapper_params = MapperParams.from_yaml(mapper_params_path, run=run_name)
+    else:
+        mapper_params = MapperParams()
     
-    runner = ROMANMapRunner(params, verbose=True, viz_map=args.viz_map, 
+    return data_params, fastsam_params, mapper_params
+
+def run(args, data_params: DataParams, fastsam_params: FastSAMParams, mapper_params: MapperParams):
+    
+    runner = ROMANMapRunner(data_params=data_params, 
+                            fastsam_params=fastsam_params, 
+                            mapper_params=mapper_params, 
+                            verbose=True, viz_map=args.viz_map, 
                             viz_observations=args.viz_observations, 
                             viz_3d=args.viz_3d,
                             save_viz=args.save_img_data)
@@ -44,8 +78,8 @@ def run(args, params):
     if vid:
         fc = cv.VideoWriter_fourcc(*"mp4v")
         video_file = os.path.expanduser(expandvars(args.output)) + ".mp4"
-        fps = int(np.max([5., args.vid_rate*1/params['segment_tracking']['dt']]))
-        if params['fastsam']['rotate_img'] not in ['CCW', 'CW']:
+        fps = int(np.max([5., args.vid_rate*1/data_params.dt]))
+        if fastsam_params.rotate_img not in ['CCW', 'CW']:
             width = runner.img_data.camera_params.width 
             height = runner.img_data.camera_params.height
         else:
@@ -85,7 +119,7 @@ def run(args, params):
 
         timing_file = os.path.expanduser(expandvars(args.output)) + ".time.txt"
         with open(timing_file, 'w') as f:
-            f.write(f"dt: {params['segment_tracking']['dt']}\n\n")
+            f.write(f"dt: {data_params.dt}\n\n")
             f.write(f"AVERAGE TIMES\n")
             f.write(f"fastsam: {np.mean(runner.processing_times.fastsam_times):.3f}\n")
             f.write(f"segment_track: {np.mean(runner.processing_times.map_times):.3f}\n")
@@ -103,28 +137,38 @@ def run(args, params):
     return
 
 def mapping(args):
-    with open(args.params, 'r') as f:
-        params = yaml.safe_load(f)
+    # TODO: start to fill in here. I think we need the option to either have one set of data params
+    # or to input one for each robot. Need to think about how to do this cleanly.
+    data_params_path = expandvars_recursive(f"{args.params}/data.yaml")
+    mapper_params_path = expandvars_recursive(f"{args.params}/mapper.yaml")
+    fastsam_params_path = expandvars_recursive(f"{args.params}/fastsam.yaml")
         
-        if args.max_time is not None:
-            output = args.output
-            try:
-                mapping_iter = 0
-                while True:
-                    params['time'] = {
-                        't0': args.max_time * mapping_iter, 
-                        'tf': args.max_time * (mapping_iter + 1),
-                        'relative': True}
-                    args.output = f"{output}_{mapping_iter}"
-                    run(args, params)
-                    mapping_iter += 1
-            except:
-                demo_output_files = [f"{output}_{mi}.pkl" for mi in range(mapping_iter)]
-                merge_demo_output(demo_output_files, f"{output}.pkl")
-        
-        else:
-            run(args, params)
-
+    if args.max_time is not None:
+        output = args.output
+        try:
+            mapping_iter = 0
+            while True:
+                
+                data_params, fastsam_params, mapper_params = \
+                    extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=args.run)
+                    
+                data_params.time_params = {
+                    't0': args.max_time * mapping_iter, 
+                    'tf': args.max_time * (mapping_iter + 1),
+                    'relative': True}
+                
+                args.output = f"{output}_{mapping_iter}"
+                
+                run(args, data_params, fastsam_params, mapper_params)
+                mapping_iter += 1
+        except:
+            demo_output_files = [f"{output}_{mi}.pkl" for mi in range(mapping_iter)]
+            merge_demo_output(demo_output_files, f"{output}.pkl")
+    
+    else:
+        data_params, fastsam_params, mapper_params = \
+            extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=args.run)
+        run(args, data_params, fastsam_params, mapper_params)
 
 
 if __name__ == '__main__':
@@ -137,6 +181,7 @@ if __name__ == '__main__':
     parser.add_argument('-3', '--viz-3d', action='store_true', help='Visualize in 3D')
     parser.add_argument('--vid-rate', type=float, help='Video playback rate', default=1.0)
     parser.add_argument('-d', '--save-img-data', action='store_true', help='Save video frames as ImgData class')
+    parser.add_argument('-r', '--run', type=str, help='Robot run', default=None)
     args = parser.parse_args()
 
     mapping(args)

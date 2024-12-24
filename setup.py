@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='roman',
-    version='0.1.0',    
+    version='0.1.1',    
     description='Package for tracking FastSAM segments',
     url='url',
     author='Mason Peterson',
@@ -21,7 +21,7 @@ setup(
         'opencv-python',
         'pyyaml',
         'fastsam @ git+ssh://git@github.com/CASIA-IVA-Lab/FastSAM@4d153e9',
-        'robotdatapy>=1.0.0'
+        'robotdatapy>=1.0.1'
     ],
 )
 
