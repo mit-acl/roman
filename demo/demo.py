@@ -1,3 +1,16 @@
+###########################################################
+#
+# demo.py
+#
+# Demo code for running full ROMAN SLAM pipeline including 
+# mapping, loop closure, and pose-graph optimization
+#
+# Authors: Mason Peterson, Yulun Tian, Lucas Jia
+#
+# Dec. 21, 2024
+#
+###########################################################
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -16,24 +29,19 @@ from roman.offline_rpgo.g2o_and_time_to_pose_data import g2o_and_time_to_pose_da
 from roman.offline_rpgo.evaluate import evaluate
 from roman.offline_rpgo.edit_g2o_edge_information import edit_g2o_edge_information
 from roman.offline_rpgo.params import OfflineRPGOParams
+from roman.params.data_params import DataParams
 
 import mapping
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-r', '--runs', type=str, nargs="+", 
-                        help='Run names. Individual map files will be saved using these names.')
     parser.add_argument('-p', '--params', default=None, type=str, help='Path to params directory.' +
                         ' Params can include mapping.yaml with mapping parameters. gt_pose.yaml with ground' +
                         ' truth parameters for evaluation. submap_align.yaml for loop closure parameters.' +
                         ' offline_rpgo.yaml for pose graph optimization parameters. Only mapping.yaml is required,' +
                         ' although a list of mapping params can be given with --mapping-params instead.' +
-                        ' When loading these files, --run-env will be set with the run name.', required=False)
-    parser.add_argument('--mapping-params', nargs='+', default=None, type=str, required=False,
-                        help='List of paths to mapping parameters. Must match number of runs. Overrides --params.')
+                        ' When loading these files, --run-env will be set with the run name.', required=True)
     parser.add_argument('-o', '--output-dir', type=str, help='Path to output directory', required=True, default=None)
-    parser.add_argument('-e', '--run-env', type=str, help='This argument will be set as an environment variable for each run.' +
-                        'e.g, "-r run1 run2 --run-env NAME" will set the environment variable NAME=run1 and NAME=run2')
     
     parser.add_argument('-m', '--viz-map', action='store_true', help='Visualize map')
     parser.add_argument('-v', '--viz-observations', action='store_true', help='Visualize observations')
@@ -54,36 +62,22 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # setup params
-    assert args.params is not None or args.mapping_params is not None, \
-        "Either --params or --mapping-params must be provided."
-    if args.mapping_params:
-        assert len(args.mapping_params) == len(args.runs), \
-            "Number of mapping params must match number of runs."
-    has_mapping_params_list = args.mapping_params is not None
-    has_params_dir = args.params is not None
-    if has_mapping_params_list:
-        mapping_params_list = args.mapping_params
-    if has_params_dir:
-        mapping_params_list = [os.path.join(args.params, f"mapping.yaml") for run in args.runs]
-        params_dir = args.params
-        submap_align_params_path = os.path.join(args.params, f"submap_align.yaml")
-        submap_align_params = SubmapAlignParams.from_yaml(submap_align_params_path) \
-            if os.path.exists(submap_align_params_path) else SubmapAlignParams()
-        offline_rpgo_params_path = os.path.join(args.params, f"offline_rpgo.yaml")
-        offline_rpgo_params = OfflineRPGOParams.from_yaml(offline_rpgo_params_path) \
-            if os.path.exists(os.path.join(args.params, "offline_rpgo.yaml")) else OfflineRPGOParams()
+    params_dir = args.params
+    submap_align_params_path = os.path.join(args.params, f"submap_align.yaml")
+    submap_align_params = SubmapAlignParams.from_yaml(submap_align_params_path) \
+        if os.path.exists(submap_align_params_path) else SubmapAlignParams()
+    offline_rpgo_params_path = os.path.join(args.params, f"offline_rpgo.yaml")
+    offline_rpgo_params = OfflineRPGOParams.from_yaml(offline_rpgo_params_path) \
+        if os.path.exists(os.path.join(args.params, "offline_rpgo.yaml")) else OfflineRPGOParams()
+    data_params = DataParams.from_yaml(os.path.join(args.params, "data.yaml"))
             
-    else:
-        submap_align_params = SubmapAlignParams()
-        offline_rpgo_params = OfflineRPGOParams()
-
     # ground truth pose files
-    if has_params_dir and os.path.exists(os.path.join(params_dir, "gt_pose.yaml")):
+    if os.path.exists(os.path.join(params_dir, "gt_pose.yaml")):
         has_gt = True
-        gt_files = [os.path.join(params_dir, "gt_pose.yaml") for _ in range(len(args.runs))]
+        gt_files = [os.path.join(params_dir, "gt_pose.yaml") for _ in range(len(data_params.runs))]
     else:
         has_gt = False
-        gt_files = [None for _ in range(len(args.runs))]
+        gt_files = [None for _ in range(len(data_params.runs))]
 
     # create output directories
     os.makedirs(os.path.join(args.output_dir, "map"), exist_ok=True)
@@ -94,17 +88,20 @@ if __name__ == '__main__':
     
     if not args.skip_map:
         
-        for i, run in enumerate(args.runs):
+        # TODO: support including different data params for different runs
+        # currently can only use the same data params for all runs
+        args.run = None
+        
+        for i, run in enumerate(data_params.runs):
             if args.skip_indices and i in args.skip_indices:
                 continue
                 
             # mkdir $output_dir/map
             args.output = os.path.join(args.output_dir, "map", f"{run}")
-            args.params = mapping_params_list[i]
 
             # shell: export RUN=run
-            if args.run_env is not None:
-                os.environ[args.run_env] = run
+            if data_params.run_env is not None:
+                os.environ[data_params.run_env] = run
             
             print(f"Mapping: {run}")
             mapping.mapping(args)
@@ -112,24 +109,24 @@ if __name__ == '__main__':
     if not args.skip_align:
         # TODO: support ground truth pose file for validation
             
-        for i in range(len(args.runs)):
+        for i in range(len(data_params.runs)):
             if args.skip_indices and i in args.skip_indices:
                 continue
-            for j in range(i, len(args.runs)):
+            for j in range(i, len(data_params.runs)):
                 if args.skip_indices and j in args.skip_indices:
                     continue
-                output_dir = os.path.join(args.output_dir, "align", f"{args.runs[i]}_{args.runs[j]}")
+                output_dir = os.path.join(args.output_dir, "align", f"{data_params.runs[i]}_{data_params.runs[j]}")
                 os.makedirs(output_dir, exist_ok=True)
-                input_files = [os.path.join(args.output_dir, "map", f"{args.runs[i]}.pkl"),
-                            os.path.join(args.output_dir, "map", f"{args.runs[j]}.pkl")]
+                input_files = [os.path.join(args.output_dir, "map", f"{data_params.runs[i]}.pkl"),
+                            os.path.join(args.output_dir, "map", f"{data_params.runs[j]}.pkl")]
                 sm_io = SubmapAlignInputOutput(
                     inputs=input_files,
                     output_dir=output_dir,
                     run_name="align",
                     lc_association_thresh=args.num_req_assoc,
                     input_gt_pose_yaml=[gt_files[i], gt_files[j]],
-                    robot_names=[args.runs[i], args.runs[j]],
-                    robot_env=args.run_env,
+                    robot_names=[data_params.runs[i], data_params.runs[j]],
+                    robot_env=data_params.run_env,
                 )
                 submap_align_params.single_robot_lc = (i == j)
                 submap_align(sm_params=submap_align_params, sm_io=sm_io)
@@ -137,7 +134,7 @@ if __name__ == '__main__':
     if not args.skip_rpgo:
         min_keyframe_dist = 0.01 if not args.sparse_pgo else 2.0
         # Create g2o files for odometry
-        for i, run in enumerate(args.runs):
+        for i, run in enumerate(data_params.runs):
             roman_map_pkl_to_g2o(
                 pkl_file=os.path.join(args.output_dir, "map", f"{run}.pkl"),
                 g2o_file=os.path.join(args.output_dir, "offline_rpgo/sparse", f"{run}.g2o"),
@@ -165,25 +162,25 @@ if __name__ == '__main__':
         odom_sparse_all_time_file = os.path.join(args.output_dir, "offline_rpgo/sparse", "odom_all.time.txt")
         odom_dense_all_time_file = os.path.join(args.output_dir, "offline_rpgo/dense", "odom_all.time.txt")
         with open(odom_sparse_all_time_file, 'w') as f:
-            for i, run in enumerate(args.runs):
+            for i, run in enumerate(data_params.runs):
                 with open(os.path.join(args.output_dir, "offline_rpgo/sparse", f"{run}.time.txt"), 'r') as f2:
                     f.write(f2.read())
                 f2.close()
         with open(odom_dense_all_time_file, 'w') as f:
-            for i, run in enumerate(args.runs):
+            for i, run in enumerate(data_params.runs):
                 with open(os.path.join(args.output_dir, "offline_rpgo/dense", f"{run}.time.txt"), 'r') as f2:
                     f.write(f2.read())
                 f2.close()
         
         # Fuse all odometry g2o files
         odom_sparse_all_g2o_file = os.path.join(args.output_dir, "offline_rpgo/sparse", "odom_all.g2o")
-        g2o_fusion_config = create_config(robots=args.runs, 
+        g2o_fusion_config = create_config(robots=data_params.runs, 
             odometry_g2o_dir=os.path.join(args.output_dir, "offline_rpgo/sparse"))
         g2o_file_fusion(g2o_fusion_config, odom_sparse_all_g2o_file, thresh=args.num_req_assoc)
         
         # Fuse dense g2o file including loop closures
         dense_g2o_file = os.path.join(args.output_dir, "offline_rpgo/dense", "odom_and_lc.g2o")
-        g2o_fusion_config = create_config(robots=args.runs, 
+        g2o_fusion_config = create_config(robots=data_params.runs, 
             odometry_g2o_dir=os.path.join(args.output_dir, "offline_rpgo/dense"),
             submap_align_dir=os.path.join(args.output_dir, "align"), align_file_name="align")
         g2o_file_fusion(g2o_fusion_config, dense_g2o_file, thresh=args.num_req_assoc)
@@ -225,11 +222,12 @@ if __name__ == '__main__':
         # os.system(ros_launch_command)
         
         # plot results
-        g2o_symbol_to_name = {chr(97 + i): args.runs[i] for i in range(len(args.runs))}
+        g2o_symbol_to_name = {chr(97 + i): data_params.runs[i] for i in range(len(data_params.runs))}
         g2o_plot_params = G2OPlotParams()
-        fig, ax = plt.subplots(3, 1, figsize=(5,10))
+        fig, ax = plt.subplots(3, 1, figsize=(7,14), gridspec_kw={'height_ratios': [3, 1, 1]})
         for i in range(3):
             g2o_plot_params.axes = [(0, 1), (0, 2), (1, 2)][i]
+            g2o_plot_params.legend = (i == 0)
             plot_g2o(
                 g2o_path=result_g2o_file,
                 g2o_symbol_to_name=g2o_symbol_to_name,
@@ -241,7 +239,7 @@ if __name__ == '__main__':
         print(f"Results saved to {os.path.join(args.output_dir, 'offline_rpgo', 'result.png')}")
         
         # Save csv files with resulting trajectories
-        for i, run in enumerate(args.runs):
+        for i, run in enumerate(data_params.runs):
             pose_data = g2o_and_time_to_pose_data(result_g2o_file, 
                                                   odom_sparse_all_time_file if args.sparse_pgo else odom_dense_all_time_file, 
                                                   robot_id=i)
@@ -256,7 +254,7 @@ if __name__ == '__main__':
                 result_g2o_file, 
                 odom_sparse_all_time_file  if args.sparse_pgo else odom_dense_all_time_file, 
                 {i: gt_files[i] for i in range(len(gt_files))},
-                {i: args.runs[i] for i in range(len(args.runs))},
-                args.run_env,
+                {i: data_params.runs[i] for i in range(len(data_params.runs))},
+                data_params.run_env,
                 output_dir=args.output_dir
             ))

@@ -1,0 +1,24 @@
+dt: 0.166666666666666667
+runs: ["sparkal1", "sparkal2"]
+run_env: "ROBOT"
+
+img_data:
+  path: "${ROMAN_DEMO_DATA}/${ROBOT}_camera.bag"
+  topic: /${ROBOT}/forward/color/image_raw/compressed
+  camera_info_topic: /${ROBOT}/forward/color/camera_info
+  compressed: True
+  
+depth_data:
+  path: "${ROMAN_DEMO_DATA}/${ROBOT}_camera.bag"
+  topic: /${ROBOT}/forward/depth/image_rect_raw
+  camera_info_topic: /${ROBOT}/forward/depth/camera_info
+  compressed: False
+
+pose_data:
+  type: bag
+  path: ${ROMAN_DEMO_DATA}/${ROBOT}_vio.bag
+  topic: /${ROBOT}/kimera_vio_ros/odometry
+  time_tol: 10.0
+  T_camera_flu:
+    input_type: "string"
+    string: "T_RDFFLU"

@@ -1,3 +1,15 @@
+###########################################################
+#
+# mapper.py
+#
+# ROMAN open-set segment mapper class
+#
+# Authors: Mason Peterson, Yulun Tian, Lucas Jia
+#
+# Dec. 21, 2024
+#
+###########################################################
+
 import numpy as np
 from typing import List, Tuple
 from dataclasses import dataclass
@@ -10,33 +22,17 @@ from roman.object.segment import Segment
 from roman.map.observation import Observation
 from roman.map.global_nearest_neighbor import global_nearest_neighbor
 from roman.map.map import ROMANMap
+from roman.params.mapper_params import MapperParams
 
 import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-@dataclass
-class MapperParams():
-
-    camera_params: CameraParams
-    min_iou: float
-    min_sightings: int
-    max_t_no_sightings: int
-    merge_objects_iou_3d: float = 0.25
-    merge_objects_iou_2d = 0.8
-    mask_downsample_factor: int = 1
-    min_max_extent: float = 0.25 # to get rid of very small objects
-    plane_prune_params: Tuple[float] = (3.0, 3.0, 0.5) # to get rid of planar objects (likely background)
-    segment_graveyard_time: float = 15.0 # time after which an inactive segment is sent to the graveyard
-    segment_graveyard_dist: float = 10.0 # distance traveled after which an inactive segment is sent to the graveyard
-    iou_voxel_size: float = 0.2
-    segment_voxel_size: float = 0.05
-
 class Mapper():
 
-    def __init__(self, params: MapperParams):
+    def __init__(self, params: MapperParams, camera_params: CameraParams):
         self.params = params
-        self.camera_params = params.camera_params
+        self.camera_params = camera_params
 
         self.segment_nursery = []
         self.segments = []
@@ -129,7 +125,7 @@ class Mapper():
         new_observations = [obs for idx, obs in enumerate(observations) \
                             if idx not in associated_obs]
         for obs in new_observations:
-            new_seg = Segment(obs, self.params.camera_params, self.id_counter, self.params.segment_voxel_size)
+            new_seg = Segment(obs, self.camera_params, self.id_counter, self.params.segment_voxel_size)
             if new_seg.num_points == 0: # guard from observations coming in with no points
                 continue
             self.segment_nursery.append(new_seg)

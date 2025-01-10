@@ -45,6 +45,7 @@ class G2OPlotParams:
     legend: bool = True
     unconnected_robot_transform: dict = None
     axes: tuple = (0, 1)
+    inlier_mahalanobis_thresh: float = 3.0
 
 def plot_g2o(
     g2o_path,
@@ -111,6 +112,8 @@ def plot_g2o(
             T_err = T_12 @ np.linalg.inv(T_12_lc) 
             xyz_rpy_err = transform_to_xyzrpy(T_err).reshape((6,1))
             information_mat = np.eye(6)
+            # TODO: information matrices should be all diagonal, and this
+            # wouldn't handle the case where they are not (only grabs upper triangle)
             information_mat[0,:] = [float(x) for x in edge[10:16]]
             information_mat[1,1:] = [float(x) for x in edge[16:21]]
             information_mat[2,2:] = [float(x) for x in edge[21:25]]
@@ -118,7 +121,7 @@ def plot_g2o(
             information_mat[4,4:] = [float(x) for x in edge[28:30]]
             information_mat[5,5] = float(edge[30])
             mahalanobis = np.sqrt(xyz_rpy_err.T @ information_mat @ xyz_rpy_err)
-            inlier = mahalanobis < 2.0
+            inlier = mahalanobis < params.inlier_mahalanobis_thresh
 
             if not params.outliers and not inlier:
                 continue
