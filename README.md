@@ -56,9 +56,6 @@ git clone git@github.com:mit-acl/roman.git
 ./roman/install.sh
 ```
 
-While mapping and loop closure can be performed standalone, we use Kimera-RPGO for pose graph optimization. 
-We are working to make that publicly runnable in the future.
-
 ## Demo
 
 A short demo is available to run ROMAN on small subset of the [Kimera Multi Data](https://github.com/MIT-SPARK/Kimera-Multi-Data).
