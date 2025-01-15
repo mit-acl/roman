@@ -88,10 +88,6 @@ if __name__ == '__main__':
     
     if not args.skip_map:
         
-        # TODO: support including different data params for different runs
-        # currently can only use the same data params for all runs
-        args.run = None
-        
         for i, run in enumerate(data_params.runs):
             if args.skip_indices and i in args.skip_indices:
                 continue
@@ -104,7 +100,21 @@ if __name__ == '__main__':
                 os.environ[data_params.run_env] = run
             
             print(f"Mapping: {run}")
-            mapping.mapping(args)
+            mapping_viz_params = \
+                mapping.VisualizationParams(
+                    viz_map=args.viz_map,
+                    viz_observations=args.viz_observations,
+                    viz_3d=args.viz_3d,
+                    vid_rate=args.vid_rate,
+                    save_img_data=args.save_img_data
+                )
+            mapping.mapping(
+                params_path=args.params,
+                output_path=args.output,
+                run_name=run,
+                max_time=args.max_time,
+                viz_params=mapping_viz_params
+            )
         
     if not args.skip_align:
         # TODO: support ground truth pose file for validation

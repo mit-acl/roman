@@ -57,6 +57,6 @@ class MapperParams():
     def from_yaml(cls, yaml_path: str, run: str = None):
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
-        if run is not None:
+        if run is not None and run in data:
             data = data[run]
         return cls(**data)
