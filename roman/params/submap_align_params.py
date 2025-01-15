@@ -1,3 +1,15 @@
+###########################################################
+#
+# submap_align_params.py
+#
+# Params for ROMAN object registration.
+#
+# Authors: Mason Peterson
+#
+# Jan. 15, 2025
+#
+###########################################################
+
 import numpy as np
 
 from dataclasses import dataclass, field

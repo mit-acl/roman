@@ -11,7 +11,7 @@ import json
 
 from robotdatapy.data.pose_data import PoseData
 
-from roman.align.params import SubmapAlignParams
+from roman.params.submap_align_params import SubmapAlignParams
 from roman.object.segment import Segment, SegmentMinimalData
 from roman.utils import transform_rm_roll_pitch
 
