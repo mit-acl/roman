@@ -43,6 +43,8 @@ if __name__ == '__main__':
                         'here: https://github.com/mit-acl/ROMAN/blob/main/demo/README.md', required=True)
     parser.add_argument('-o', '--output-dir', type=str, help='Path to output directory', required=True, default=None)
     
+    parser.add_argument('-r', '--runs', type=str, nargs='+', required=False, default=None,
+                        help='Run names. Overrides runs field in data.yaml')
     parser.add_argument('-m', '--viz-map', action='store_true', help='Visualize map')
     parser.add_argument('-v', '--viz-observations', action='store_true', help='Visualize observations')
     parser.add_argument('-3', '--viz-3d', action='store_true', help='Visualize 3D')
@@ -69,6 +71,8 @@ if __name__ == '__main__':
     offline_rpgo_params = OfflineRPGOParams.from_yaml(offline_rpgo_params_path) \
         if os.path.exists(os.path.join(args.params, "offline_rpgo.yaml")) else OfflineRPGOParams()
     data_params = DataParams.from_yaml(os.path.join(args.params, "data.yaml"))
+    if args.runs is not None:
+        data_params.runs = args.runs
             
     # ground truth pose files
     if os.path.exists(os.path.join(params_dir, "gt_pose.yaml")):
@@ -257,13 +261,18 @@ if __name__ == '__main__':
 
         # Report ATE results
         if has_gt:
-            print("ATE results:")
-            print("============")
-            print(evaluate(
+            ate_rmse = evaluate(
                 result_g2o_file, 
                 odom_sparse_all_time_file  if offline_rpgo_params.sparsified else odom_dense_all_time_file, 
                 {i: gt_files[i] for i in range(len(gt_files))},
                 {i: data_params.runs[i] for i in range(len(data_params.runs))},
                 data_params.run_env,
                 output_dir=args.output_dir
-            ))
+            )
+            print("ATE results:")
+            print("============")
+            print(ate_rmse)
+            with open(os.path.join(args.output_dir, "offline_rpgo", "ate_rmse.txt"), 'w') as f:
+                print(ate_rmse, file=f)
+                f.close()
+            
