@@ -19,10 +19,11 @@ def create_ptcld_geometries(submap: Submap, color, submap_offset=np.array([0,0,0
     label_list = []
     
     for seg in submap.segments:
+        seg.transform(submap.pose_gravity_aligned_gt)
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(seg.points)
         num_pts = seg.points.shape[0]
-        rand_color = np.random.uniform(0, 1) * color
+        rand_color = np.array(seg.viz_color).reshape((1,3))/255.0
         rand_color = np.repeat(rand_color, num_pts, axis=0)
         pcd.colors = o3d.utility.Vector3dVector(rand_color)
         pcd.translate(submap_offset)
@@ -40,8 +41,10 @@ def create_ptcld_geometries(submap: Submap, color, submap_offset=np.array([0,0,0
 parser = argparse.ArgumentParser()
 parser.add_argument('output_viz_file', type=str)
 parser.add_argument('--idx', '-i', type=int, nargs=2, default=None)
-parser.add_argument('--offset', type=float, nargs=3, default=[20.,0,0])
-parser.add_argument('--no-text', action='store_true')
+parser.add_argument('--offset', type=float, nargs=3, default=[0.,0.,10.])
+parser.add_argument('--text', action='store_true')
+parser.add_argument('--roman-maps', '-r', type=str, nargs=2, default=None)
+parser.add_argument('--gt', '-g', type=str, nargs=2, default=None)
 args = parser.parse_args()
 output_viz_file = os.path.expanduser(args.output_viz_file)
 
@@ -51,11 +54,26 @@ print('Loading data...')
 pkl_file = open(output_viz_file, 'rb')
 results: SubmapAlignResults
 results = pickle.load(pkl_file)
-roman_maps = [ROMANMap.from_pickle(results.submap_io.inputs[i]) for i in range(2)]
+
+gt_files = args.gt if args.gt is not None else results.submap_io.input_gt_pose_yaml
+roman_map_paths = args.roman_maps if args.roman_maps is not None else results.submap_io.inputs
+
+roman_maps = [ROMANMap.from_pickle(roman_map_paths[i]) for i in range(2)]
 submap_params = SubmapParams.from_submap_align_params(results.submap_align_params)
 submap_params.use_minimal_data = False
-if results.submap_io.input_gt_pose_yaml != [None, None]:
-    gt_pose_data = [PoseData.from_yaml(yaml_file) for yaml_file in results.submap_io.input_gt_pose_yaml]
+gt_pose_data = []
+if gt_files != [None, None]:
+    for i, yaml_file in enumerate(gt_files):
+        if results.submap_io.robot_env is not None:
+            os.environ[results.submap_io.robot_env] = results.submap_io.robot_names[i]
+        if 'csv' in yaml_file:
+            gt_pose_data.append(PoseData.from_kmd_gt_csv(yaml_file))
+        else:
+            gt_pose_data.append(PoseData.from_yaml(yaml_file))
+        gt_pose_data[-1].time_tol = 100.0
+else:
+    gt_pose_data = [None, None]
+
 submaps = [submaps_from_roman_map(
     roman_maps[i], submap_params, gt_pose_data[i]) for i in range(2)]
 pkl_file.close()
@@ -78,11 +96,17 @@ if args.idx is None:
                 max_i = i
                 max_j = j
 
-    plt.imshow(
+    fig, ax = plt.subplots(1, 2)
+    img = ax[0].imshow(
         clipper_num_associations, 
         vmin=0, 
     )
-    plt.colorbar(fraction=0.03, pad=0.04)
+    plt.colorbar(img, fraction=0.03, pad=0.04, ax=ax[0])
+    
+    img = ax[1].imshow(
+        results.robots_nearby_mat, 
+    )
+    plt.colorbar(img, fraction=0.03, pad=0.04, ax=ax[1])
     plt.show()
 
 if args.idx is not None:
@@ -110,12 +134,15 @@ seg0_color = red_color
 seg1_color = blue_color
 submap1_offset = np.asarray(args.offset)
 
-ocd_list_0, label_list_0 = create_ptcld_geometries(submap_0, red_color, include_label=not args.no_text)
-ocd_list_1, label_list_1 = create_ptcld_geometries(submap_1, blue_color, submap1_offset, include_label=not args.no_text)
+ocd_list_0, label_list_0 = create_ptcld_geometries(submap_0, red_color, include_label=args.text)
+ocd_list_1, label_list_1 = create_ptcld_geometries(submap_1, blue_color, submap1_offset, include_label=args.text)
 origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
 
+ids0, ids1 = [], []
 for obj_idx_0, obj_idx_1 in association:
     print(f'Add edge between {obj_idx_0} and {obj_idx_1}.')
+    ids0.append(submap_0.segments[obj_idx_0].id)
+    ids1.append(submap_1.segments[obj_idx_1].id)
     # points = [submap_0[obj_idx_0].center, submap_1[obj_idx_1].center]
     points = [ocd_list_0[obj_idx_0].get_center(), ocd_list_1[obj_idx_1].get_center()]
     line_set = o3d.geometry.LineSet(
@@ -124,6 +151,9 @@ for obj_idx_0, obj_idx_1 in association:
     )
     line_set.colors = o3d.utility.Vector3dVector([[0,1,0]])
     edges.append(line_set)
+    
+print(f"Associated object ids, robot0: {ids0}")
+print(f"Associated object ids, robot1: {ids1}")
 
 app = o3d.visualization.gui.Application.instance
 app.initialize()
