@@ -11,7 +11,7 @@ import open3d as o3d
 from robotdatapy.data import PoseData
 
 from roman.object.pointcloud_object import PointCloudObject
-from roman.align.results import SubmapAlignResults
+from roman.align.results import SubmapAlignResults, plot_align_results
 from roman.map.map import submaps_from_roman_map, ROMANMap, SubmapParams, Submap
 
 def create_ptcld_geometries(submap: Submap, color, submap_offset=np.array([0,0,0]), include_label=True):
@@ -82,36 +82,12 @@ print(f'Loaded {len(submaps[0])} and {len(submaps[1])} submaps.')
 # grab variables from results
 associated_objs_mat = results.associated_objs_mat
 
-if args.idx is None:
-    clipper_num_associations  =  np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
-
-    max_i = 0
-    max_j = 0
-    max_num = 0
-    for i in range(len(submaps[0])):
-        for j in range(len(submaps[1])):
-            clipper_num_associations[i, j] =  len(associated_objs_mat[i][j])
-            if len(associated_objs_mat[i][j]) > max_num:
-                max_num = len(associated_objs_mat[i][j])
-                max_i = i
-                max_j = j
-
-    fig, ax = plt.subplots(1, 2)
-    img = ax[0].imshow(
-        clipper_num_associations, 
-        vmin=0, 
-    )
-    plt.colorbar(img, fraction=0.03, pad=0.04, ax=ax[0])
-    
-    img = ax[1].imshow(
-        results.robots_nearby_mat, 
-    )
-    plt.colorbar(img, fraction=0.03, pad=0.04, ax=ax[1])
-    plt.show()
-
 if args.idx is not None:
   idx_0, idx_1 = args.idx
 else:
+  plot_align_results(results, dpi=100)
+  plt.show()
+
   idx_str = input("Please input two indices, separated by a space: \n")
   idx_0, idx_1 = [int(idx) for idx in idx_str.split()]
 
@@ -137,6 +113,12 @@ submap1_offset = np.asarray(args.offset)
 ocd_list_0, label_list_0 = create_ptcld_geometries(submap_0, red_color, include_label=args.text)
 ocd_list_1, label_list_1 = create_ptcld_geometries(submap_1, blue_color, submap1_offset, include_label=args.text)
 origin = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
+submap_origins = []
+for i, sm in enumerate([submap_0, submap_1]):
+    submap_origins.append(
+        o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0))
+    submap_origins[-1].transform(sm.pose_gravity_aligned_gt)
+submap_origins[1].translate(submap1_offset)
 
 ids0, ids1 = [], []
 for obj_idx_0, obj_idx_1 in association:
@@ -160,7 +142,7 @@ app.initialize()
 vis = o3d.visualization.O3DVisualizer()
 vis.show_skybox(False)
 
-for i, geom in enumerate(ocd_list_0 + ocd_list_1 + edges):
+for i, geom in enumerate(ocd_list_0 + ocd_list_1 + edges + submap_origins):
     vis.add_geometry(f"geom-{i}", geom)
 for label in label_list_0 + label_list_1:
     vis.add_3d_label(*label)

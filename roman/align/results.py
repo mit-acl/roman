@@ -48,9 +48,9 @@ def time_to_secs_nsecs(t, as_dict=False):
     else:
         return {'seconds': seconds, 'nanoseconds': nanoseconds}
 
-def save_submap_align_results(results: SubmapAlignResults, submaps, roman_maps: List[ROMANMap]):
+def plot_align_results(results: SubmapAlignResults, dpi=500):
     # Create plots
-    fig, ax = plt.subplots(1, 5, figsize=(20, 5), dpi=500)
+    fig, ax = plt.subplots(1, 5, figsize=(20, 5), dpi=dpi)
     fig.subplots_adjust(wspace=.3)
     fig.suptitle(results.submap_io.run_name)
 
@@ -78,6 +78,9 @@ def save_submap_align_results(results: SubmapAlignResults, submaps, roman_maps: 
         ax[i].set_xlabel("submap index (robot 2)")
         ax[i].set_ylabel("submap index (robot 1)")
         ax[i].grid(False)
+
+def save_submap_align_results(results: SubmapAlignResults, submaps, roman_maps: List[ROMANMap]):
+    plot_align_results(results)
 
     plt.savefig(results.submap_io.output_img)
         
