@@ -68,9 +68,8 @@ class ROMANMapRunner:
             self.pointcloud_data = self.data_params.load_pointcloud_data()
             self.align_pointcloud = AlignPointCloud(pointcloud_data=self.pointcloud_data,
                                                     img_data=self.img_data,
-                                                    pose_data=self.camera_pose_data,
-                                                    tf_bag_path=self.data_params.pose_data_params.params_dict['path'],
-                                                    odombase_frame=self.data_params.pose_data_params.odombase_frame) # TODO: clean up?
+                                                    camera_pose_data=self.camera_pose_data,
+                                                    tf_bag_path=self.data_params.pose_data_params.params_dict['path']) # TODO: clean up?
         else:
             if verbose: print("Loading depth data for time range {}...".format(self.time_range))
             self.depth_data = self.data_params.load_depth_data()
