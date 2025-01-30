@@ -24,18 +24,24 @@ from roman.align.dist_reg_with_pruning import DistRegWithPruning, GravityConstra
 
 @dataclass
 class SubmapAlignParams:
-    dim: int = 3
-    method: str = 'spvg'
-    fusion_method: str = 'geometric_mean'
-    submap_radius: float = 15.0
-    submap_center_dist: float = 10.0
-    submap_center_time: float = 50.0 # time threshold between segments and submap center times
-    submap_max_size: int = 40
-    single_robot_lc: bool = False
-    single_robot_lc_time_thresh: float = 50.0
-    force_rm_lc_roll_pitch: bool = True
-    force_rm_upside_down: bool = True
-    use_object_bottom_middle: bool = False
+
+    dim: int = 3                            # 2 or 3. 2D or 3D object map registration
+    method: str = 'roman'                   # by default, use semantic + pca + volume + gravity
+                                            # same as in ROMAN paper.
+                                            # See get_object_registration for other methods
+    fusion_method: str = 'geometric_mean'   # How to fuse similarity scores. (geometric_mean, 
+                                            # arithmetic_mean, product)
+    submap_radius: float = 15.0             # Radius of submap in meters
+    submap_center_dist: float = 10.0        # Distance between submap centers in meters
+    submap_center_time: float = 50.0        # time threshold between segments and submap center times
+    submap_max_size: int = 40               # Maximum number of segments in a submap (to save computation)
+    single_robot_lc: bool = False           # If true, do not try and perform loop closures with submaps
+                                            # nearby in time
+    single_robot_lc_time_thresh: float = 50.0   # Time threshold for single robot loop closure
+    force_rm_lc_roll_pitch: bool = True     # If true, remove parts of rotation about x or y axes
+    force_rm_upside_down: bool = True       # If true, assumes upside down submap rotations are incorrect
+    use_object_bottom_middle: bool = False  # If true, uses the bottom middle of the object as a reference
+                                            # point for registration rather than the center of the object
     
     # registration params
     sigma: float = 0.4
@@ -97,15 +103,17 @@ class SubmapAlignParams:
 
             registration = ROMANRegistration(roman_params)
 
-        elif self.method == 'prunevol':
-            method_name = f'{self.dim}D Volume-based Pruning'
-            registration = DistRegWithPruning(sigma=self.sigma, epsilon=self.epsilon, mindist=self.mindist, dim=self.dim, volume_epsilon=self.epsilon_shape, use_gravity=False)
-        elif self.method == 'prunevolgrav':
-            method_name = f'Gravity Filtered Volume-based Pruning'
-            registration = DistRegWithPruning(sigma=self.sigma, epsilon=self.epsilon, mindist=self.mindist, dim=self.dim, volume_epsilon=self.epsilon_shape, use_gravity=True)
-        elif self.method == 'prunegrav':
+        elif self.method == 'clipper+prune':
             method_name = f'Gravity Filtered Pruning'
-            registration = DistRegWithPruning(sigma=self.sigma, epsilon=self.epsilon, mindist=self.mindist, dim=self.dim, use_gravity=True)
+            registration = DistRegWithPruning(
+                sigma=self.sigma, 
+                epsilon=self.epsilon, 
+                mindist=self.mindist, 
+                shape_epsilon=self.epsilon_shape,
+                cos_min=self.cosine_min,
+                dim=self.dim, 
+                use_gravity=True
+            )
         elif self.method == 'ransac':
             method_name = 'RANSAC'
             registration = RansacReg(dim=self.dim, max_iteration=self.ransac_iter)
