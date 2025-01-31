@@ -161,7 +161,7 @@ class DataParams:
                 run_env=data['run_env'] if 'run_env' in data else None
             )
         elif run in data:
-            run_data = data[run]
+            run_data = {**data, **data[run]}
         else:
             run_data = data
         return cls(

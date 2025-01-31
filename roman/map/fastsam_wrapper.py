@@ -272,7 +272,7 @@ class FastSAMWrapper():
             ptcld = None
             if depth_data is not None:
                 if self.use_pointcloud:
-                    if True: # visualizations for debugging
+                    if False: # visualizations for debugging
                         # point_cloud = o3d.geometry.PointCloud()
                         # point_cloud.points = o3d.utility.Vector3dVector(pcl)
                         # point_cloud.paint_uniform_color([1, 0, 0])
