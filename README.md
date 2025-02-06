@@ -52,7 +52,7 @@ First, **activate any virtual environment you would like to use with ROMAN**.
 Then, clone and install with:
 
 ```
-git clone git@github.com:mit-acl/roman.git
+git clone git@github.com:mit-acl/roman.git roman
 ./roman/install.sh
 ```
 
@@ -66,7 +66,8 @@ Instructions for running the demo:
 
 1. Download a small portion of the [Kimera Multi Data](https://github.com/MIT-SPARK/Kimera-Multi-Data) that is used for the ROMAN SLAM demo. The data subset is available for download [here](https://drive.google.com/drive/folders/1ANdi4IyroWzJmd85ap1V-IMF8-I9haUB?usp=sharing).
 
-2. Download FastSAM model weights [here](https://drive.google.com/file/d/1m1sjY4ihXBU1fZXdQ-Xdj-mDltW-2Rqv/view).
+2. Download FastSAM model weights [here](https://drive.google.com/file/d/1m1sjY4ihXBU1fZXdQ-Xdj-mDltW-2Rqv/view). 
+If you would like to run FastSAM on cpu, change the `device` field in [this parameter file](./demo/params/demo/fastsam.yaml) to `cpu`.
 
 3. In your `.bashrc` or in the terminal where you will run the ROMAN demo export the following environment variables: 
 
