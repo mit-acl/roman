@@ -15,17 +15,14 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, FFMpegWriter
 import argparse
 import pickle
-import tqdm
-import yaml
 import time
 import cv2 as cv
-import signal
-import sys
 import open3d as o3d
 import logging
 import os
 from os.path import expandvars
 from threading import Thread
+from dataclasses import dataclass
 
 from roman.map.run import ROMANMapRunner
 from roman.params.data_params import DataParams
@@ -35,6 +32,15 @@ from roman.utils import expandvars_recursive
 
 from robotdatapy.data import ImgData
 from merge_demo_output import merge_demo_output
+
+@dataclass
+class VisualizationParams:
+    viz_map: bool = False
+    viz_observations: bool = False
+    viz_3d: bool = False
+    vid_rate: float = 1.0
+    save_img_data: bool = False
+
 
 def extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=None):
     assert os.path.exists(data_params_path), "Data params file does not exist."
@@ -52,15 +58,21 @@ def extract_params(data_params_path, fastsam_params_path, mapper_params_path, ru
     
     return data_params, fastsam_params, mapper_params
 
-def run(args, data_params: DataParams, fastsam_params: FastSAMParams, mapper_params: MapperParams):
+def run(
+    data_params: DataParams, 
+    fastsam_params: FastSAMParams, 
+    mapper_params: MapperParams,
+    output_path: str,
+    viz_params: VisualizationParams = VisualizationParams()
+):
     
     runner = ROMANMapRunner(data_params=data_params, 
                             fastsam_params=fastsam_params, 
                             mapper_params=mapper_params, 
-                            verbose=True, viz_map=args.viz_map, 
-                            viz_observations=args.viz_observations, 
-                            viz_3d=args.viz_3d,
-                            save_viz=args.save_img_data)
+                            verbose=True, viz_map=viz_params.viz_map, 
+                            viz_observations=viz_params.viz_observations, 
+                            viz_3d=viz_params.viz_3d,
+                            save_viz=viz_params.save_img_data)
 
     # Setup logging
     # TODO: add support for logfile
@@ -74,11 +86,11 @@ def run(args, data_params: DataParams, fastsam_params: FastSAMParams, mapper_par
     print("Running segment tracking! Start time {:.1f}, end time {:.1f}".format(runner.t0, runner.tf))
     wc_t0 = time.time()
 
-    vid = args.viz_map or args.viz_observations
+    vid = viz_params.viz_map or viz_params.viz_observations
     if vid:
         fc = cv.VideoWriter_fourcc(*"mp4v")
-        video_file = os.path.expanduser(expandvars(args.output)) + ".mp4"
-        fps = int(np.max([5., args.vid_rate*1/data_params.dt]))
+        video_file = os.path.expanduser(expandvars(output_path)) + ".mp4"
+        fps = int(np.max([5., viz_params.vid_rate*1/data_params.dt]))
         if fastsam_params.rotate_img not in ['CCW', 'CW']:
             width = runner.img_data.camera_params.width 
             height = runner.img_data.camera_params.height
@@ -86,11 +98,11 @@ def run(args, data_params: DataParams, fastsam_params: FastSAMParams, mapper_par
             width = runner.img_data.camera_params.height
             height = runner.img_data.camera_params.width
         num_panes = 0
-        if args.viz_map:
+        if viz_params.viz_map:
             num_panes += 1
-        if args.viz_observations:
+        if viz_params.viz_observations:
             num_panes += 1
-        if args.viz_3d:
+        if viz_params.viz_3d:
             num_panes += 1
         video = cv.VideoWriter(video_file, fc, fps, 
                                (width*num_panes, height))
@@ -110,25 +122,25 @@ def run(args, data_params: DataParams, fastsam_params: FastSAMParams, mapper_par
 
     print(f"Number of poses: {len(runner.mapper.poses_flu_history)}.")
 
-    if args.output:
-        pkl_path = os.path.expanduser(expandvars(args.output)) + ".pkl"
-        pkl_file = open(pkl_path, 'wb')
-        pickle.dump(runner.mapper.get_roman_map(), pkl_file, -1)
-        logging.info(f"Saved tracker, poses_flu_history to file: {pkl_path}.")
-        pkl_file.close()
+    # Output results
+    pkl_path = os.path.expanduser(expandvars(output_path)) + ".pkl"
+    pkl_file = open(pkl_path, 'wb')
+    pickle.dump(runner.mapper.get_roman_map(), pkl_file, -1)
+    logging.info(f"Saved tracker, poses_flu_history to file: {pkl_path}.")
+    pkl_file.close()
 
-        timing_file = os.path.expanduser(expandvars(args.output)) + ".time.txt"
-        with open(timing_file, 'w') as f:
-            f.write(f"dt: {data_params.dt}\n\n")
-            f.write(f"AVERAGE TIMES\n")
-            f.write(f"fastsam: {np.mean(runner.processing_times.fastsam_times):.3f}\n")
-            f.write(f"segment_track: {np.mean(runner.processing_times.map_times):.3f}\n")
-            f.write(f"total: {np.mean(runner.processing_times.total_times):.3f}\n")
-            f.write(f"TOTAL TIMES\n")
-            f.write(f"total: {np.sum(runner.processing_times.total_times):.2f}\n")
+    timing_file = os.path.expanduser(expandvars(output_path)) + ".time.txt"
+    with open(timing_file, 'w') as f:
+        f.write(f"dt: {data_params.dt}\n\n")
+        f.write(f"AVERAGE TIMES\n")
+        f.write(f"fastsam: {np.mean(runner.processing_times.fastsam_times):.3f}\n")
+        f.write(f"segment_track: {np.mean(runner.processing_times.map_times):.3f}\n")
+        f.write(f"total: {np.mean(runner.processing_times.total_times):.3f}\n")
+        f.write(f"TOTAL TIMES\n")
+        f.write(f"total: {np.sum(runner.processing_times.total_times):.2f}\n")
     
-    if args.save_img_data:
-        img_data_path = os.path.expanduser(expandvars(args.output)) + ".img_data.npz"
+    if viz_params.save_img_data:
+        img_data_path = os.path.expanduser(expandvars(output_path)) + ".img_data.npz"
         print(f"Saving visualization to {img_data_path}")
         img_data = ImgData(times=runner.mapper.times_history, imgs=runner.viz_imgs, data_type='raw')
         img_data.to_npz(img_data_path)
@@ -136,46 +148,48 @@ def run(args, data_params: DataParams, fastsam_params: FastSAMParams, mapper_par
     del runner
     return
 
-def mapping(args):
-    # TODO: start to fill in here. I think we need the option to either have one set of data params
-    # or to input one for each robot. Need to think about how to do this cleanly.
-    data_params_path = expandvars_recursive(f"{args.params}/data.yaml")
-    mapper_params_path = expandvars_recursive(f"{args.params}/mapper.yaml")
-    fastsam_params_path = expandvars_recursive(f"{args.params}/fastsam.yaml")
+def mapping(
+    params_path: str,
+    output_path: str,
+    run_name: str = None,
+    max_time: float = None,
+    viz_params: VisualizationParams = VisualizationParams()
+):
+    data_params_path = expandvars_recursive(f"{params_path}/data.yaml")
+    mapper_params_path = expandvars_recursive(f"{params_path}/mapper.yaml")
+    fastsam_params_path = expandvars_recursive(f"{params_path}/fastsam.yaml")
         
-    if args.max_time is not None:
-        output = args.output
+    if max_time is not None:
         try:
             mapping_iter = 0
             while True:
                 
                 data_params, fastsam_params, mapper_params = \
-                    extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=args.run)
+                    extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=run_name)
                     
                 data_params.time_params = {
-                    't0': args.max_time * mapping_iter, 
-                    'tf': args.max_time * (mapping_iter + 1),
+                    't0': max_time * mapping_iter, 
+                    'tf': max_time * (mapping_iter + 1),
                     'relative': True}
                 
-                args.output = f"{output}_{mapping_iter}"
-                
-                run(args, data_params, fastsam_params, mapper_params)
+                run(data_params, fastsam_params, mapper_params, 
+                    output_path=f"{output_path}_{mapping_iter}", viz_params=viz_params)
                 mapping_iter += 1
         except:
-            demo_output_files = [f"{output}_{mi}.pkl" for mi in range(mapping_iter)]
-            merge_demo_output(demo_output_files, f"{output}.pkl")
+            demo_output_files = [f"{output_path}_{mi}.pkl" for mi in range(mapping_iter)]
+            merge_demo_output(demo_output_files, f"{output_path}.pkl")
     
     else:
         data_params, fastsam_params, mapper_params = \
-            extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=args.run)
-        run(args, data_params, fastsam_params, mapper_params)
+            extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=run_name)
+        run(data_params, fastsam_params, mapper_params, output_path, viz_params)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--params', type=str, help='Path to params file', required=True)
+    parser.add_argument('-o', '--output', type=str, help='Path to output file', required=True)
     parser.add_argument('--max-time', type=float, default=None)
-    parser.add_argument('-o', '--output', type=str, help='Path to output file', required=False, default=None)
     parser.add_argument('-m', '--viz-map', action='store_true', help='Visualize map')
     parser.add_argument('-v', '--viz-observations', action='store_true', help='Visualize observations')
     parser.add_argument('-3', '--viz-3d', action='store_true', help='Visualize in 3D')
@@ -184,4 +198,18 @@ if __name__ == '__main__':
     parser.add_argument('-r', '--run', type=str, help='Robot run', default=None)
     args = parser.parse_args()
 
-    mapping(args)
+    viz_params = VisualizationParams(
+        viz_map=args.viz_map,
+        viz_observations=args.viz_observations,
+        viz_3d=args.viz_3d,
+        vid_rate=args.vid_rate,
+        save_img_data=args.save_img_data
+    )
+
+    mapping(
+        params_path=args.params,
+        output_path=args.output,
+        run_name=args.run,
+        max_time=args.max_time,
+        viz_params=viz_params
+    )

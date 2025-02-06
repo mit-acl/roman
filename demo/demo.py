@@ -19,7 +19,7 @@ from typing import List
 import os
 import yaml
 
-from roman.align.params import SubmapAlignInputOutput, SubmapAlignParams
+from roman.params.submap_align_params import SubmapAlignInputOutput, SubmapAlignParams
 from roman.align.submap_align import submap_align
 from roman.offline_rpgo.extract_odom_g2o import roman_map_pkl_to_g2o
 from roman.offline_rpgo.g2o_file_fusion import create_config, g2o_file_fusion
@@ -28,27 +28,28 @@ from roman.offline_rpgo.plot_g2o import plot_g2o, DEFAULT_TRAJECTORY_COLORS, G2O
 from roman.offline_rpgo.g2o_and_time_to_pose_data import g2o_and_time_to_pose_data
 from roman.offline_rpgo.evaluate import evaluate
 from roman.offline_rpgo.edit_g2o_edge_information import edit_g2o_edge_information
-from roman.offline_rpgo.params import OfflineRPGOParams
+from roman.params.offline_rpgo_params import OfflineRPGOParams
 from roman.params.data_params import DataParams
 
 import mapping
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--params', default=None, type=str, help='Path to params directory.' +
-                        ' Params can include mapping.yaml with mapping parameters. gt_pose.yaml with ground' +
-                        ' truth parameters for evaluation. submap_align.yaml for loop closure parameters.' +
-                        ' offline_rpgo.yaml for pose graph optimization parameters. Only mapping.yaml is required,' +
-                        ' although a list of mapping params can be given with --mapping-params instead.' +
-                        ' When loading these files, --run-env will be set with the run name.', required=True)
+    parser.add_argument('-p', '--params', default=None, type=str, help='Path to params directory. ' +
+                        'Params can include the following files: data.yaml, fastsam.yaml, ' +
+                        'mapper.yaml, submap_align.yaml, and offline_rpgo.yaml. Only data.yaml ' +
+                        'is required to be provided. Parameter defaults and definitions can be ' +
+                        'found in the roman.params module. Additional information can be found ' +
+                        'here: https://github.com/mit-acl/ROMAN/blob/main/demo/README.md', required=True)
     parser.add_argument('-o', '--output-dir', type=str, help='Path to output directory', required=True, default=None)
     
+    parser.add_argument('-r', '--runs', type=str, nargs='+', required=False, default=None,
+                        help='Run names. Overrides runs field in data.yaml')
     parser.add_argument('-m', '--viz-map', action='store_true', help='Visualize map')
     parser.add_argument('-v', '--viz-observations', action='store_true', help='Visualize observations')
     parser.add_argument('-3', '--viz-3d', action='store_true', help='Visualize 3D')
     parser.add_argument('--vid-rate', type=float, help='Video playback rate', default=1.0)
     parser.add_argument('-d', '--save-img-data', action='store_true', help='Save video frames as ImgData class')
-    parser.add_argument('-s', '--sparse-pgo', action='store_true', help='Use sparse pose graph optimization')
     parser.add_argument('-n', '--num-req-assoc', type=int, help='Number of required associations', default=4)
     # parser.add_argument('--set-env-vars', type=str)
     parser.add_argument('--max-time', type=float, default=None, help='If the input data is too large, this allows a maximum time' +
@@ -70,6 +71,8 @@ if __name__ == '__main__':
     offline_rpgo_params = OfflineRPGOParams.from_yaml(offline_rpgo_params_path) \
         if os.path.exists(os.path.join(args.params, "offline_rpgo.yaml")) else OfflineRPGOParams()
     data_params = DataParams.from_yaml(os.path.join(args.params, "data.yaml"))
+    if args.runs is not None:
+        data_params.runs = args.runs
             
     # ground truth pose files
     if os.path.exists(os.path.join(params_dir, "gt_pose.yaml")):
@@ -88,10 +91,6 @@ if __name__ == '__main__':
     
     if not args.skip_map:
         
-        # TODO: support including different data params for different runs
-        # currently can only use the same data params for all runs
-        args.run = None
-        
         for i, run in enumerate(data_params.runs):
             if args.skip_indices and i in args.skip_indices:
                 continue
@@ -104,7 +103,21 @@ if __name__ == '__main__':
                 os.environ[data_params.run_env] = run
             
             print(f"Mapping: {run}")
-            mapping.mapping(args)
+            mapping_viz_params = \
+                mapping.VisualizationParams(
+                    viz_map=args.viz_map,
+                    viz_observations=args.viz_observations,
+                    viz_3d=args.viz_3d,
+                    vid_rate=args.vid_rate,
+                    save_img_data=args.save_img_data
+                )
+            mapping.mapping(
+                params_path=args.params,
+                output_path=args.output,
+                run_name=run,
+                max_time=args.max_time,
+                viz_params=mapping_viz_params
+            )
         
     if not args.skip_align:
         # TODO: support ground truth pose file for validation
@@ -132,7 +145,7 @@ if __name__ == '__main__':
                 submap_align(sm_params=submap_align_params, sm_io=sm_io)
                        
     if not args.skip_rpgo:
-        min_keyframe_dist = 0.01 if not args.sparse_pgo else 2.0
+        min_keyframe_dist = 0.01 if not offline_rpgo_params.sparsified else 2.0
         # Create g2o files for odometry
         for i, run in enumerate(data_params.runs):
             roman_map_pkl_to_g2o(
@@ -186,7 +199,7 @@ if __name__ == '__main__':
         g2o_file_fusion(g2o_fusion_config, dense_g2o_file, thresh=args.num_req_assoc)
 
         # Add loop closures to odometry g2o files
-        if args.sparse_pgo:
+        if offline_rpgo_params.sparsified:
             final_g2o_file = os.path.join(args.output_dir, "offline_rpgo", "odom_and_lc.g2o")
             combine_loop_closures(
                 g2o_reference=odom_sparse_all_g2o_file, 
@@ -241,20 +254,25 @@ if __name__ == '__main__':
         # Save csv files with resulting trajectories
         for i, run in enumerate(data_params.runs):
             pose_data = g2o_and_time_to_pose_data(result_g2o_file, 
-                                                  odom_sparse_all_time_file if args.sparse_pgo else odom_dense_all_time_file, 
+                                                  odom_sparse_all_time_file if offline_rpgo_params.sparsified else odom_dense_all_time_file, 
                                                   robot_id=i)
             pose_data.to_csv(os.path.join(args.output_dir, "offline_rpgo", f"{run}.csv"))
             print(f"Saving {run} pose data to {os.path.join(args.output_dir, 'offline_rpgo', f'{run}.csv')}")
 
         # Report ATE results
         if has_gt:
-            print("ATE results:")
-            print("============")
-            print(evaluate(
+            ate_rmse = evaluate(
                 result_g2o_file, 
-                odom_sparse_all_time_file  if args.sparse_pgo else odom_dense_all_time_file, 
+                odom_sparse_all_time_file  if offline_rpgo_params.sparsified else odom_dense_all_time_file, 
                 {i: gt_files[i] for i in range(len(gt_files))},
                 {i: data_params.runs[i] for i in range(len(data_params.runs))},
                 data_params.run_env,
                 output_dir=args.output_dir
-            ))
+            )
+            print("ATE results:")
+            print("============")
+            print(ate_rmse)
+            with open(os.path.join(args.output_dir, "offline_rpgo", "ate_rmse.txt"), 'w') as f:
+                print(ate_rmse, file=f)
+                f.close()
+            

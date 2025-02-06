@@ -1,6 +1,6 @@
 import argparse
 
-from roman.align.params import SubmapAlignInputOutput, SubmapAlignParams
+from roman.params.submap_align_params import SubmapAlignInputOutput, SubmapAlignParams
 from roman.align.submap_align import submap_align
 
 if __name__ == '__main__':

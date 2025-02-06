@@ -22,7 +22,7 @@ from roman.map.map import Submap, SubmapParams, submaps_from_roman_map, load_rom
 from roman.align.object_registration import InsufficientAssociationsException
 from roman.align.dist_reg_with_pruning import GravityConstraintError
 from roman.utils import object_list_bounds, transform_rm_roll_pitch
-from roman.align.params import SubmapAlignParams, SubmapAlignInputOutput
+from roman.params.submap_align_params import SubmapAlignParams, SubmapAlignInputOutput
 from roman.align.results import save_submap_align_results, SubmapAlignResults
 
 OVERLAP_EPS = 0.1

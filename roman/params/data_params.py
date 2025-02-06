@@ -100,7 +100,7 @@ class PoseDataParams:
             else:
                 raise ValueError("Invalid string.")
         elif param_dict['input_type'] == 'tf':
-            img_file_path = expandvars_recursive(self.params["img_data"]["path"])
+            img_file_path = expandvars_recursive(self.params_dict["path"])
             T = PoseData.static_tf_from_bag(
                 expandvars_recursive(img_file_path), 
                 expandvars_recursive(param_dict['parent']), 
@@ -135,17 +135,26 @@ class DataParams:
     def from_yaml(cls, yaml_path: str, run: str = None):
         with open(yaml_path) as f:
             data = yaml.safe_load(f)
-        if run is not None:
-            data = data[run]
+        if run is None:
+            return cls(
+                None, None, None,
+                dt=data['dt'] if 'dt' in data else 1/6,
+                runs=data['runs'] if 'runs' in data else None,
+                run_env=data['run_env'] if 'run_env' in data else None
+            )
+        elif run in data:
+            run_data = data[run]
+        else:
+            run_data = data
         return cls(
-            ImgDataParams.from_dict(data['img_data']),
-            ImgDataParams.from_dict(data['depth_data']),
-            PoseDataParams.from_dict(data['pose_data']),
-            dt=data['dt'] if 'dt' in data else 1/6,
+            ImgDataParams.from_dict(run_data['img_data']),
+            ImgDataParams.from_dict(run_data['depth_data']),
+            PoseDataParams.from_dict(run_data['pose_data']),
+            dt=run_data['dt'] if 'dt' in run_data else 1/6,
             runs=data['runs'] if 'runs' in data else None,
             run_env=data['run_env'] if 'run_env' in data else None,
-            time_params=data['time_params'] if 'time_params' in data else None,
-            kitti=data['kitti'] if 'kitti' in data else False
+            time_params=run_data['time_params'] if 'time_params' in run_data else None,
+            kitti=run_data['kitti'] if 'kitti' in run_data else False
         )
         
     @cached_property

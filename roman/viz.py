@@ -77,6 +77,7 @@ def visualize_observations_on_img(t, img, mapper, observations, reprojected_bbox
         cv.rectangle(img_fastsam, np.array([bbox[0][0], bbox[0][1]]).astype(np.int32), 
                     np.array([bbox[1][0], bbox[1][1]]).astype(np.int32), color=rand_color.tolist(), thickness=2)
     
+# TODO: rename, this is confusing. This is visualizing the 3D world (does not write on top of another image)
 def visualize_3d_on_img(t: float, pose_flu: np.ndarray, mapper: Mapper) -> np.ndarray:
     """
     Visualizes a 3D map onto an image (with camera params used by the mapper).

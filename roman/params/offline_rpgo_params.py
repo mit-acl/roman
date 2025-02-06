@@ -1,3 +1,15 @@
+###########################################################
+#
+# offline_rpgo_params.py
+#
+# Params for ROMAN offline RPGO SLAM.
+#
+# Authors: Mason Peterson
+#
+# Jan. 15, 2025
+#
+###########################################################
+
 import numpy as np
 
 from dataclasses import dataclass
@@ -15,7 +27,9 @@ class OfflineRPGOParams:
     # loop closure covariance params
     lc_t_std: float = 0.5
     lc_r_std: float = np.deg2rad(0.5)
-
+    
+    # sparse or dense
+    sparsified: bool = True
 
     @classmethod
     def from_yaml(cls, yaml_file):
