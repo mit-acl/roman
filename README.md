@@ -44,6 +44,7 @@ The `roman` package has a Python submodule corresponding to each pipeline module
 
 Direct dependencies, [CLIPPER](https://github.com/mit-acl/CLIPPER) and [Kimera-RPGO](https://github.com/MIT-SPARK/Kimera-RPGO) are installed with the install script. 
 If you would like to use Kimera-RPGO with ROMAN (required for full demo), please also follow the [Kimera-RPGO dependency instructions](https://github.com/MIT-SPARK/Kimera-RPGO#Dependencies).
+To get this working, you may need to edit the LD_LIBRARY_PATH with the following: `export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib`.
 
 ## Install
 
@@ -67,7 +68,7 @@ Instructions for running the demo:
 1. Download a small portion of the [Kimera Multi Data](https://github.com/MIT-SPARK/Kimera-Multi-Data) that is used for the ROMAN SLAM demo. The data subset is available for download [here](https://drive.google.com/drive/folders/1ANdi4IyroWzJmd85ap1V-IMF8-I9haUB?usp=sharing).
 
 2. Download FastSAM model weights [here](https://drive.google.com/file/d/1m1sjY4ihXBU1fZXdQ-Xdj-mDltW-2Rqv/view). 
-If you would like to run FastSAM on cpu, change the `device` field in [this parameter file](./demo/params/demo/fastsam.yaml) to `cpu`.
+If you would like to run FastSAM/CLIP on cpu, change the `device` field in [this parameter file](./demo/params/demo/fastsam.yaml) to `cpu`. Note that this will cause the demo to run much slower than real-time.
 
 3. In your `.bashrc` or in the terminal where you will run the ROMAN demo export the following environment variables: 
 
