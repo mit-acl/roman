@@ -1,5 +1,5 @@
 dim: 3
-method: 'spvg'
+method: 'roman'
 fusion_method: 'geometric_mean'
 submap_radius: 15.0
 submap_center_dist: 10.0

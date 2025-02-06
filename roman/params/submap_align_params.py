@@ -66,9 +66,10 @@ class SubmapAlignParams:
             sim_fusion_method = clipperpy.invariants.ROMAN.ARITHMETIC_MEAN
         elif self.fusion_method == 'product':
             sim_fusion_method = clipperpy.invariants.ROMAN.PRODUCT
-            
+        if self.method == 'spvg':
+            self.method = 'roman'           
 
-        if self.method in ['standard', 'gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg', 'spv', 'semanticgrav']:
+        if self.method in ['clipper', 'gravity', 'pcavolgrav', 'extentvolgrav', 'roman', 'sevg', 'spv', 'semanticgrav']:
             roman_params = ROMANParams()
             roman_params.point_dim = self.dim
             roman_params.sigma = self.sigma
@@ -76,18 +77,18 @@ class SubmapAlignParams:
             roman_params.min_dist = self.mindist
             roman_params.fusion = sim_fusion_method
 
-            roman_params.gravity = self.method in ['gravity', 'pcavolgrav', 'extentvolgrav', 'spvg', 'sevg', 'semanticgrav']
-            roman_params.volume = self.method in ['pcavolgrav', 'extentvolgrav', 'spvg', 'sevg', 'spv']
+            roman_params.gravity = self.method in ['gravity', 'pcavolgrav', 'extentvolgrav', 'roman', 'sevg', 'semanticgrav']
+            roman_params.volume = self.method in ['pcavolgrav', 'extentvolgrav', 'roman', 'sevg', 'spv']
             roman_params.extent = self.method in ['extentvolgrav', 'sevg']
-            roman_params.pca = self.method in ['pcavolgrav', 'spvg', 'spv']
+            roman_params.pca = self.method in ['pcavolgrav', 'roman', 'spv']
             roman_params.cos_min = self.cosine_min
             roman_params.cos_max = self.cosine_max
             roman_params.epsilon_shape = self.epsilon_shape
             
-            if self.method in ['spvg', 'sevg', 'semanticgrav']:
+            if self.method in ['roman', 'sevg', 'semanticgrav']:
                 roman_params.semantics_dim = self.semantics_dim
             
-            # if self.method == 'standard':
+            # if self.method == 'clipper':
             #     method_name = f'{self.dim}D Point CLIPPER'
             # elif self.method == 'gravity':
             #     method_name = 'Gravity Guided CLIPPER'
@@ -96,7 +97,7 @@ class SubmapAlignParams:
             #     method_name = f'Gravity Guided PCA feature-based Volume Registration'
             # elif self.method == 'extentvolgrav':
             #     method_name = f'Gravity Guided Extent-based Volume Registration'
-            # elif self.method == 'spvg':
+            # elif self.method == 'roman':
             #     method_name = 'CLIP Semantic + PCA + Volume + Gravity'
             # elif self.method == 'sevg':
             #     method_name = 'Semantic + Extent + Volume + Gravity'
