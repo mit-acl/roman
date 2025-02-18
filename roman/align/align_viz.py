@@ -19,7 +19,8 @@ def create_ptcld_geometries(submap: Submap, color, submap_offset=np.array([0,0,0
     label_list = []
     
     for seg in submap.segments:
-        seg.transform(submap.pose_gravity_aligned_gt)
+        if submap.has_gt:
+            seg.transform(submap.pose_gravity_aligned_gt)
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(seg.points)
         num_pts = seg.points.shape[0]
@@ -117,7 +118,8 @@ submap_origins = []
 for i, sm in enumerate([submap_0, submap_1]):
     submap_origins.append(
         o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0))
-    submap_origins[-1].transform(sm.pose_gravity_aligned_gt)
+    if sm.has_gt:
+        submap_origins[-1].transform(sm.pose_gravity_aligned_gt)
 submap_origins[1].translate(submap1_offset)
 
 ids0, ids1 = [], []

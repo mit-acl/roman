@@ -12,6 +12,25 @@ python3 demo/demo.py \
     -o demo_output
 ```
 
+Optionally, the mapping process can be visualized with the `-m` argument to show the map projected on the camera image as it is created or `-3` command to show a 3D visualization of the map. However, these will cause the demo to run slower.
+
+## Demo Output
+
+The demo output includes three directories:
+- `map`:
+    - `<run>.mp4`: mapping visualization video (if demo run with `-m` or `-3` argument)
+    - `<run>.pkl`: pickled ROMAN map (see the [ROMANMap class](../roman/map/map.py). This can be visualized using the `o3d_viz.py` script in this directory
+- `align`:
+    - `<run1>_<run2>`:
+        - `align.png`: global localization results. If ground truth pose data has been provided, this file shows heatmaps showing the results of attempting to perform object registration between each pair of submaps from `<run1>` and `<run2>`. Ground truth submap distance is shown, along with registration translation and rotation errors, the number of associated objects, and the ground truth heading difference between the two submap center poses. This file will be much less meaningful if ground truth pose data is not provided to the demo. 
+        - `align.pkl`: pickled global localization results (see the [SubmapAlignResults class](../roman/align/results.py))
+- `offline_rpgo`:
+    - `result.png`: resulting trajectory estimate plots
+    - `result.txt`: absolute trajectory error result if ground truth is provided
+    - `<run>.csv`: optimized trajectory estimate using ROMAN loop closures
+
+The output includes map visualization, loop closure accuracy results, and pose graph optimization results including root mean squared absolute trajectory error.
+
 ## Custom Data
 
 Up to this point, ROMAN has mostly been used to process ROS 1/2 data (agnostic of ROS version).
