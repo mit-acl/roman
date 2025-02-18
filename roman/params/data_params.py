@@ -169,8 +169,8 @@ class DataParams:
             ImgDataParams.from_dict(run_data['depth_data']) if 'depth_data' in run_data else None,
             PointCloudDataParams.from_dict(run_data['pointcloud_data']) if 'pointcloud_data' in run_data else None,
             PoseDataParams.from_dict(run_data['pose_data']),
-            use_pointcloud=data['depth_source'] == 'pointcloud' if 'depth_source' in data else \
-                          (data['use_pointcloud'] if 'use_pointcloud' in data else False),
+            use_pointcloud=run_data['depth_source'] == 'pointcloud' if 'depth_source' in run_data else \
+                          (run_data['use_pointcloud'] if 'use_pointcloud' in run_data else False),
             dt=run_data['dt'] if 'dt' in run_data else 1/6,
             runs=data['runs'] if 'runs' in data else None,
             run_env=data['run_env'] if 'run_env' in data else None,
