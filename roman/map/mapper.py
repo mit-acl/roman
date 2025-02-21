@@ -281,7 +281,7 @@ class Mapper():
         Make the Mapper object pickle compatible
         """
         for seg in self.segments + self.segment_nursery + self.inactive_segments + self.segment_graveyard:
-            seg.reset_obb()
+            seg.reset_memoized()
         return
     
     def get_segment_map(self) -> List[Segment]:
@@ -292,7 +292,7 @@ class Mapper():
             self.segment_graveyard + self.inactive_segments + 
             self.segments)
         for seg in segment_map:
-            seg.reset_obb()
+            seg.reset_memoized()
         return segment_map
     
     def get_roman_map(self) -> ROMANMap:

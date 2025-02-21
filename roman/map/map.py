@@ -46,7 +46,7 @@ class ROMANMap:
     
     def make_picklable(self):
         for seg in self.segments:
-            seg.reset_obb()
+            seg.reset_memoized()
         
     @classmethod
     def from_pickle(cls, pickle_file: str):
