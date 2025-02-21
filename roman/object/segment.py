@@ -10,7 +10,7 @@ from robotdatapy.transform import transform, aruns
 from robotdatapy.camera import xyz_2_pixel, pixel_depth_2_xyz
 
 import open3d as o3d
-from roman.map.observation import Observation
+from roman.map.observation import Observation 
 from roman.map.voxel_grid import VoxelGrid
 from roman.object.object import Object
 
@@ -114,6 +114,12 @@ class Segment(Object):
         self._pcd = None
         self._aabb = None
         self._gaussian = None
+        self._mask = None
+        self._mask_last_pose = np.nan
+        self._pixels = None
+        self._pixels_past_pose = np.nan
+        self._convex_hull = None
+        self._convex_hull_last_pose = np.nan
         
         self._integrate_points_from_observation(observation)
 
@@ -242,6 +248,8 @@ class Segment(Object):
             # Filter out any points not belonging to max cluster
             filtered_indices = np.where(labels == max_cluster)[0]
             self.points = self.points[filtered_indices]
+
+            self.reset_memoized()
                
 
     @property
@@ -251,30 +259,36 @@ class Segment(Object):
         else:
             return self.points.shape[0]
         
-    def reset_memoized(self, transformed_only=False):
-        if not transformed_only:
-            self._obb = None
-            self._aabb = None
+    def reset_memoized(self):
+        self._aabb = None
+        self._obb = None
         self._pcd = None
+        self._gaussian = None
+        self._mask = None
+        self._mask_last_pose = np.nan
+        self._pixels = None
+        self._pixels_past_pose = np.nan
+        self._convex_hull = None
+        self._convex_hull_last_pose = np.nan
         self.voxel_grid = dict()
+
+    @property
+    def obb(self):
+        if self._obb is None:
+            self._obb = o3d.geometry.OrientedBoundingBox.create_from_points(
+                            o3d.utility.Vector3dVector(self.points))
         
     @property
     def volume(self):
         if self.num_points > 4: # 4 is the minimum number of points needed to define a 3D box
-            if self._obb is None:
-                self._obb = o3d.geometry.OrientedBoundingBox.create_from_points(
-                                o3d.utility.Vector3dVector(self.points))
-            return self._obb.volume()
+            return self.obb.volume()
         else:
             return 0.0
         
     @property
     def extent(self):
         if self.num_points > 4:
-            if self._obb is None:
-                self._obb = o3d.geometry.OrientedBoundingBox.create_from_points(
-                                o3d.utility.Vector3dVector(self.points))
-            return self._obb.extent
+            return self.obb.extent
         else:
             return np.zeros(3)
         
@@ -299,16 +313,18 @@ class Segment(Object):
                 self.voxel_grid[voxel_size] = VoxelGrid.from_points(self.points, voxel_size)
             return self.voxel_grid[voxel_size]
         raise ValueError("No points in segment")
+    
+    @property
+    def aabb(self):
+        if self._aabb is None:
+                self._aabb = o3d.geometry.AxisAlignedBoundingBox.create_from_points(
+                    o3d.utility.Vector3dVector(self.points))
         
     def aabb_volume(self):
         """Return the volume of the 3D axis-aligned bounding box
         """
         if self.num_points > 0:
-            if self._aabb is None:
-                self._aabb = o3d.geometry.AxisAlignedBoundingBox.create_from_points(
-                    o3d.utility.Vector3dVector(self.points)
-                )
-            return self._aabb.volume()
+            return self.aabb.volume()
         return 0.0
 
     @property
@@ -319,37 +335,45 @@ class Segment(Object):
             return None
     
     def reconstruct_mask(self, pose, downsample_factor=1):
-        mask = np.zeros((self.camera_params.height, self.camera_params.width), dtype=np.uint8)
+        if self._mask is None or not np.allclose(pose, self._mask_last_pose):
+            mask = np.zeros((self.camera_params.height, self.camera_params.width), dtype=np.uint8)
 
-        bbox = self.reprojected_bbox(pose)
-        if bbox is not None:
-            upper_left, lower_right = bbox
-            mask[upper_left[1]:lower_right[1], upper_left[0]:lower_right[0]] = 1
+            bbox = self.reprojected_bbox(pose)
+            if bbox is not None:
+                upper_left, lower_right = bbox
+                mask[upper_left[1]:lower_right[1], upper_left[0]:lower_right[0]] = 1
 
-        if downsample_factor == 1:
-            return mask.astype('uint8')
+            if downsample_factor == 1:
+                return mask.astype('uint8')
+            
+            # Additional downsampling
+            mask = np.array(cv.resize(
+                        mask,
+                        (mask.shape[1]//downsample_factor, mask.shape[0]//downsample_factor), 
+                        interpolation=cv.INTER_NEAREST
+                    )).astype('uint8')
+            self._mask = mask
+            self._mask_last_pose = pose
+
+        return self._mask
         
-        # Additional downsampling
-        mask = np.array(cv.resize(
-                    mask,
-                    (mask.shape[1]//downsample_factor, mask.shape[0]//downsample_factor), 
-                    interpolation=cv.INTER_NEAREST
-                )).astype('uint8')
-        return mask
-    
     def _pixels_2d(self, pose):
-        if self.points is None:
+        if self._pixels is None or not np.allclose(pose, self._pixels_past_pose):
+            if self.points is None:
+                return None
+            points_c = transform(np.linalg.inv(pose), self.points, axis=0)
+            points_c = points_c[points_c[:,2] >= 0]
+            if len(points_c) == 0:
+                return None
+            pixels = xyz_2_pixel(points_c, self.camera_params.K)
+            pixels = pixels[np.bitwise_and(pixels[:,0] >= 0, pixels[:,0] < self.camera_params.width), :]
+            pixels = pixels[np.bitwise_and(pixels[:,1] >= 0, pixels[:,1] < self.camera_params.height), :]
+            self._pixels = pixels
+            self._pixels_past_pose = pose
+
+        if len(self._pixels) == 0:
             return None
-        points_c = transform(np.linalg.inv(pose), self.points, axis=0)
-        points_c = points_c[points_c[:,2] >= 0]
-        if len(points_c) == 0:
-            return None
-        pixels = xyz_2_pixel(points_c, self.camera_params.K)
-        pixels = pixels[np.bitwise_and(pixels[:,0] >= 0, pixels[:,0] < self.camera_params.width), :]
-        pixels = pixels[np.bitwise_and(pixels[:,1] >= 0, pixels[:,1] < self.camera_params.height), :]
-        if len(pixels) == 0:
-            return None
-        return pixels
+        return self._pixels
     
     def reprojected_bbox(self, pose):
         pixels = self._pixels_2d(pose)
@@ -410,14 +434,18 @@ class Segment(Object):
         return mask
     
     def outline_2d(self, pose):
-        pixels = self._pixels_2d(pose)
-        if pixels is None:
-            return None
-        convex_hull = shapely.convex_hull(shapely.MultiPoint(pixels))
-        if type(convex_hull) == shapely.Polygon:
-            return np.array(convex_hull.exterior.coords)
-        elif type(convex_hull) == shapely.LineString:
-            return np.array(convex_hull.coords)
+        if self._convex_hull is None or not np.allclose(pose, self._convex_hull_last_pose):
+            pixels = self._pixels_2d(pose)
+            if pixels is None:
+                return None
+            convex_hull = shapely.convex_hull(shapely.MultiPoint(pixels))
+            self._convex_hull = convex_hull
+            self._convex_hull_last_pose = pose
+
+        if type(self._convex_hull) == shapely.Polygon:
+            return np.array(self._convex_hull.exterior.coords)
+        elif type(self._convex_hull) == shapely.LineString:
+            return np.array(self._convex_hull.coords)
         
     @property
     def pcd(self):
@@ -488,7 +516,7 @@ class Segment(Object):
     def transform(self, T):
         if self.points is not None:
             self.points = transform(T, self.points, axis=0)
-            self.reset_memoized(transformed_only=True)
+            self.reset_memoized()
             
     def minimal_data(self):
         e = self.normalized_eigenvalues()
@@ -533,4 +561,22 @@ class Segment(Object):
     def set_center_ref(self, new_center_ref):
         assert new_center_ref in ['bottom_middle', 'mean']
         self._center_ref = new_center_ref
+
+    @classmethod
+    def chamfer_distance(cls, segment_1, segment_2):
+        """
+        See https://github.com/UM-ARM-Lab/Chamfer-Distance-API and https://www.open3d.org/docs/latest/tutorial/Basic/pointcloud.html#Point-Cloud-Distance.
+        
+        The champer distance from pcd1 to pcd2 is the average of the distances from each point in pcd1 to its nearest point in pcd2.
+            - o3d.geometry.PointCloud.compute_point_cloud_distance returns an array of the distances for each point in the calling pointcloud to
+              the other pointcloud, so we take the mean to get chamfer distance as a single metric.
+        
+        Instead of adding the directional champer distances like [1], we take the minimum, as we want to measure overlap and de-value extent. 
+        The champer distance from a small pointcloud to a large enclosing pointcloud will be small, but this is not true in the other direction.
+        """
+        if segment_1.num_points == 0 or segment_2.num_points == 0:
+            return np.inf
+        pcd1 = segment_1.pcd
+        pcd2 = segment_1.pcd
+        return  np.min(np.mean(pcd1.compute_point_cloud_distance(pcd2)), np.mean(pcd2.compute_point_cloud_distance(pcd1)))
         
