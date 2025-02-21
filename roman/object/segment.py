@@ -42,6 +42,10 @@ class SegmentMinimalData(Object):
         self.semantic_descriptor = semantic_descriptor
         self.first_seen = first_seen
         self.last_seen = last_seen
+
+    @property
+    def reference_time(self):
+        return (self.first_seen + self.last_seen) / 2.0
         
     def normalized_eigenvalues(self):
         return None
@@ -250,6 +254,10 @@ class Segment(Object):
             return pcd.get_center().reshape(self.dim, 1)
         else:
             assert False, "Invalid center reference point type"
+
+    @property
+    def reference_time(self):
+        return (self.first_seen + self.last_seen) / 2.0
         
     def get_voxel_grid(self, voxel_size: float) -> VoxelGrid:
         if self.num_points > 0:

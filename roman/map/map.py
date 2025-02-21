@@ -223,7 +223,7 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
 
         if submap_params.max_size is not None:
             segments_sorted_by_dist = sorted(sm.segments, 
-                                             key=lambda seg: norm(seg.center.flatten()))
+                                             key=lambda seg: abs(seg.reference_time - submaps[i].time))
             sm.segments = segments_sorted_by_dist[:submap_params.max_size]
     return submaps
 
