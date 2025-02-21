@@ -130,6 +130,7 @@ class SubmapParams:
     distance: float = 10.0
     max_size: int = 40
     time_threshold: float = np.inf
+    pruning_method: str = 'time'
     object_center_ref: str = 'mean'
     use_minimal_data: bool = True
 
@@ -140,6 +141,7 @@ class SubmapParams:
             distance=submap_align_params.submap_center_dist,
             max_size=submap_align_params.submap_max_size,
             time_threshold=submap_align_params.submap_center_time,
+            pruning_method=submap_align_params.submap_pruning_method
         )
 
 def load_roman_map(map_file: str) -> ROMANMap:
@@ -222,8 +224,12 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
             seg.transform(T_center_odom)
 
         if submap_params.max_size is not None:
-            segments_sorted_by_dist = sorted(sm.segments, 
-                                             key=lambda seg: abs(seg.reference_time - submaps[i].time))
+            if submap_params.pruning_method == 'distance': # distance-based pruning
+                pruning_key = lambda seg: norm(seg.center.flatten())
+            else: # time-based pruning by default
+                pruning_key = lambda seg: abs(seg.reference_time - submaps[i].time)
+
+            segments_sorted_by_dist = sorted(sm.segments, key=pruning_key)
             sm.segments = segments_sorted_by_dist[:submap_params.max_size]
     return submaps
 

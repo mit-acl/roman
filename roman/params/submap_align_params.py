@@ -35,6 +35,7 @@ class SubmapAlignParams:
     submap_center_dist: float = 10.0        # Distance between submap centers in meters
     submap_center_time: float = 50.0        # time threshold between segments and submap center times
     submap_max_size: int = 40               # Maximum number of segments in a submap (to save computation)
+    submap_pruning_method: str = 'time'     # Metric for pruning segments in a submap (time, distance) -> max gets pruned
     single_robot_lc: bool = False           # If true, do not try and perform loop closures with submaps
                                             # nearby in time
     single_robot_lc_time_thresh: float = 50.0   # Time threshold for single robot loop closure
