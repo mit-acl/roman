@@ -83,7 +83,7 @@ def run(
         # handlers=logging.StreamHandler()
     )
 
-    print("Running segment tracking! Start time {:.1f}, end time {:.1f}".format(runner.t0, runner.tf))
+    print("\n---\nRunning segment tracking! Start time {:.1f}, end time {:.1f}\n---\n".format(runner.t0, runner.tf))
     wc_t0 = time.time()
 
     vid = viz_params.viz_map or viz_params.viz_observations
@@ -159,23 +159,42 @@ def mapping(
     mapper_params_path = expandvars_recursive(f"{params_path}/mapper.yaml")
     fastsam_params_path = expandvars_recursive(f"{params_path}/fastsam.yaml")
         
-    if max_time is not None:
+    data_params = DataParams.from_yaml(data_params_path, run=run_name)
+    if max_time is not None: data_params.max_time = max_time
+
+    print(f"run max time: {data_params.max_time}")
+
+    if data_params.max_time is not None:
         try:
+            # store original (complete) time range
+            if data_params.time_params is not None:
+                start_time = data_params.time_params['t0']
+                end_time = data_params.time_params['tf']
+                relative = data_params.time_params['relative']
+            else: # default: run until no data
+                start_time = 0
+                end_time = float('inf')
+                relative = True
+
             mapping_iter = 0
             while True:
-                
                 data_params, fastsam_params, mapper_params = \
                     extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=run_name)
-                    
+                
+                # end of this iteration (add dt/2 in case of floating point error)
+                if  start_time + data_params.max_time * mapping_iter + data_params.dt / 2.0 >= end_time:
+                    break
+
+                # time range for this iteration, bounded by end_time
                 data_params.time_params = {
-                    't0': max_time * mapping_iter, 
-                    'tf': max_time * (mapping_iter + 1),
-                    'relative': True}
+                    't0': start_time + data_params.max_time * mapping_iter, 
+                    'tf': min(start_time + data_params.max_time * (mapping_iter + 1), end_time),
+                    'relative': relative}
                 
                 run(data_params, fastsam_params, mapper_params, 
                     output_path=f"{output_path}_{mapping_iter}", viz_params=viz_params)
                 mapping_iter += 1
-        except:
+        finally: # after break or exception
             demo_output_files = [f"{output_path}_{mi}.pkl" for mi in range(mapping_iter)]
             merge_demo_output(demo_output_files, f"{output_path}.pkl")
     

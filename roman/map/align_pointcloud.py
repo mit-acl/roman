@@ -20,9 +20,9 @@ class AlignPointCloud():
     pointcloud_data: PointCloudData
     img_data: ImgData
     camera_pose_data: PoseData
-    T_camera_rangesens_static: np.ndarray
+    T_camera_rangesense_static: np.ndarray
 
-    def __init__(self, pointcloud_data: PointCloudData, img_data: ImgData, camera_pose_data: PoseData, tf_bag_path: str):
+    def __init__(self, pointcloud_data: PointCloudData, img_data: ImgData, camera_pose_data: PoseData, T_camera_rangesense: np.ndarray):
         """
         Class for aligning a point cloud with a camera and projecting the point cloud onto the camera's image frame
 
@@ -37,11 +37,24 @@ class AlignPointCloud():
         self.img_data = img_data
         self.camera_pose_data = camera_pose_data
 
-        # calculate static transform from camera to range sensor
-        self.pointcloud_frame = pointcloud_data.pointcloud(pointcloud_data.times[0]).header.frame_id
-        self.camera_frame = img_data.img_header(img_data.times[0]).frame_id
         self.img_shape = img_data.img(img_data.times[0]).shape[:2]
-        self.T_camera_rangesens_static = PoseData.any_static_tf_from_bag(expandvars_recursive(tf_bag_path), self.camera_frame, self.pointcloud_frame)
+        self.T_camera_rangesense_static = T_camera_rangesense
+
+    @classmethod
+    def extract_T_camera_rangesense(cls, pointcloud_data: PointCloudData, img_data: ImgData, tf_bag_path: str):
+        """
+        Extracts the static transform from camera to range sensor from a bag file
+
+        Args:
+            pointcloud_data (PointCloudData): point cloud data class
+            img_data (ImgData): image data class
+            tf_bag_path (str):  path to bag with static tf data (needed to calculate static transform from
+                                camera to range sensor)
+        """
+        pointcloud_frame = pointcloud_data.pointcloud(pointcloud_data.times[0]).header.frame_id
+        camera_frame = img_data.img_header(img_data.times[0]).frame_id
+        T_camera_rangesense_static = PoseData.any_static_tf_from_bag(expandvars_recursive(tf_bag_path), camera_frame, pointcloud_frame)
+        return T_camera_rangesense_static
 
     def aligned_pointcloud(self, t: float):
         """
@@ -64,14 +77,14 @@ class AlignPointCloud():
         # calculate dynamic transform between robot at time of image and robot at time of pointcloud
         T_W_camera_pointcloud_time = self.camera_pose_data.T_WB(pointcloud_time)
         T_W_camera_image_time = self.camera_pose_data.T_WB(img_time)
-        T_W_rangesens_pointcloud_time = T_W_camera_pointcloud_time @ self.T_camera_rangesens_static
-        T_W_rangesens_image_time = T_W_camera_image_time @ self.T_camera_rangesens_static
+        T_W_rangesens_pointcloud_time = T_W_camera_pointcloud_time @ self.T_camera_rangesense_static
+        T_W_rangesens_image_time = T_W_camera_image_time @ self.T_camera_rangesense_static
 
         T_img_cloud_dynamic = np.linalg.inv(T_W_rangesens_image_time) @ T_W_rangesens_pointcloud_time
 
         # compose static and dynamic transforms to get approximately exact transform
         # between camera at time of image and range sensor at time of point cloud
-        T_camera_rangesens = self.T_camera_rangesens_static @ T_img_cloud_dynamic
+        T_camera_rangesens = self.T_camera_rangesense_static @ T_img_cloud_dynamic
 
         # transform points into image frame
         points = pcl.get_xyz()

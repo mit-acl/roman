@@ -56,20 +56,29 @@ class ROMANMapRunner:
             print("Loading image data...")
             print(f"Time range: {self.time_range}")
         self.img_data = self.data_params.load_img_data()
-        if verbose:
-            self.t0 = self.img_data.t0
-            self.tf = self.img_data.tf
+        
+        self.t0 = self.img_data.t0
+        self.tf = self.img_data.tf
 
         if verbose: print("Loading pose data...")
         self.camera_pose_data = self.data_params.load_pose_data()
 
         if self.data_params.use_pointcloud:
             if verbose: print("Loading point cloud data for time range {}...".format(self.time_range))
+            # load PointCloudData class
             self.pointcloud_data = self.data_params.load_pointcloud_data()
+            # load T_camera_rangesense (extract from tf if undefined)
+            T_camera_rangesense = self.data_params.pointcloud_data_params.T_camera_rangesense
+            if T_camera_rangesense is None:
+                T_camera_rangesense = AlignPointCloud.extract_T_camera_rangesense(pointcloud_data=self.pointcloud_data, 
+                                                                                img_data=self.img_data, 
+                                                                                tf_bag_path=self.data_params.pointcloud_data_params.path)
+            print(f"T_camera_rangesense\n: {T_camera_rangesense}")
+            # create AlignPointCloud class for projecting pointcloud onto image frame
             self.align_pointcloud = AlignPointCloud(pointcloud_data=self.pointcloud_data,
                                                     img_data=self.img_data,
                                                     camera_pose_data=self.camera_pose_data,
-                                                    tf_bag_path=self.data_params.pose_data_params.params_dict['path']) # TODO: clean up?
+                                                    T_camera_rangesense=T_camera_rangesense)
         else:
             if verbose: print("Loading depth data for time range {}...".format(self.time_range))
             self.depth_data = self.data_params.load_depth_data()
@@ -78,7 +87,7 @@ class ROMANMapRunner:
         self.fastsam = FastSAMWrapper.from_params(params=self.fastsam_params,
                                                   depth_cam_params=self.img_data.camera_params if self.data_params.use_pointcloud else 
                                                                    self.depth_data.camera_params,
-                                                  use_pointcloud=self.data_params.use_pointcloud) # TODO: clean up?
+                                                  use_pointcloud=self.data_params.use_pointcloud)
 
         # TODO: start here
         if verbose: print("Setting up ROMAN mapper...")

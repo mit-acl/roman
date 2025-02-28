@@ -21,6 +21,35 @@ from robotdatapy.transform import T_FLURDF, T_RDFFLU
 
 from roman.utils import expandvars_recursive
 
+def find_transformation(bag_path, param_dict) -> np.array:
+    """
+    Converts a transform parameter dictionary into a transformation matrix.
+
+    Returns:
+        np.array: Transformation matrix.
+    """
+    if param_dict['input_type'] == 'string':
+        if param_dict['string'] == 'T_FLURDF':
+            return T_FLURDF
+        elif param_dict['string'] == 'T_RDFFLU':
+            return T_RDFFLU
+        else:
+            raise ValueError("Invalid string.")
+    elif param_dict['input_type'] == 'tf':
+        bag_path = expandvars_recursive(bag_path)
+        T = PoseData.any_static_tf_from_bag(
+            expandvars_recursive(bag_path), 
+            expandvars_recursive(param_dict['parent']), 
+            expandvars_recursive(param_dict['child'])
+        )
+        if param_dict['inv']:
+            T = np.linalg.inv(T)
+        return T
+    elif param_dict['input_type'] == 'matrix':
+        return np.array(param_dict['matrix']).reshape((4, 4))
+    else:
+        raise ValueError("Invalid input type.")
+
 @dataclass
 class ImgDataParams:
     
@@ -39,9 +68,15 @@ class ImgDataParams:
 class PointCloudDataParams:
     path: str
     topic: str
+    T_camera_rangesense: None
 
     @classmethod
     def from_dict(cls, params_dict: dict):
+        if 'T_camera_rangesense' in params_dict:
+            params_dict['T_camera_rangesense'] = find_transformation(bag_path=params_dict['path'],
+                                                                     param_dict=params_dict['T_camera_rangesense'])
+        else:
+            params_dict['T_camera_rangesense'] = None
         return cls(**params_dict)
 
 @dataclass
@@ -95,37 +130,7 @@ class PoseDataParams:
         return pose_data
     
     def _find_transformation(self, param_dict) -> np.array:
-        """
-        Finds the transformation from the body frame to the camera frame.
-
-        Returns:
-            np.array: Transformation matrix.
-        """
-        # T_postmultiply = np.eye(4)
-        # # if 'T_body_odom' in param_dict:
-        # #     T_postmultiply = np.linalg.inv(np.array(param_dict['T_body_odom']).reshape((4, 4)))
-        # if 'T_body_cam' in param_dict:
-        #     T_postmultiply = T_postmultiply @ np.array(param_dict['T_body_cam']).reshape((4, 4))
-        if param_dict['input_type'] == 'string':
-            if param_dict['string'] == 'T_FLURDF':
-                return T_FLURDF
-            elif param_dict['string'] == 'T_RDFFLU':
-                return T_RDFFLU
-            else:
-                raise ValueError("Invalid string.")
-        elif param_dict['input_type'] == 'tf':
-            img_file_path = expandvars_recursive(self.params_dict["path"])
-            T = PoseData.static_tf_from_bag(
-                expandvars_recursive(img_file_path), 
-                expandvars_recursive(param_dict['parent']), 
-                expandvars_recursive(param_dict['child'])
-            )
-            if param_dict['inv']:
-                return np.linalg.inv(T)
-            else:
-                return T
-        else:
-            raise ValueError("Invalid input type.")
+        return find_transformation(self.params_dict["path"], param_dict)
     
 @dataclass
 class DataParams:
@@ -139,6 +144,7 @@ class DataParams:
     runs: list = None
     run_env: str = None
     time_params: dict = None
+    max_time: float = None
     kitti: bool = False
     
     def __post_init__(self):
@@ -158,7 +164,8 @@ class DataParams:
                             (data['use_pointcloud'] if 'use_pointcloud' in data else False),
                 dt=data['dt'] if 'dt' in data else 1/6,
                 runs=data['runs'] if 'runs' in data else None,
-                run_env=data['run_env'] if 'run_env' in data else None
+                run_env=data['run_env'] if 'run_env' in data else None,
+                max_time=data['max_time'] if 'max_time' in data else None
             )
         elif run in data:
             run_data = {**data, **data[run]}
@@ -175,10 +182,11 @@ class DataParams:
             runs=data['runs'] if 'runs' in data else None,
             run_env=data['run_env'] if 'run_env' in data else None,
             time_params=run_data['time'] if 'time' in run_data else None,
+            max_time=run_data['max_time'] if 'max_time' in run_data else None,
             kitti=run_data['kitti'] if 'kitti' in run_data else False
         )
         
-    @cached_property
+    @property
     def time_range(self) -> Tuple[float, float]:
         return self._extract_time_range()
     
@@ -280,11 +288,9 @@ class DataParams:
         if self.kitti:
             time_range = [self.time_params['t0'], self.time_params['tf']]
         else:
-            img_file_path = expandvars_recursive(self.img_data_params.path)
             if self.time_params is not None:
                 if self.time_params['relative']:
-                    topic_t0 = ImgData.topic_t0(img_file_path, 
-                        expandvars_recursive(self.img_data_params.topic))
+                    topic_t0 = self._data_t0
                     time_range = [topic_t0 + self.time_params['t0'], 
                                   topic_t0 + self.time_params['tf']]
                 else:
@@ -293,4 +299,9 @@ class DataParams:
             else:
                 time_range = None
         return time_range
+    
+    @cached_property
+    def _data_t0(self) -> float:
+        return ImgData.topic_t0(expandvars_recursive(self.img_data_params.path), 
+                                expandvars_recursive(self.img_data_params.topic))
         

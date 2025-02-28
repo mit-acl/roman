@@ -102,7 +102,7 @@ if __name__ == '__main__':
             if data_params.run_env is not None:
                 os.environ[data_params.run_env] = run
             
-            print(f"Mapping: {run}")
+            print(f"\n\n-----\nMapping: {run}\n-----\n")
             mapping_viz_params = \
                 mapping.VisualizationParams(
                     viz_map=args.viz_map,
