@@ -4,7 +4,7 @@
 #
 # ROMAN open-set segment mapper class
 #
-# Authors: Mason Peterson, Yulun Tian, Lucas Jia
+# Authors: Mason Peterson, Yulun Tian, Lucas Jia, Qingyuan Li
 #
 # Dec. 21, 2024
 #
@@ -18,6 +18,7 @@ import open3d as o3d
 
 from robotdatapy.data.img_data import CameraParams
 
+from roman.object.similiarity_metrics import ChamferDistance
 from roman.object.segment import Segment
 from roman.map.observation import Observation
 from roman.map.global_nearest_neighbor import global_nearest_neighbor
@@ -58,7 +59,10 @@ class Mapper():
         # mask_similarity = lambda seg, obs: max(self.mask_similarity(seg, obs, projected=False), 
         #                                        self.mask_similarity(seg, obs, projected=True))
         associated_pairs = global_nearest_neighbor(
-            self.segments + self.segment_nursery, observations, self.voxel_grid_similarity, self.params.min_iou
+            self.segments + self.segment_nursery, observations, 
+            self.chamfer_distance_similarity if self.params.association_method == 'chamfer' else self.voxel_grid_similarity, 
+            # negate: see chamfer_distance_similarity
+            -self.params.max_chamfer_dist if self.params.association_method == 'chamfer' else self.params.min_iou, 
         )
 
         # separate segments associated with nursery and normal segments
@@ -143,6 +147,13 @@ class Mapper():
         segment_voxel_grid = segment.get_voxel_grid(voxel_size)
         observation_voxel_grid = observation.get_voxel_grid(voxel_size)
         return segment_voxel_grid.iou(observation_voxel_grid)
+    
+    def chamfer_distance_similarity(self, segment: Segment, observation: Observation):
+        """
+        Compute the similarity between a segment and observation using their chamfer distance
+        """
+        # Negate because smaller distance is larger similarity
+        return -ChamferDistance.chamfer_distance(segment.pcd, observation.pcd)
 
     def mask_similarity(self, segment: Segment, observation: Observation, projected: bool = False):
         """
@@ -252,16 +263,25 @@ class Mapper():
                         .5 * (np.max(seg1.extent) + np.max(seg2.extent)):
                         continue 
 
-                    maks1 = seg1.reconstruct_mask(self.last_pose)
-                    maks2 = seg2.reconstruct_mask(self.last_pose)
-                    intersection2d = np.logical_and(maks1, maks2).sum()
-                    union2d = np.logical_or(maks1, maks2).sum()
-                    iou2d = intersection2d / union2d
+                    if self.params.merge_method == 'chamfer': # Chamfer distance-based merging
+                        chamfer_dist = ChamferDistance.chamfer_distance(seg1.pcd, seg2.pcd)
 
-                    iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
-                        seg2.get_voxel_grid(self.params.iou_voxel_size))
+                        merge_flag = chamfer_dist < self.params.merge_objects_max_chamfer_dist
+                    else: # IOU-based merging
+                        maks1 = seg1.reconstruct_mask(self.last_pose)
+                        maks2 = seg2.reconstruct_mask(self.last_pose)
+                        intersection2d = np.logical_and(maks1, maks2).sum()
+                        union2d = np.logical_or(maks1, maks2).sum()
+                        iou2d = intersection2d / union2d
 
-                    if iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d:
+                        iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
+                            seg2.get_voxel_grid(self.params.iou_voxel_size))
+                        
+                        merge_flag = iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d
+
+                    # print(f"chamfer: {ChamferDistance.chamfer_distance(seg1.pcd, seg2.pcd)}. iou3d: {iou3d}. iou2d: {iou2d}")
+
+                    if merge_flag:
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if seg1.num_points == 0:

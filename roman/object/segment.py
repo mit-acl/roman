@@ -14,30 +14,6 @@ from roman.map.observation import Observation
 from roman.map.voxel_grid import VoxelGrid
 from roman.object.object import Object
 
-# TODO: use edited to help save computation in computing things 
-# like volume, extent, and pca shape attributes
-
-class Wasserstein():
-
-    @classmethod
-    def principle_square_root(cls, A):
-        """
-        Compute the principle square root of a symmetric positive semi-definite matrix A
-
-        - Source: https://en.wikipedia.org/wiki/Square_root_of_a_matrix#Positive_semidefinite_matrices
-            - see "Solutions in close form/By diagonalization"
-        - using Eigendecomposition: V D^{1/2} V^T * (V D^{1/2} V^T) = V D V^T = A
-        """
-        eigvals, eigvecs = np.linalg.eigh(A)
-        return eigvecs @ np.diag(np.sqrt(eigvals)) @ eigvecs.T
-
-    @classmethod
-    def wasserstein_metric(cls, g1, g2):
-        mu1, sigma1 = g1
-        mu2, sigma2 = g2
-        sigma2_sqrt = cls.principle_square_root(sigma2)
-        return norm(mu1 - mu2) + np.trace(sigma1 + sigma2 - 2 * cls.principle_square_root(sigma2_sqrt @ sigma1 @ sigma2_sqrt))
-
 
 class SegmentMinimalData(Object):
     
@@ -110,10 +86,12 @@ class Segment(Object):
         self.semantic_descriptor_cnt = 0
         self._center_ref = "mean" # TODO: make enum. For now: mean or bottom-middle
 
+        # memoized attributes
         self._obb = None
         self._pcd = None
         self._aabb = None
         self._gaussian = None
+        self._eigvals = None
         self._mask = None
         self._mask_last_pose = np.nan
         self._pixels = None
@@ -194,6 +172,7 @@ class Segment(Object):
         if segment.num_points > 0:
             self._add_points(segment.points)
         else: # TODO: not sure how this is reached?
+            self.reset_memoized()
             self.points = segment.points
 
     def _add_points(self, points):
@@ -249,7 +228,7 @@ class Segment(Object):
             filtered_indices = np.where(labels == max_cluster)[0]
             self.points = self.points[filtered_indices]
 
-            self.reset_memoized()
+            self.reset_memoized() # clear memory-intensive attributes
                
 
     @property
@@ -264,6 +243,7 @@ class Segment(Object):
         self._obb = None
         self._pcd = None
         self._gaussian = None
+        self._eigvals = None
         self._mask = None
         self._mask_last_pose = np.nan
         self._pixels = None
@@ -277,6 +257,7 @@ class Segment(Object):
         if self._obb is None:
             self._obb = o3d.geometry.OrientedBoundingBox.create_from_points(
                             o3d.utility.Vector3dVector(self.points))
+        return self._obb
         
     @property
     def volume(self):
@@ -460,14 +441,17 @@ class Segment(Object):
             self._gaussian = self.pcd.compute_mean_and_covariance()
         return self._gaussian
         
+    @property
     def normalized_eigenvalues(self):
         """Compute the normalized eigenvalues of the covariance matrix
         as a np array [e1, e2, e3]
         e1 >= e2 >= e3 so that the sum is one
         """
-        _, C = self.gaussian
-        _, eigvals, _ = np.linalg.svd(C)  # svd return in descending order
-        return eigvals / eigvals.sum()
+        if self._eigvals is None:
+            _, C = self.gaussian
+            _, eigvals, _ = np.linalg.svd(C)  # svd return in descending order
+            self._eigvals = eigvals / eigvals.sum()
+        return self._eigvals
 
     def linearity(self, e: np.ndarray=None):
         """ Large if similar to a 1D line (Weinmann et al. ISPRS 2014)
@@ -476,7 +460,7 @@ class Segment(Object):
             e (np.ndarray): normalized eigenvalues of this point cloud
         """
         if e is None:
-            e = self.normalized_eigenvalues()
+            e = self.normalized_eigenvalues
         return (e[0]-e[1]) / e[0]
 
     def planarity(self, e: np.ndarray=None):
@@ -485,7 +469,7 @@ class Segment(Object):
             e (np.ndarray): normalized eigenvalues of this point cloud
         """
         if e is None:
-            e = self.normalized_eigenvalues()
+            e = self.normalized_eigenvalues
         return (e[1]-e[2]) / e[0]
 
     def scattering(self, e: np.ndarray=None):
@@ -495,7 +479,7 @@ class Segment(Object):
             e (np.ndarray): normalized eigenvalues of this point cloud
         """
         if e is None:
-            e = self.normalized_eigenvalues()
+            e = self.normalized_eigenvalues
         return e[2] / e[0]
     
     def _add_semantic_descriptor(self, descriptor: np.ndarray, cnt: int = 1):
@@ -519,7 +503,7 @@ class Segment(Object):
             self.reset_memoized()
             
     def minimal_data(self):
-        e = self.normalized_eigenvalues()
+        e = self.normalized_eigenvalues
         return SegmentMinimalData(
             self.id,
             self.center,
@@ -561,22 +545,4 @@ class Segment(Object):
     def set_center_ref(self, new_center_ref):
         assert new_center_ref in ['bottom_middle', 'mean']
         self._center_ref = new_center_ref
-
-    @classmethod
-    def chamfer_distance(cls, segment_1, segment_2):
-        """
-        See https://github.com/UM-ARM-Lab/Chamfer-Distance-API and https://www.open3d.org/docs/latest/tutorial/Basic/pointcloud.html#Point-Cloud-Distance.
-        
-        The champer distance from pcd1 to pcd2 is the average of the distances from each point in pcd1 to its nearest point in pcd2.
-            - o3d.geometry.PointCloud.compute_point_cloud_distance returns an array of the distances for each point in the calling pointcloud to
-              the other pointcloud, so we take the mean to get chamfer distance as a single metric.
-        
-        Instead of adding the directional champer distances like [1], we take the minimum, as we want to measure overlap and de-value extent. 
-        The champer distance from a small pointcloud to a large enclosing pointcloud will be small, but this is not true in the other direction.
-        """
-        if segment_1.num_points == 0 or segment_2.num_points == 0:
-            return np.inf
-        pcd1 = segment_1.pcd
-        pcd2 = segment_1.pcd
-        return  np.min(np.mean(pcd1.compute_point_cloud_distance(pcd2)), np.mean(pcd2.compute_point_cloud_distance(pcd1)))
         
