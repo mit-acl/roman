@@ -290,7 +290,7 @@ class DataParams:
         else:
             if self.time_params is not None:
                 if self.time_params['relative']:
-                    topic_t0 = self._data_t0
+                    topic_t0 = self.data_t0
                     time_range = [topic_t0 + self.time_params['t0'], 
                                   topic_t0 + self.time_params['tf']]
                 else:
@@ -301,7 +301,12 @@ class DataParams:
         return time_range
     
     @cached_property
-    def _data_t0(self) -> float:
+    def data_t0(self) -> float:
         return ImgData.topic_t0(expandvars_recursive(self.img_data_params.path), 
+                                expandvars_recursive(self.img_data_params.topic))
+    
+    @cached_property
+    def data_tf(self) -> float:
+        return ImgData.topic_tf(expandvars_recursive(self.img_data_params.path), 
                                 expandvars_recursive(self.img_data_params.topic))
         

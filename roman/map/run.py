@@ -56,7 +56,7 @@ class ROMANMapRunner:
             print("Loading image data...")
             print(f"Time range: {self.time_range}")
         self.img_data = self.data_params.load_img_data()
-        
+
         self.t0 = self.img_data.t0
         self.tf = self.img_data.tf
 
@@ -73,7 +73,7 @@ class ROMANMapRunner:
                 T_camera_rangesense = AlignPointCloud.extract_T_camera_rangesense(pointcloud_data=self.pointcloud_data, 
                                                                                 img_data=self.img_data, 
                                                                                 tf_bag_path=self.data_params.pointcloud_data_params.path)
-            print(f"T_camera_rangesense\n: {T_camera_rangesense}")
+            print(f"T_camera_rangesense:\n{T_camera_rangesense}")
             # create AlignPointCloud class for projecting pointcloud onto image frame
             self.align_pointcloud = AlignPointCloud(pointcloud_data=self.pointcloud_data,
                                                     img_data=self.img_data,
