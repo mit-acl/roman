@@ -60,9 +60,7 @@ class Mapper():
         #                                        self.mask_similarity(seg, obs, projected=True))
         associated_pairs = global_nearest_neighbor(
             self.segments + self.segment_nursery, observations, 
-            self.chamfer_distance_similarity if self.params.association_method == 'chamfer' else self.voxel_grid_similarity, 
-            # negate: see chamfer_distance_similarity
-            -self.params.max_chamfer_dist if self.params.association_method == 'chamfer' else self.params.min_iou, 
+            *self.similarity_function_args()
         )
 
         # separate segments associated with nursery and normal segments
@@ -139,6 +137,31 @@ class Mapper():
             
         return
     
+    def similarity_function_args(self):
+        """
+        Get the similarity function based on the association method
+        """
+        methods = {
+            'iou': self.voxel_grid_similarity,
+            'chamfer': self.chamfer_distance_similarity,
+            'both': lambda seg, obs: np.array([self.voxel_grid_similarity(seg, obs), self.chamfer_distance_similarity(seg, obs)])
+        }
+        thresholds = {
+            'iou': self.params.min_iou,
+            'chamfer': -self.params.max_chamfer_dist,  # negate: see chamfer_distance_similarity
+            'both': np.array([self.params.min_iou, -self.params.max_chamfer_dist])
+        }
+        ranges = {
+            'iou': [(0.0, 1.0)],
+            'chamfer': [(-self.params.max_chamfer_dist, 0)],
+            'both': [(0.0, 1.0), (-self.params.max_chamfer_dist, 0)]
+        }
+        return [
+            methods.get(self.params.association_method, lambda: (_ for _ in ()).throw(ValueError(f"Invalid association method: {self.params.association_method}"))),
+            thresholds.get(self.params.association_method, lambda: (_ for _ in ()).throw(ValueError(f"Invalid association method: {self.params.association_method}"))),
+            np.array(ranges.get(self.params.association_method, lambda: (_ for _ in ()).throw(ValueError(f"Invalid association method: {self.params.association_method}"))))
+        ]
+
     def voxel_grid_similarity(self, segment: Segment, observation: Observation):
         """
         Compute the similarity between the voxel grids of a segment and an observation
@@ -263,11 +286,14 @@ class Mapper():
                         .5 * (np.max(seg1.extent) + np.max(seg2.extent)):
                         continue 
 
-                    if self.params.merge_method == 'chamfer': # Chamfer distance-based merging
+                    merge_flag = False
+
+                    if self.params.merge_method in ('chamfer', 'both'): # Chamfer distance-based merging
                         chamfer_dist = ChamferDistance.chamfer_distance(seg1.pcd, seg2.pcd)
 
-                        merge_flag = chamfer_dist < self.params.merge_objects_max_chamfer_dist
-                    else: # IOU-based merging
+                        merge_flag |= chamfer_dist < self.params.merge_objects_max_chamfer_dist
+
+                    if self.params.merge_method in ('iou', 'both'): # IOU-based merging
                         maks1 = seg1.reconstruct_mask(self.last_pose)
                         maks2 = seg2.reconstruct_mask(self.last_pose)
                         intersection2d = np.logical_and(maks1, maks2).sum()
@@ -277,7 +303,7 @@ class Mapper():
                         iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
                             seg2.get_voxel_grid(self.params.iou_voxel_size))
                         
-                        merge_flag = iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d
+                        merge_flag |= iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d
 
                     # print(f"chamfer: {ChamferDistance.chamfer_distance(seg1.pcd, seg2.pcd)}. iou3d: {iou3d}. iou2d: {iou2d}")
 

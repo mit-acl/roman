@@ -14,30 +14,29 @@ from dataclasses import dataclass
 import yaml
 from typing import Tuple
 
-from robotdatapy.camera import CameraParams
-
 @dataclass
 class MapperParams():
     """
     Params for ROMAN open-set segment mapper object.
     
     Args:
-        association_method (str): method for associating segments across frames. ('iou', 'chamfer') for voxel IOU or chamfer distance
-        merge_method (str): method for merging objects. ('iou', 'chamfer') for voxel/pixel IOU or chamfer distance
-        min_iou (float): minimum voxel IOU for frame-to-frame association                           (used if association_method == 'iou') 
-        max_chamfer_dist (float): maximum chamfer distance for frame-to-frame association           (used if association_method == 'chamfer')
+        association_method (str): method for associating segments across frames. ('iou', 'chamfer', 'both') for voxel/pixel IOU, chamfer distance, or both.
+            If 'both' is used, each association similarity score will be the max of the normalized similarity scores.
+        merge_method (str): method for merging objects. ('iou', 'chamfer', 'both') for voxel/pixel IOU, chamfer distance, or both
+        min_iou (float): minimum voxel IOU for frame-to-frame association                           (used if association_method == 'iou'|'both') 
+        max_chamfer_dist (float): maximum chamfer distance for frame-to-frame association           (used if association_method == 'chamfer'|'both')
         min_sightings (int): minimum number of sightings to consider an object
         max_t_no_sightings (int): maximum time without a sighting before moving 
             an object to inactive
-        merge_objects_iou_3d (float): minimum 3D IOU for merging objects                            (used if merge_method == 'iou') 
-        merge_objects_iou_2d (float): minimum 2D IOU for merging objects                            (used if merge_method == 'iou')
-        merge_objects_max_chamfer_dist (float): maximum chamfer distance for merging objects        (used if merge_method == 'chamfer')
+        merge_objects_iou_3d (float): minimum 3D IOU for merging objects                            (used if merge_method == 'iou'|'both') 
+        merge_objects_iou_2d (float): minimum 2D IOU for merging objects                            (used if merge_method == 'iou'|'both')
+        merge_objects_max_chamfer_dist (float): maximum chamfer distance for merging objects        (used if merge_method == 'chamfer'|'both')
         mask_downsample_factor (int): factor by which to downsample the mask
         min_max_extent (float): to get rid of very small objects
         plane_prune_params (Tuple[float]): to get rid of planar objects (likely background)
         segment_graveyard_time (float): time after which an inactive segment is sent to the graveyard
         segment_graveyard_dist (float): distance traveled after which an inactive segment is sent to the graveyard
-        iou_voxel_size (float): voxel size for IOU calculation                                      (used if merge_method == 'iou' or association_method == 'iou')
+        iou_voxel_size (float): voxel size for IOU calculation                                      (used if merge_method == 'iou'|'both' or association_method == 'iou'|'both')
         segment_voxel_size (float): voxel size for segment representation (point-cloud downsampling)
 
     Returns:
