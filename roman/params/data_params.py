@@ -302,11 +302,14 @@ class DataParams:
     
     @cached_property
     def data_t0(self) -> float:
-        return ImgData.topic_t0(expandvars_recursive(self.img_data_params.path), 
-                                expandvars_recursive(self.img_data_params.topic))
+        return self.data_t_range[0]
     
     @cached_property
     def data_tf(self) -> float:
-        return ImgData.topic_tf(expandvars_recursive(self.img_data_params.path), 
-                                expandvars_recursive(self.img_data_params.topic))
+        return self.data_t_range[1]
+    
+    @cached_property
+    def data_t_range(self) -> float:
+        return ImgData.topic_t_range(expandvars_recursive(self.img_data_params.path), 
+                                     expandvars_recursive(self.img_data_params.topic))
         

@@ -63,7 +63,8 @@ def run(
     fastsam_params: FastSAMParams, 
     mapper_params: MapperParams,
     output_path: str,
-    viz_params: VisualizationParams = VisualizationParams()
+    viz_params: VisualizationParams = VisualizationParams(),
+    verbose: bool = False
 ):
     
     runner = ROMANMapRunner(data_params=data_params, 
@@ -83,7 +84,7 @@ def run(
         # handlers=logging.StreamHandler()
     )
 
-    print("\n---\nRunning segment tracking! Start time {:.1f}, end time {:.1f}\n---\n".format(runner.t0, runner.tf))
+    if verbose: print("\n---\nRunning segment tracking! Start time {:.1f}, end time {:.1f}\n---\n".format(runner.t0, runner.tf))
     wc_t0 = time.time()
 
     vid = viz_params.viz_map or viz_params.viz_observations
@@ -116,11 +117,12 @@ def run(
         video.release()
         cv.destroyAllWindows()
 
-    print(f"Segment tracking took {time.time() - wc_t0:.2f} seconds")
-    print(f"Run duration was {runner.tf - runner.t0:.2f} seconds")
-    print(f"Compute per second: {(time.time() - wc_t0) / (runner.tf - runner.t0):.2f}")
+    if verbose: 
+        print(f"Segment tracking took {time.time() - wc_t0:.2f} seconds")
+        print(f"Run duration was {runner.tf - runner.t0:.2f} seconds")
+        print(f"Compute per second: {(time.time() - wc_t0) / (runner.tf - runner.t0):.2f}")
 
-    print(f"Number of poses: {len(runner.mapper.poses_flu_history)}.")
+        print(f"Number of poses: {len(runner.mapper.poses_flu_history)}.")
 
     # Output results
     pkl_path = os.path.expanduser(expandvars(output_path)) + ".pkl"
@@ -141,7 +143,7 @@ def run(
     
     if viz_params.save_img_data:
         img_data_path = os.path.expanduser(expandvars(output_path)) + ".img_data.npz"
-        print(f"Saving visualization to {img_data_path}")
+        if verbose: print(f"Saving visualization to {img_data_path}")
         img_data = ImgData(times=runner.mapper.times_history, imgs=runner.viz_imgs, data_type='raw')
         img_data.to_npz(img_data_path)
     
@@ -153,7 +155,8 @@ def mapping(
     output_path: str,
     run_name: str = None,
     max_time: float = None,
-    viz_params: VisualizationParams = VisualizationParams()
+    viz_params: VisualizationParams = VisualizationParams(),
+    verbose: bool = False
 ):
     data_params_path = expandvars_recursive(f"{params_path}/data.yaml")
     mapper_params_path = expandvars_recursive(f"{params_path}/mapper.yaml")
@@ -162,7 +165,7 @@ def mapping(
     data_params = DataParams.from_yaml(data_params_path, run=run_name)
     if max_time is not None: data_params.max_time = max_time
 
-    print(f"Map iteration max time: {data_params.max_time}")
+    if verbose: print(f"Map iteration max time: {data_params.max_time}")
 
     if data_params.max_time is not None:
         # store original (complete) time range
@@ -171,9 +174,15 @@ def mapping(
             end_time = data_params.time_params['tf']
             relative = data_params.time_params['relative']
         else: # default: run until no data
-            start_time = data_params.data_t0
-            end_time = data_params.data_tf
+            start_time, end_time = data_params.data_t_range
             relative = False
+
+        if verbose: 
+            if relative:
+                sr, er, snr, enr = start_time, end_time, data_params.data_t0 + start_time, data_params.data_t0 + end_time
+            else:
+                sr, er, snr, enr = start_time - data_params.data_t0, end_time - data_params.data_t0, start_time, end_time
+            print(f"Mapping iterations will cover time [{sr}, {er}] = [{snr}, {enr}]")
 
         mapping_iter = 0
         
@@ -190,9 +199,9 @@ def mapping(
                 'tf': min(start_time + data_params.max_time * (mapping_iter + 1), end_time),
                 'relative': relative}
             
-            print(f"\n---\nRunning mapping iteration {mapping_iter+1}\n---\n")
+            if verbose: print(f"\n---\nRunning mapping iteration {mapping_iter+1}\n---\n")
             run(data_params, fastsam_params, mapper_params, 
-                output_path=f"{output_path}_{mapping_iter}", viz_params=viz_params)
+                output_path=f"{output_path}_{mapping_iter}", viz_params=viz_params, verbose=verbose)
             
             mapping_iter += 1
 
@@ -201,10 +210,10 @@ def mapping(
         merge_demo_output(demo_output_files, f"{output_path}.pkl")
     
     else:
-        print(f"\n---\nRunning mapping\n---\n")
+        if verbose: print(f"\n---\nRunning mapping\n---\n")
         data_params, fastsam_params, mapper_params = \
             extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=run_name)
-        run(data_params, fastsam_params, mapper_params, output_path, viz_params)
+        run(data_params, fastsam_params, mapper_params, output_path, viz_params, verbose=verbose)
 
 
 if __name__ == '__main__':

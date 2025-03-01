@@ -116,7 +116,8 @@ if __name__ == '__main__':
                 output_path=args.output,
                 run_name=run,
                 max_time=args.max_time,
-                viz_params=mapping_viz_params
+                viz_params=mapping_viz_params,
+                verbose=True
             )
         
     if not args.skip_align:

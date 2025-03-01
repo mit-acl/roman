@@ -53,8 +53,8 @@ class ROMANMapRunner:
         self.time_range = self.data_params.time_range
 
         if verbose: 
-            print("Loading image data...")
             print(f"Time range: {self.time_range}")
+            print("Loading image data...")
         self.img_data = self.data_params.load_img_data()
 
         self.t0 = self.img_data.t0
@@ -64,7 +64,7 @@ class ROMANMapRunner:
         self.camera_pose_data = self.data_params.load_pose_data()
 
         if self.data_params.use_pointcloud:
-            if verbose: print("Loading point cloud data for time range {}...".format(self.time_range))
+            if verbose: print("Loading point cloud data...")
             # load PointCloudData class
             self.pointcloud_data = self.data_params.load_pointcloud_data()
             # load T_camera_rangesense (extract from tf if undefined)
@@ -80,7 +80,7 @@ class ROMANMapRunner:
                                                     camera_pose_data=self.camera_pose_data,
                                                     T_camera_rangesense=T_camera_rangesense)
         else:
-            if verbose: print("Loading depth data for time range {}...".format(self.time_range))
+            if verbose: print("Loading depth data...")
             self.depth_data = self.data_params.load_depth_data()
         
         if verbose: print("Setting up FastSAM...")
@@ -108,9 +108,8 @@ class ROMANMapRunner:
 
     def update(self, t: float): 
         t0 = self.img_data.t0
-        tf = self.img_data.tf
 
-        if self.verbose: print(f"t: {t - t0:.2f} = {t}")
+        if self.verbose: print(f"\nt: {t - t0:.2f} = {t}")
         img_output = None
         update_t0 = time.time()
 
