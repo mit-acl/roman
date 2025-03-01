@@ -19,7 +19,7 @@ from functools import cached_property
 from robotdatapy.data import ImgData, PoseData, PointCloudData
 from robotdatapy.transform import T_FLURDF, T_RDFFLU
 
-from roman.utils import expandvars_recursive
+from roman.utils import expandvars_recursive, combinedicts_recursive
 
 def find_transformation(bag_path, param_dict) -> np.array:
     """
@@ -168,7 +168,7 @@ class DataParams:
                 max_time=data['max_time'] if 'max_time' in data else None
             )
         elif run in data:
-            run_data = {**data, **data[run]}
+            run_data = combinedicts_recursive(data, data[run])
         else:
             run_data = data
         return cls(
