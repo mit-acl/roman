@@ -215,7 +215,7 @@ class DataParams:
         """
         return PointCloudData.from_bag(
             path=expandvars_recursive(self.pointcloud_data_params.path),
-            topic=self.pointcloud_data_params.topic,
+            topic=expandvars_recursive(self.pointcloud_data_params.topic),
             time_tol=self.dt / 2.0,
             time_range=self.time_range
         )
