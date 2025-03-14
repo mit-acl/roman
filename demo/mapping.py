@@ -199,7 +199,7 @@ def mapping(
                 'tf': min(start_time + data_params.max_time * (mapping_iter + 1), end_time),
                 'relative': relative}
             
-            if verbose: print(f"\n---\nRunning mapping iteration {mapping_iter+1}\n---\n")
+            if verbose: print(f"\n---\nRunning mapping iteration {mapping_iter}\n---\n")
             run(data_params, fastsam_params, mapper_params, 
                 output_path=f"{output_path}_{mapping_iter}", viz_params=viz_params, verbose=verbose)
             

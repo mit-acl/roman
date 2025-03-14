@@ -166,7 +166,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 clipper_dist_mat[i, j] = np.nan
 
             clipper_num_associations[i, j] = len(associations)
-            clipper_percent_associations[i, j] = len(associations) / np.mean([len(submap_i), len(submap_j)])
+            clipper_percent_associations[i, j] = len(associations) / np.mean([len(submap_i), len(submap_j)]) if np.mean([len(submap_i), len(submap_j)]) > 0 else 1.0
             
             T_ij_mat[i, j] = T_ij
             T_ij_hat_mat[i, j] = T_ij_hat
