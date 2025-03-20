@@ -23,6 +23,7 @@ class MapperParams():
         association_method (str): method for associating segments across frames. ('iou', 'chamfer', 'both') for voxel/pixel IOU, chamfer distance, or both.
             If 'both' is used, each association similarity score will be the max of the normalized similarity scores.
         merge_method (str): method for merging objects. ('iou', 'chamfer', 'both') for voxel/pixel IOU, chamfer distance, or both
+        iom_as_iou (bool): if True, use the Intersection-over-Minimum (IOM) as the IOU score
         min_iou (float): minimum voxel IOU for frame-to-frame association                           (used if association_method == 'iou'|'both') 
         max_chamfer_dist (float): maximum chamfer distance for frame-to-frame association           (used if association_method == 'chamfer'|'both')
         min_sightings (int): minimum number of sightings to consider an object
@@ -45,6 +46,7 @@ class MapperParams():
 
     association_method: str = 'iou'
     merge_method: str = 'iou'
+    iom_as_iou: bool = False
 
     min_iou: float = 0.25
     max_chamfer_dist: float = 0.5

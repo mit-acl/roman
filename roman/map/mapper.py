@@ -156,11 +156,11 @@ class Mapper():
             'chamfer': [(-self.params.max_chamfer_dist, 0)],
             'both': [(0.0, 1.0), (-self.params.max_chamfer_dist, 0)]
         }
-        return [
+        return (
             methods.get(self.params.association_method, lambda: (_ for _ in ()).throw(ValueError(f"Invalid association method: {self.params.association_method}"))),
             thresholds.get(self.params.association_method, lambda: (_ for _ in ()).throw(ValueError(f"Invalid association method: {self.params.association_method}"))),
             np.array(ranges.get(self.params.association_method, lambda: (_ for _ in ()).throw(ValueError(f"Invalid association method: {self.params.association_method}"))))
-        ]
+        )
 
     def voxel_grid_similarity(self, segment: Segment, observation: Observation):
         """
@@ -169,7 +169,7 @@ class Mapper():
         voxel_size = self.params.iou_voxel_size
         segment_voxel_grid = segment.get_voxel_grid(voxel_size)
         observation_voxel_grid = observation.get_voxel_grid(voxel_size)
-        return segment_voxel_grid.iou(observation_voxel_grid)
+        return segment_voxel_grid.iou(observation_voxel_grid, iom_as_iou=self.params.iom_as_iou)
     
     def chamfer_distance_similarity(self, segment: Segment, observation: Observation):
         """
@@ -177,42 +177,6 @@ class Mapper():
         """
         # Negate because smaller distance is larger similarity
         return -ChamferDistance.chamfer_distance(segment.pcd, observation.pcd)
-
-    def mask_similarity(self, segment: Segment, observation: Observation, projected: bool = False):
-        """
-        Compute the similarity between the mask of a segment and an observation
-        """
-        if not projected or segment in self.segment_nursery:
-            segment_propagated_mask = segment.last_observation.mask_downsampled
-            # segment_propagated_mask = segment.propagated_last_mask(observation.time, observation.pose, downsample_factor=self.mask_downsample_factor)
-            if segment_propagated_mask is None:
-                iou = 0.0
-            else:
-                iou = Mapper.compute_iou(segment_propagated_mask, observation.mask_downsampled)
-
-        # compute the similarity using the projected mask rather than last mask
-        else:
-            segment_mask = segment.reconstruct_mask(observation.pose, 
-                            downsample_factor=self.params.mask_downsample_factor)
-            iou = Mapper.compute_iou(segment_mask, observation.mask_downsampled)
-        return iou
-    
-    @staticmethod
-    def compute_iou(mask1, mask2):
-        """Compute the intersection over union (IoU) of two masks.
-
-        Args:
-            mask1 (_type_): _description_
-            mask2 (_type_): _description_
-        """
-
-        assert mask1.shape == mask2.shape
-        logger.debug(f"Compute IoU for shape {mask1.shape}")
-        intersection = np.logical_and(mask1, mask2).sum()
-        union = np.logical_or(mask1, mask2).sum()
-        if np.isclose(union, 0):
-            return 0.0
-        return float(intersection) / float(union)
 
     def remove_bad_segments(self, segments: List[Segment], min_volume: float=0.0, min_max_extent: float=0.0, plane_prune_params: List[float]=[np.inf, np.inf, 0.0]):
         """
@@ -294,14 +258,17 @@ class Mapper():
                         merge_flag |= chamfer_dist < self.params.merge_objects_max_chamfer_dist
 
                     if self.params.merge_method in ('iou', 'both'): # IOU-based merging
-                        maks1 = seg1.reconstruct_mask(self.last_pose)
-                        maks2 = seg2.reconstruct_mask(self.last_pose)
-                        intersection2d = np.logical_and(maks1, maks2).sum()
-                        union2d = np.logical_or(maks1, maks2).sum()
+                        mask1 = seg1.reconstruct_mask(self.last_pose)
+                        mask2 = seg2.reconstruct_mask(self.last_pose)
+                        intersection2d = np.logical_and(mask1, mask2).sum()
+                        
+                        union2d = np.minimum(mask1.sum(), mask2.sum()) if self.params.iom_as_iou else np.logical_or(mask1, mask2).sum()
                         iou2d = intersection2d / union2d
 
                         iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
-                            seg2.get_voxel_grid(self.params.iou_voxel_size))
+                            seg2.get_voxel_grid(self.params.iou_voxel_size),
+                            iom_as_iou=self.params.iom_as_iou
+                        )
                         
                         merge_flag |= iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d
 
@@ -366,4 +333,41 @@ class Mapper():
     @property
     def T_camera_flu(self):
         return self._T_camera_flu
+    
+
+    # def mask_similarity(self, segment: Segment, observation: Observation, projected: bool = False):
+    #     """
+    #     Compute the similarity between the mask of a segment and an observation
+    #     """
+    #     if not projected or segment in self.segment_nursery:
+    #         segment_propagated_mask = segment.last_observation.mask_downsampled
+    #         # segment_propagated_mask = segment.propagated_last_mask(observation.time, observation.pose, downsample_factor=self.mask_downsample_factor)
+    #         if segment_propagated_mask is None:
+    #             iou = 0.0
+    #         else:
+    #             iou = Mapper.compute_iou(segment_propagated_mask, observation.mask_downsampled)
+
+    #     # compute the similarity using the projected mask rather than last mask
+    #     else:
+    #         segment_mask = segment.reconstruct_mask(observation.pose, 
+    #                         downsample_factor=self.params.mask_downsample_factor)
+    #         iou = Mapper.compute_iou(segment_mask, observation.mask_downsampled)
+    #     return iou
+    
+    # @staticmethod
+    # def compute_iou(mask1, mask2):
+    #     """Compute the intersection over union (IoU) of two masks.
+
+    #     Args:
+    #         mask1 (_type_): _description_
+    #         mask2 (_type_): _description_
+    #     """
+
+    #     assert mask1.shape == mask2.shape
+    #     logger.debug(f"Compute IoU for shape {mask1.shape}")
+    #     intersection = np.logical_and(mask1, mask2).sum()
+    #     union = np.logical_or(mask1, mask2).sum()
+    #     if np.isclose(union, 0):
+    #         return 0.0
+    #     return float(intersection) / float(union)
             

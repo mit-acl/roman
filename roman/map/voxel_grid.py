@@ -72,10 +72,11 @@ class VoxelGrid():
         assert type(other) == VoxelGrid, "Can only union with another VoxelGrid"
         return self.volume + other.volume - self.intersection(other)
     
-    def iou(self, other):
+    def iou(self, other, iom_as_iou=False):
         assert type(other) == VoxelGrid, "Can only calculate IoU with another VoxelGrid"
         intersection = self.intersection(other)
-        return intersection / (self.volume + other.volume - intersection)
+        if iom_as_iou: return intersection / np.minimum(self.volume, other.volume)
+        else: return intersection / (self.volume + other.volume - intersection)
     
     @classmethod
     def from_points(cls, points: np.ndarray, voxel_size: float):
