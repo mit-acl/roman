@@ -25,7 +25,7 @@ setup(
         'open3d==0.18.0',
         'yolov7-package',
         'shapely',
-        'opencv-python',
+        'opencv-python>=4.6.0',
         'pyyaml',
         'torch==2.4.0',
         'torchvision==0.19.0',
