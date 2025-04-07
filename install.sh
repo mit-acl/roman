@@ -4,12 +4,15 @@ cd $ROMAN_DIR
 
 # Install CLIPPER
 git submodule update --init --recursive
-mkdir dependencies/clipper/build
+mkdir -p dependencies/clipper/build
 cd dependencies/clipper/build
 cmake .. && make && make pip-install
 
 # Install Kimera-RPGO
-mkdir $ROMAN_DIR/dependencies/Kimera-RPGO/build
+cd $ROMAN_DIR/dependencies
+git clone git@github.com:MIT-SPARK/Kimera-RPGO.git 
+cd Kimera-RPGO && git checkout d28b4df
+mkdir -p $ROMAN_DIR/dependencies/Kimera-RPGO/build
 cd $ROMAN_DIR/dependencies/Kimera-RPGO/build
 cmake .. && make
 
