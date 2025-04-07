@@ -137,7 +137,8 @@ class FastSAMWrapper():
             yolo_det_img_size=params.yolo_imgsz,
             allow_tblr_edges=[True, True, True, True],
             area_bounds=[img_area / (params.min_mask_len_div**2), img_area / (params.max_mask_len_div**2)],
-            clip_embedding=params.clip
+            clip_embedding=params.clip,
+            triangle_ignore_masks=params.triangle_ignore_masks
         )
 
         return fastsam
@@ -153,6 +154,7 @@ class FastSAMWrapper():
         keep_mask_minimal_intersection=0.3,
         clip_embedding=False,
         clip_model='ViT-L/14',
+        triangle_ignore_masks=None
     ):
         """
         Filtering setup function
@@ -184,6 +186,17 @@ class FastSAMWrapper():
         self.clip_embedding = clip_embedding
         if clip_embedding:
             self.clip_model, self.clip_preprocess = clip.load(clip_model, device=self.device)
+        if triangle_ignore_masks is not None:
+            self.constant_ignore_mask = np.zeros((self.depth_cam_params.height, self.depth_cam_params.width), dtype=np.uint8)
+            for triangle in triangle_ignore_masks:
+                assert len(triangle) == 3, "Triangle must have 3 points."
+                for pt in triangle:
+                    assert len(pt) == 2, "Each point must have 2 coordinates."
+                    assert all([isinstance(x, int) for x in pt]), "Coordinates must be integers."
+                cv.fillPoly(self.constant_ignore_mask, [np.array(triangle)], 1)
+            self.constant_ignore_mask = self.apply_rotation(self.constant_ignore_mask)
+        else:
+            self.constant_ignore_mask = None
             
     def setup_rgbd_params(
         self, 
@@ -252,6 +265,10 @@ class FastSAMWrapper():
         else:
             ignore_mask = None
             keep_mask = None
+
+        if self.constant_ignore_mask is not None:
+            ignore_mask = np.bitwise_or(ignore_mask, self.constant_ignore_mask) \
+                if ignore_mask is not None else self.constant_ignore_mask  
         
         # run fastsam
         masks = self._process_img(img, ignore_mask=ignore_mask, keep_mask=keep_mask)
