@@ -71,8 +71,8 @@ class ROMANMapRunner:
             T_camera_rangesense = self.data_params.pointcloud_data_params.T_camera_rangesense
             if T_camera_rangesense is None:
                 T_camera_rangesense = AlignPointCloud.extract_T_camera_rangesense(pointcloud_data=self.pointcloud_data, 
-                                                                                img_data=self.img_data, 
-                                                                                tf_bag_path=self.data_params.pointcloud_data_params.path)
+                                                                                 img_data=self.img_data, 
+                                                                                 tf_bag_path=self.data_params.pointcloud_data_params.path)
             print(f"T_camera_rangesense:\n{T_camera_rangesense}")
             # create AlignPointCloud class for projecting pointcloud onto image frame
             self.align_pointcloud = AlignPointCloud(pointcloud_data=self.pointcloud_data,

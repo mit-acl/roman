@@ -94,7 +94,7 @@ class Mapper():
                 self.segments.remove(seg)
                 continue
             try:
-                seg.final_cleanup(epsilon=self.params.segment_voxel_size*5.0)
+                seg.final_cleanup(epsilon=self.params.clustering_epsilon)
                 self.inactive_segments.append(seg)
                 self.segments.remove(seg)
             except: # too few points to form clusters
@@ -157,9 +157,9 @@ class Mapper():
             'both': [(0.0, 1.0), (-self.params.max_chamfer_dist, 0)]
         }
         return (
-            methods.get(self.params.association_method, lambda: (_ for _ in ()).throw(ValueError(f"Invalid association method: {self.params.association_method}"))),
-            thresholds.get(self.params.association_method, lambda: (_ for _ in ()).throw(ValueError(f"Invalid association method: {self.params.association_method}"))),
-            np.array(ranges.get(self.params.association_method, lambda: (_ for _ in ()).throw(ValueError(f"Invalid association method: {self.params.association_method}"))))
+            methods.get(self.params.association_method),
+            thresholds.get(self.params.association_method),
+            np.array(ranges.get(self.params.association_method))
         )
 
     def voxel_grid_similarity(self, segment: Segment, observation: Observation):
@@ -263,7 +263,7 @@ class Mapper():
                         intersection2d = np.logical_and(mask1, mask2).sum()
                         
                         union2d = np.minimum(mask1.sum(), mask2.sum()) if self.params.iom_as_iou else np.logical_or(mask1, mask2).sum()
-                        iou2d = intersection2d / union2d
+                        iou2d = intersection2d / union2d if union2d > 0 else 0.0
 
                         iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
                             seg2.get_voxel_grid(self.params.iou_voxel_size),

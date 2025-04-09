@@ -55,9 +55,9 @@ class SegmentMinimalData(Object):
     def scattering(self, e=None):
         return self._scattering
     
-    @property
-    def reference_time(self):
-        return (self.first_seen + self.last_seen) / 2.0
+    def reference_time(self, use_avg_time=True):
+        if not use_avg_time: return self.first_seen
+        else: return (self.first_seen + self.last_seen) / 2.0
     
     @property
     def gaussian(self):
@@ -284,9 +284,9 @@ class Segment(Object):
         else:
             assert False, "Invalid center reference point type"
             
-    @property
-    def reference_time(self):
-        return (self.first_seen + self.last_seen) / 2.0
+    def reference_time(self, use_avg_time=True):
+        if not use_avg_time: return self.first_seen
+        else: return (self.first_seen + self.last_seen) / 2.0
         
     def get_voxel_grid(self, voxel_size: float) -> VoxelGrid:
         if self.num_points > 0:
