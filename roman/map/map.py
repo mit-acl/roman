@@ -13,7 +13,7 @@ from robotdatapy.data.pose_data import PoseData
 
 from roman.params.submap_align_params import SubmapAlignParams
 from roman.object.segment import Segment, SegmentMinimalData
-from roman.utils import transform_rm_roll_pitch
+from roman.utils import transform_rm_roll_pitch, transform_vec
 
 @dataclass(frozen=True)
 class ROMANMap:
@@ -119,6 +119,15 @@ class Submap:
     @property
     def has_gt(self):
         return self.pose_flu_gt is not None
+    
+    @property
+    def segments_as_global_points(self):
+        # self.pose_gravity_aligned returns T_odom_center
+        # which is transformation from center frame to odom frame
+        # so this transforms segments back to the global (odom) frame
+        T_odom_center = self.pose_gravity_aligned_gt if self.pose_gravity_aligned_gt is not None else self.pose_gravity_aligned
+        return np.vstack([transform_vec(T_odom_center, seg.center.T) # (1, 3) -> (N, 3)
+                          for seg in self.segments])
 
     def __len__(self):
         return len(self.segments)
@@ -126,24 +135,28 @@ class Submap:
 @dataclass
 class SubmapParams:
 
+    max_size: int = 40
+    force_fill_submaps: bool = False
+    overlap: int = int(0.5 * max_size)
     radius: float = 15.0
     distance: float = 10.0
-    max_size: int = 40
     time_threshold: float = np.inf
     pruning_method: str = 'time'
-    time_pruning_use_avg_time: bool = True
+    use_avg_time_as_segment_ref_time: bool = True
     object_center_ref: str = 'mean'
     use_minimal_data: bool = True
 
     @classmethod
     def from_submap_align_params(cls, submap_align_params: SubmapAlignParams):
         return cls(
+            max_size=submap_align_params.submap_max_size,
+            force_fill_submaps=submap_align_params.force_fill_submaps,
+            overlap=submap_align_params.submap_overlap,
             radius=submap_align_params.submap_radius,
             distance=submap_align_params.submap_center_dist,
-            max_size=submap_align_params.submap_max_size,
             time_threshold=submap_align_params.submap_center_time,
             pruning_method=submap_align_params.submap_pruning_method,
-            time_pruning_use_avg_time=submap_align_params.time_pruning_use_avg_time
+            use_avg_time_as_segment_ref_time=submap_align_params.use_avg_time_as_segment_ref_time
         )
 
 def load_roman_map(map_file: str) -> ROMANMap:
@@ -192,47 +205,84 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
     if submap_params.use_minimal_data:
         roman_map = roman_map.minimal_data()
         
-    submaps = []
-    # create submaps
-    for i, (pose, t) in enumerate(zip(roman_map.trajectory, roman_map.times)):
-        if i == 0 or np.linalg.norm(pose[:-1,-1] - submaps[-1].pose_flu[:-1,-1]) > submap_params.distance \
-            or (t - submaps[-1].time > submap_params.time_threshold):
-            submaps.append(Submap(
+    if submap_params.force_fill_submaps:
+        submaps = []
+
+        segments_sorted_by_time = sorted(roman_map.segments, key=lambda seg: seg.reference_time(use_avg_time=submap_params.use_avg_time_as_segment_ref_time))
+
+        for i in range(0, len(segments_sorted_by_time), submap_params.max_size - submap_params.overlap):
+
+            sm_segments = segments_sorted_by_time[i:i + submap_params.max_size]
+            if len(sm_segments) == 0: continue
+
+            segment_times = [seg.reference_time(use_avg_time=submap_params.use_avg_time_as_segment_ref_time) for seg in sm_segments]
+            submap_time = np.average(segment_times)
+            submap_roman_map_index = np.argmin(np.abs(roman_map.times - submap_time))
+
+            submap_time_roman_map = roman_map.times[submap_roman_map_index]
+            submap_pose = roman_map.trajectory[submap_roman_map_index]
+
+            sm = Submap(
                 id=len(submaps),
-                time=t,
-                segments=[],
-                pose_flu=pose,
-                pose_flu_gt=gt_flu_pose_data.pose(t) if gt_flu_pose_data is not None else None
-            ))
+                time=submap_time_roman_map,
+                segments=[deepcopy(seg) for seg in sm_segments],
+                pose_flu=submap_pose,
+                pose_flu_gt=gt_flu_pose_data.pose(submap_time_roman_map) if gt_flu_pose_data is not None else None
+            )
 
-    # add segments to submaps
-    for i, sm in enumerate(submaps):
-        
-        # set up timing constraints
-        tm1 = submaps[i-1].time if i > 0 else -np.inf
-        tp1 = submaps[i+1].time if i < len(submaps) - 1 else np.inf
-        meets_time_constraints = lambda seg: not (
-            seg.first_seen > tp1 + submap_params.time_threshold
-            or seg.last_seen < tm1 - submap_params.time_threshold
-        )
+            # sm.pose is the pose of center w.r.t. odom, which is T_odom_center (center is child, odom is parent frame)
+            # T_odom_center is also transformation from center frame to odom frame
+            # so its inverse, T_center_odom, is transformation from odom frame to center frame
+            # which transforms the segments into the center frame (centered w.r.t submap centroid) since they are in the odom frame
+            T_center_odom = np.linalg.inv(sm.pose_gravity_aligned)
+            for seg in sm.segments:
+                seg.transform(T_center_odom)
 
-        for seg in roman_map.segments:
-            if (submap_params.radius is None or (norm(seg.center.flatten() - sm.pose_flu[:3,3]) < submap_params.radius)) \
-                    and meets_time_constraints(seg):
-                sm.segments.append(deepcopy(seg))
+            submaps.append(sm)
 
-        T_center_odom = np.linalg.inv(sm.pose_gravity_aligned)
-        for seg in sm.segments:
-            seg.transform(T_center_odom)
+    else:
+        submaps = []
+        # create submaps
+        for i, (pose, t) in enumerate(zip(roman_map.trajectory, roman_map.times)):
+            if i == 0 or np.linalg.norm(pose[:-1,-1] - submaps[-1].pose_flu[:-1,-1]) > submap_params.distance \
+                or (t - submaps[-1].time > submap_params.time_threshold):
+                submaps.append(Submap(
+                    id=len(submaps),
+                    time=t,
+                    segments=[],
+                    pose_flu=pose,
+                    pose_flu_gt=gt_flu_pose_data.pose(t) if gt_flu_pose_data is not None else None
+                ))
 
-        if submap_params.max_size is not None:
-            if submap_params.pruning_method == 'time': # time-based pruning
-                pruning_key = lambda seg: abs(seg.reference_time(use_avg_time=submap_params.time_pruning_use_avg_time) - submaps[i].time)
-            else: # distance-based pruning
-                pruning_key = lambda seg: norm(seg.center.flatten())
+        # add segments to submaps
+        for i, sm in enumerate(submaps):
+            
+            # set up timing constraints
+            tm1 = submaps[i-1].time if i > 0 else -np.inf
+            tp1 = submaps[i+1].time if i < len(submaps) - 1 else np.inf
+            meets_time_constraints = lambda seg: not (
+                seg.first_seen > tp1 + submap_params.time_threshold
+                or seg.last_seen < tm1 - submap_params.time_threshold
+            )
 
-            segments_sorted_by_dist = sorted(sm.segments, key=pruning_key)
-            sm.segments = segments_sorted_by_dist[:submap_params.max_size]
+            for seg in roman_map.segments:
+                if (submap_params.radius is None or (norm(seg.center.flatten() - sm.pose_flu[:3,3]) < submap_params.radius)) \
+                        and meets_time_constraints(seg):
+                    sm.segments.append(deepcopy(seg))
+
+            T_center_odom = np.linalg.inv(sm.pose_gravity_aligned)
+            for seg in sm.segments:
+                seg.transform(T_center_odom)
+
+            if submap_params.max_size is not None:
+                if submap_params.pruning_method == 'time': # time-based pruning
+                    pruning_key = lambda seg: abs(seg.reference_time(use_avg_time=submap_params.use_avg_time_as_segment_ref_time) - submaps[i].time)
+                else: # distance-based pruning
+                    pruning_key = lambda seg: norm(seg.center.flatten())
+
+                segments_sorted_by_key = sorted(sm.segments, key=pruning_key)
+                sm.segments = segments_sorted_by_key[:submap_params.max_size]
+
     return submaps
 
 

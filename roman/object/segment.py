@@ -298,8 +298,8 @@ class Segment(Object):
     @property
     def aabb(self):
         if self._aabb is None:
-                self._aabb = o3d.geometry.AxisAlignedBoundingBox.create_from_points(
-                    o3d.utility.Vector3dVector(self.points))
+            self._aabb = o3d.geometry.AxisAlignedBoundingBox.create_from_points(
+                o3d.utility.Vector3dVector(self.points))
         
     def aabb_volume(self):
         """Return the volume of the 3D axis-aligned bounding box

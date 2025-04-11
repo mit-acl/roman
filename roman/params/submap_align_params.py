@@ -31,12 +31,24 @@ class SubmapAlignParams:
                                             # See get_object_registration for other methods
     fusion_method: str = 'geometric_mean'   # How to fuse similarity scores. (geometric_mean, 
                                             # arithmetic_mean, product)
-    submap_radius: float = 15.0             # Radius of submap in meters
+    
+    use_avg_time_as_segment_ref_time: bool = True  # If true, use (first_seen + last_seen) / 2 for each segment reference time 
+                                                   # (only applicable if force_fill_submaps == True or submap_pruning_method == 'time')
+
+    force_fill_submaps: bool = False        # If true, force all submaps to be filled with segments
+    submap_max_size: int = 40               # Maximum number of segments in a submap (to save computation)
+
+    # the following is applicable only if force_fill_submaps is true
+    submap_overlap: int = int(0.5 * submap_max_size)  # Number of overlapping segments between submaps
+
+    # the following are applicable only if force_fill_submaps is false -----------
+    submap_radius: float = 15.0             # Radius of submap in meters. If set to None, segments are never excluded from submaps based on distance (though they may still be pruned)
     submap_center_dist: float = 10.0        # Distance between submap centers in meters
     submap_center_time: float = 50.0        # time threshold between segments and submap center times
-    submap_max_size: int = 40               # Maximum number of segments in a submap (to save computation)
     submap_pruning_method: str = 'distance' # Metric for pruning segments in a submap: ('time', 'distance') -> max gets pruned
-    time_pruning_use_avg_time: bool = True  # If true, use (first_seen + last_seen) / 2 for each segment reference time (only applicable if submap_pruning_method == 'time')
+    # ----------------------------------------------------------------------------
+
+
     single_robot_lc: bool = False           # If true, do not try and perform loop closures with submaps
                                             # nearby in time
     single_robot_lc_time_thresh: float = 50.0   # Time threshold for single robot loop closure

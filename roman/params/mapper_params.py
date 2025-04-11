@@ -57,7 +57,7 @@ class MapperParams():
     merge_objects_max_chamfer_dist: float = 0.5
     mask_downsample_factor: int = 8
     min_max_extent: float = 0.25
-    clustering_epsilon: float = 0.5
+    clustering_epsilon: float = 0.25
     plane_prune_params: Tuple[float] = (3.0, 3.0, 0.5)
     segment_graveyard_time: float = 15.0
     segment_graveyard_dist: float = 10.0
