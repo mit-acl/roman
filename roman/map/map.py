@@ -13,7 +13,7 @@ from robotdatapy.data.pose_data import PoseData
 
 from roman.params.submap_align_params import SubmapAlignParams
 from roman.object.segment import Segment, SegmentMinimalData
-from roman.utils import transform_rm_roll_pitch, transform_vec
+from roman.utils import transform_rm_roll_pitch, transform
 
 @dataclass(frozen=True)
 class ROMANMap:
@@ -126,8 +126,7 @@ class Submap:
         # which is transformation from center frame to odom frame
         # so this transforms segments back to the global (odom) frame
         T_odom_center = self.pose_gravity_aligned_gt if self.pose_gravity_aligned_gt is not None else self.pose_gravity_aligned
-        return np.vstack([transform_vec(T_odom_center, seg.center.T) # (1, 3) -> (N, 3)
-                          for seg in self.segments])
+        return transform(T_odom_center, np.vstack([seg.center.T for seg in self.segments])) # (1, 3) -> (N, 3)
 
     def __len__(self):
         return len(self.segments)
@@ -283,7 +282,7 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
                 segments_sorted_by_key = sorted(sm.segments, key=pruning_key)
                 sm.segments = segments_sorted_by_key[:submap_params.max_size]
 
-    return submaps
+    return [submap for submap in submaps if len(submap.segments) > 0]
 
 
 
