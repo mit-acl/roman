@@ -42,7 +42,7 @@ def find_transformation(bag_path, param_dict) -> np.array:
             expandvars_recursive(param_dict['parent']), 
             expandvars_recursive(param_dict['child'])
         )
-        if param_dict['inv']:
+        if 'inv' in param_dict.keys() and param_dict['inv']:
             T = np.linalg.inv(T)
         return T
     elif param_dict['input_type'] == 'matrix':
