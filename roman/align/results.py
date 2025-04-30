@@ -2,17 +2,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 from dataclasses import dataclass
-from typing import List
+from typing import List, Tuple
 import json
+import os
 
 from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat, \
     transform_to_xyzrpy
 from robotdatapy.data.pose_data import PoseData
 
 from roman.utils import transform_rm_roll_pitch
-from roman.map.map import ROMANMap, SubmapParams
+from roman.map.map import ROMANMap, SubmapParams, submaps_from_roman_map
 from roman.params.submap_align_params import SubmapAlignInputOutput, SubmapAlignParams
-
 from roman.object.segment import Segment
 
 @dataclass
@@ -37,7 +37,9 @@ class SubmapAlignResults:
     @classmethod
     def load(self, file_path):
         pkl_file = open(file_path, 'rb')
-        return pickle.load(pkl_file)
+        ret = pickle.load(pkl_file)
+        pkl_file.close()
+        return ret
         
 
 def time_to_secs_nsecs(t, as_dict=False):
@@ -205,3 +207,30 @@ def save_submap_align_results(results: SubmapAlignResults, submaps, roman_maps: 
                         })
                     json.dump(sm_json, f, indent=4)
                     f.close()
+
+               
+def submaps_from_align_results(results: SubmapAlignResults, gt_paths: Tuple[str, str] = None, 
+                               roman_map_paths: Tuple[str, str] = None, use_minimal_data=False):
+
+    gt_files = gt_paths if gt_paths is not None else results.submap_io.input_gt_pose_yaml
+    roman_map_paths = roman_map_paths if roman_map_paths is not None else results.submap_io.inputs
+
+    roman_maps = [ROMANMap.from_pickle(roman_map_paths[i]) for i in range(2)]
+    submap_params = SubmapParams.from_submap_align_params(results.submap_align_params)
+    submap_params.use_minimal_data = use_minimal_data
+    gt_pose_data = []
+    if gt_files != [None, None]:
+        for i, yaml_file in enumerate(gt_files):
+            if results.submap_io.robot_env is not None:
+                os.environ[results.submap_io.robot_env] = results.submap_io.robot_names[i]
+            if 'csv' in yaml_file:
+                gt_pose_data.append(PoseData.from_kmd_gt_csv(yaml_file))
+            else:
+                gt_pose_data.append(PoseData.from_yaml(yaml_file))
+            gt_pose_data[-1].time_tol = 100.0
+    else:
+        gt_pose_data = [None, None]
+
+    submaps = [submaps_from_roman_map(
+        roman_maps[i], submap_params, gt_pose_data[i]) for i in range(2)]
+    return submaps
