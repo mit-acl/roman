@@ -6,17 +6,25 @@ import pickle
 import cv2 as cv
 from dataclasses import dataclass
 import os
+from copy import deepcopy
+import open3d as o3d
 
 from roman.map.map import Submap, SubmapParams, submaps_from_roman_map, load_roman_map
 from roman.align.results import SubmapAlignResults, plot_align_results, submaps_from_align_results
 from roman.params.data_params import DataParams
 from roman.viz import visualize_segment_on_img
+from roman.align.align_viz import create_association_geometries, create_ptcld_geometries
+
+from robotdatapy import transform
 
 @dataclass
 class VideoParams:
 
     fps: int = 10
     min_segment_dist: float = 15.0 # segment has to be within this distance to be drawn
+    submap_z_diff: float = 10.0 # z offset to visualize two different submaps
+    num_3d_spins: float = 2.0 # number of spins to do in 3D visualization
+    dist_from_submap_center_3d: float = 20.0 # distance from submap center in 3D visualization
 
 def get_path(path_str) -> Path:
     path = Path(path_str).expanduser()
@@ -100,12 +108,6 @@ if __name__ == '__main__':
 
     video = cv.VideoWriter(str(output_path), fc, vid_params.fps, (2*panel_width, 2*panel_height))
 
-    # transform segments back into original odometry frame
-    for i in range(2):
-        T_odom_submap = submap_pair[i].pose_gravity_aligned
-        for seg in submap_pair[i].segments:
-            seg.transform(T_odom_submap)
-
     # get segment matches
     matched_segments = []
     # max_id = np.max([[seg.id for seg in submap_pair[i].segments] for i in range(2)])
@@ -117,6 +119,35 @@ if __name__ == '__main__':
                                  submap_pair[1].segments[associated_objs[i,1]]))
         matched_segments[-1][0].id = i
         matched_segments[-1][1].id = i
+    
+    submap_pair_in_submap_frame = deepcopy(submap_pair)
+
+    # transform segments back into original odometry frame
+    for i in range(2):
+        T_odom_submap = submap_pair[i].pose_gravity_aligned
+        for seg in submap_pair[i].segments:
+            seg.transform(T_odom_submap)
+
+    # transform other segment copy into same frame using Tij
+    T_submapi_submapj = results.T_ij_hat_mat[idxs[0],idxs[1]]
+    for seg in submap_pair_in_submap_frame[1].segments:
+        seg.transform(T_submapi_submapj)
+    # apply z offset to visualize two different submaps
+    for seg in submap_pair_in_submap_frame[0].segments:
+        seg.transform(transform.xyz_rpy_to_transform(np.array([0., 0., -vid_params.submap_z_diff]), 
+                                                     np.array([0., 0., 0.])))
+        
+    # create point cloud geometries
+    pcd_lists = [create_ptcld_geometries(submap_pair_in_submap_frame[i], color=None, 
+        include_label=False, transform=None, transform_gt=False)[0] for i in range(2)]
+    edges = create_association_geometries(pcd_lists[0], pcd_lists[1], associated_objs)
+
+    renderer = o3d.visualization.rendering.OffscreenRenderer(panel_width, panel_height*2)
+    scene = renderer.scene
+    o3d_K = np.array([[panel_width, 0., panel_width/2],
+                          [0., panel_width, panel_height],
+                          [0., 0., 1.]])
+
         
     print("Creating video...")
     for t in np.arange(0.0, min_time_range, 1/vid_params.fps):
@@ -124,6 +155,7 @@ if __name__ == '__main__':
         viz_img = np.zeros((2*panel_height, 2*panel_width, 3), dtype=np.uint8)
 
         seg_seen = np.zeros((len(matched_segments), 2), dtype=bool)
+        # draw segments
         for i in range(2):
             t_i = time_ranges[i][0] + t
             img_i = img_data[i].img(t_i)
@@ -136,6 +168,7 @@ if __name__ == '__main__':
 
             viz_img[panel_height*i:panel_height*(i+1), panel_width:] = img_i
 
+        # draw segment matches
         for j in range(len(matched_segments)):
             if np.all(seg_seen[j]):
                 seg_pixels = []
@@ -158,6 +191,32 @@ if __name__ == '__main__':
                 cv.line(viz_img, tuple(nearest_pixels[0].astype(np.int32)), 
                         tuple(nearest_pixels[1].astype(np.int32)), (0, 255, 0), 2)
 
+        # show 3D visualization
+
+        vid_percent = t / min_time_range
+        camera_angle = vid_params.num_3d_spins * 360 * vid_percent
+        camera_pose = transform.T_FLURDF @ transform.xyz_rpy_to_transform(
+            np.array([0., 0., 0.]), np.array([0., camera_angle, 0.]), degrees=True)
+        behind_camera = np.eye(4)
+        behind_camera[:3, 3] = np.array([0., 5., -vid_params.dist_from_submap_center_3d])
+        camera_pose = camera_pose @ behind_camera
+        renderer.setup_camera(o3d_K, np.linalg.inv(camera_pose), panel_width, panel_height*2)
+
+        edge_mat = o3d.visualization.rendering.MaterialRecord()
+        edge_mat.shader = "unlitLine"
+        edge_mat.line_width = 5.0
+        pt_mat = o3d.visualization.rendering.MaterialRecord()
+        pt_mat.point_size = 5.0
+
+        for i, obj in enumerate(pcd_lists[0] + pcd_lists[1]):
+            scene.add_geometry(f"pcd-{i}", obj, pt_mat)
+        for i, edg in enumerate(edges):
+            scene.add_geometry(f"edge-{i}", edg, edge_mat)
+        o3d_img = renderer.render_to_image()
+        o3d_img = cv.cvtColor(np.asarray(o3d_img), cv.COLOR_RGB2BGR)
+        scene.clear_geometry()
+
+        viz_img[:, :panel_width] = o3d_img
         video.write(viz_img)
 
     video.release()

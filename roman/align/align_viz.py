@@ -70,6 +70,28 @@ def create_ptcld_geometries(submap: Submap, color=None, submap_offset=np.array([
     
     return ocd_list, label_list
 
+def create_association_geometries(pcd_list_0, pcd_list_1, associations: List[Tuple[int, int]],):
+    # ids0, ids1 = [], []
+    edges = []
+    for obj_idx_0, obj_idx_1 in associations:
+        # if params.verbose:
+        #     print(f'Add edge between {obj_idx_0} and {obj_idx_1}.')
+        # ids0.append(submap_0.segments[obj_idx_0].id)
+        # ids1.append(submap_1.segments[obj_idx_1].id)
+        # points = [submap_0[obj_idx_0].center, submap_1[obj_idx_1].center]
+        points = [pcd_list_0[obj_idx_0].get_center(), pcd_list_1[obj_idx_1].get_center()]
+        line_set = o3d.geometry.LineSet(
+            points=o3d.utility.Vector3dVector(points),
+            lines=o3d.utility.Vector2iVector([[0,1]]),
+        )
+        line_set.colors = o3d.utility.Vector3dVector([[0,1,0]])
+        edges.append(line_set)
+    
+    # if params.verbose:
+    #     print(f"Associated object ids, robot0: {ids0}")
+    #     print(f"Associated object ids, robot1: {ids1}")
+    return edges
+
 def align_viz(
     submaps: Tuple[List[Submap], List[Submap]], 
     idxs: Tuple[int, int], 
@@ -91,7 +113,6 @@ def align_viz(
         print(f'Clipper finds {len(association)} associations.')
 
     # Prepare submaps for visualization
-    edges = []
     submap0_color = params.uniform_colors[0] if params.use_uniform_colors else None # red
     submap1_color = params.uniform_colors[1] if params.use_uniform_colors else None # blue
     if params.align:
@@ -120,24 +141,7 @@ def align_viz(
     else:
         submap_origins[1].transform(transform)
 
-    ids0, ids1 = [], []
-    for obj_idx_0, obj_idx_1 in association:
-        if params.verbose:
-            print(f'Add edge between {obj_idx_0} and {obj_idx_1}.')
-        ids0.append(submap_0.segments[obj_idx_0].id)
-        ids1.append(submap_1.segments[obj_idx_1].id)
-        # points = [submap_0[obj_idx_0].center, submap_1[obj_idx_1].center]
-        points = [ocd_list_0[obj_idx_0].get_center(), ocd_list_1[obj_idx_1].get_center()]
-        line_set = o3d.geometry.LineSet(
-            points=o3d.utility.Vector3dVector(points),
-            lines=o3d.utility.Vector2iVector([[0,1]]),
-        )
-        line_set.colors = o3d.utility.Vector3dVector([[0,1,0]])
-        edges.append(line_set)
-        
-    if params.verbose:
-        print(f"Associated object ids, robot0: {ids0}")
-        print(f"Associated object ids, robot1: {ids1}")
+    edges = create_association_geometries(ocd_list_0, ocd_list_1, association)
         
     return AlignVizGeometries(
         pointcloud_maps=(ocd_list_0, ocd_list_1),
