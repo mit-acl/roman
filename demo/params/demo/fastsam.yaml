@@ -1,4 +1,5 @@
-weights_path: "$FASTSAM_WEIGHTS_PATH"
+weights_path: "$ROMAN_WEIGHTS/FastSAM-x.pt"
+yolo_weights_path: "$ROMAN_WEIGHTS/yolov7.pt"
 imgsz: [256, 256]
 device: 'cuda'
 mask_downsample_factor: 8
