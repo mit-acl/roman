@@ -129,8 +129,8 @@ class PoseDataParams:
         pose_data = PoseData.from_dict(params_dict)
         return pose_data
     
-    def _find_transformation(self, param_dict) -> np.array:
-        return find_transformation(self.params_dict["path"], param_dict)
+    def _find_transformation(self, tf_dict) -> np.array:
+        return find_transformation(self.params_dict["path"], tf_dict)
     
 @dataclass
 class DataParams:

@@ -125,7 +125,7 @@ class Submap:
         # self.pose_gravity_aligned returns T_odom_center
         # which is transformation from center frame to odom frame
         # so this transforms segments back to the global (odom) frame
-        T_odom_center = self.pose_gravity_aligned_gt if self.pose_gravity_aligned_gt is not None else self.pose_gravity_aligned
+        T_odom_center = self.pose_gravity_aligned_gt if self.pose_flu_gt is not None else self.pose_gravity_aligned
         return transform(T_odom_center, np.vstack([seg.center.T for seg in self.segments])) # (1, 3) -> (N, 3)
 
     def __len__(self):

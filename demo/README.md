@@ -97,6 +97,62 @@ child: <child frame_id>
 inv: <Whether the transformation from /tf_static should be inverted or not>
 ```
 
+or 
+
+```
+input_type: "matrix"
+matrix: <4x4 array>
+```
+
+### Using Point Cloud Data
+
+First, create a new field called `use_pointcloud` and set it to `True`. Instead of using `depth_data`, create a new field called `pointcloud_data` and fill the following subfields:
+
+```
+path: <bag file path>
+topic: <topic name>
+```
+
+If your bag does not have a correct static TF transform between the camera and lidar frames (or if the image and pointcloud messages are not labelled with the correct frame), you can define the following optional subfield:
+
+```
+T_camera_rangesense: <transform source>
+```
+
+See the section above for ways to define a transformation.
+
 ### Using environment variables in data paths/topics
 
 To enable using the same set of parameters on different robot data, the `run_env` field in your [data.yaml](./params/demo/data.yaml) can be used to export a desired environment variable with the run names specified in the `runs` field. As an example, if you have two robots, julius and augustus, you can use `runs: [julius, augustus]` and in the path field of `img_data`, specify the path as `"${ROBOT_ENV_VAR}.bag`. Then use `run_env: ROBOT_ENV_VAR` so that ROMAN will correctly grab `julius.bag` for the julius run and `augustus.bag` for the augustus run.
+
+Additionally, `runs` can be used to define run-specific parameters which will override default parameters if they exist. For example, if all robots have the same organization for the image data topic except julius, you can override it:
+
+```
+img_data:
+    path: ${ROBOT_ENV_VAR}.bag
+    topic: ${ROBOT_ENV_VAR}/color/image_raw
+    compressed: False
+
+julius:
+    img_data:
+        topic: ${ROBOT_ENV_VAR}/forward/color/image_raw/compressed
+        compressed: True
+```
+
+This is especially useful for defining run-specific topic names, data formats, and transforms. The default parameter is not required if it is appropriately defined for every run.
+
+
+### Additional parameters
+
+`max_time` can be defined to limit the duration of each mapping run, to avoid overflowing memory usage.
+
+`time` can be used to specify the time range of a bag that you want run. For example, if you want to run a bag from 40 to 100 seconds from when it starts, you can do:
+
+```
+time:
+    t0: 40
+    tf: 100
+    relative: True
+```
+
+Setting `relative` to False means specified times must be the same as in the rosbag (typically unix epoch timestamps).
