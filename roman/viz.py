@@ -22,6 +22,7 @@ def visualize_map_on_img(t, pose, img, mapper):
     return img
 
 def visualize_segment_on_img(segment: Segment, pose: np.ndarray, img: np.ndarray):
+    if not img.flags.writeable: img = img.copy()
     outline = segment.outline_2d(pose)
     if outline is None:
         return img
