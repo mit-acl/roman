@@ -9,7 +9,7 @@ This enables loop closure between robots even when a scene is observed from *opp
 
 Included in this repository is code for open-set object mapping and object map registration using our robust data association algorithm.
 For ROS1/2 integration, please see the [roman_ros](https://github.com/mit-acl/roman_ros) repo. 
-Further information, including demo videos can be found [here](https://acl.mit.edu/ROMAN).
+Further information, including demo videos can be found [here](https://acl.mit.edu/roman).
 
 ## Citation
 
