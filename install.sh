@@ -15,7 +15,7 @@ cmake .. && make
 
 # pip install
 cd $ROMAN_DIR
-pip install .
+pip install --default-timeout=100 .
 
 # download weights
 mkdir -p $ROMAN_DIR/weights
