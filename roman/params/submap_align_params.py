@@ -74,8 +74,8 @@ class SubmapAlignParams:
             roman_params.point_dim = self.dim
             roman_params.sigma = self.sigma
             roman_params.epsilon = self.epsilon
-            roman_params.min_dist = self.mindist
-            roman_params.fusion = sim_fusion_method
+            roman_params.mindist = self.mindist
+            roman_params.fusion_method = sim_fusion_method
 
             roman_params.gravity = self.method in ['gravity', 'pcavolgrav', 'extentvolgrav', 'roman', 'sevg', 'semanticgrav']
             roman_params.volume = self.method in ['pcavolgrav', 'extentvolgrav', 'roman', 'sevg', 'spv']
