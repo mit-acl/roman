@@ -2,7 +2,7 @@ name: Install ROMAN and Run Demo
 on:
   push:
     branches:
-      - feature/CI
+      - main
 
 jobs:
   build:
@@ -12,10 +12,10 @@ jobs:
       - name: Checkout this repo
         uses: actions/checkout@v3
       
-      - name: Switch to feature/CI branch
-        run: |
-          cd roman
-          git checkout feature/CI
+      # - name: Switch to feature/CI branch
+      #   run: |
+      #     cd roman
+      #     git checkout feature/CI
 
       # - name: Clone roman repo
       #   run: |
