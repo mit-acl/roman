@@ -39,9 +39,8 @@ jobs:
       #     cd ../..
 
       - name: Run install.sh
-        working-directory: roman 
         run: |
-          echo $PWD 
+          pwd
           pip install --upgrade pip
           echo "PATH=$HOME/.local/bin:$PATH" >> $GITHUB_ENV
           export PATH="$HOME/.local/bin:$PATH"
@@ -69,7 +68,6 @@ jobs:
           sed -i "s/Path(str(file).strip().replace(\"'\", '').lower())/Path(str(file).strip().replace(\"'\", ''))/" "$FILE"
             
       - name: Run demo
-        working-directory: roman 
         run: |
           export ROMAN_DEMO_DATA=$HOME/Data
           export ROMAN_WEIGHTS=$PWD/weights
@@ -80,7 +78,6 @@ jobs:
               -o demo_output 
 
       - name: Check for sparkal1.pkl
-        working-directory: roman 
         run: |
           if [ -f demo_output/map/sparkal1.pkl ]; then
             echo "✅ sparkal1.pkl was successfully created."
