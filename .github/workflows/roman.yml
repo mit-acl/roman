@@ -2,7 +2,7 @@ name: Install ROMAN and Run Demo
 on:
   push:
     branches:
-      - main
+      - feature/CI
 
 jobs:
   build:
