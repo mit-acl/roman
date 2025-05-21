@@ -16,7 +16,7 @@ jobs:
         run: |
           cd roman
           git checkout feature/CI
-          
+
       # - name: Clone roman repo
       #   run: |
       #     git clone https://github.com/mit-acl/roman.git roman
@@ -40,6 +40,7 @@ jobs:
 
       - name: Run install.sh
         run: |
+          echo $PWD 
           pip install --upgrade pip
           echo "PATH=$HOME/.local/bin:$PATH" >> $GITHUB_ENV
           export PATH="$HOME/.local/bin:$PATH"
