@@ -39,13 +39,14 @@ jobs:
       #     cd ../..
 
       - name: Run install.sh
+        working-directory: roman 
         run: |
           echo $PWD 
           pip install --upgrade pip
           echo "PATH=$HOME/.local/bin:$PATH" >> $GITHUB_ENV
           export PATH="$HOME/.local/bin:$PATH"
           export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
-          ./roman/install.sh
+          ./install.sh
       
       # - name: Download KMD sample data
       #   run: |
@@ -68,19 +69,20 @@ jobs:
           sed -i "s/Path(str(file).strip().replace(\"'\", '').lower())/Path(str(file).strip().replace(\"'\", ''))/" "$FILE"
             
       - name: Run demo
+        working-directory: roman 
         run: |
           export ROMAN_DEMO_DATA=$HOME/Data
           export ROMAN_WEIGHTS=$PWD/weights
           source /opt/ros/humble/setup.bash
-          cd roman
           mkdir demo_output
           python3 demo/demo.py \
               -p demo/params/demo \
               -o demo_output 
 
       - name: Check for sparkal1.pkl
+        working-directory: roman 
         run: |
-          if [ -f roman/demo_output/map/sparkal1.pkl ]; then
+          if [ -f demo_output/map/sparkal1.pkl ]; then
             echo "✅ sparkal1.pkl was successfully created."
           else
             echo "❌ sparkal1.pkl not found!" >&2
