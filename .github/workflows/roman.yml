@@ -12,12 +12,17 @@ jobs:
       - name: Checkout this repo
         uses: actions/checkout@v3
       
-      - name: Clone roman repo
+      - name: Switch to feature/CI branch
         run: |
-          git clone https://github.com/mit-acl/roman.git roman
           cd roman
           git checkout feature/CI
-          cd ..
+          
+      # - name: Clone roman repo
+      #   run: |
+      #     git clone https://github.com/mit-acl/roman.git roman
+      #     cd roman
+      #     git checkout feature/CI
+      #     cd ..
 
       # - name: Install Boost and Eigen
       #   run: sudo apt-get update && sudo apt-get install -y libboost-all-dev && sudo apt-get install -y libeigen3-dev
