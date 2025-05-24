@@ -13,17 +13,18 @@ Further information, including demo videos can be found [here](https://acl.mit.e
 
 ## Citation
 
-If you find ROMAN useful in your work, please cite our paper:
+If you find ROMAN useful in your work, please cite our [paper](https://www.roboticsproceedings.org/rss21/p029.pdf):
 
-M.B. Peterson, Y.X. Jia, Y. Tian and J.P. How, "ROMAN: Open-Set Object Map Alignment for Robust View-Invariant Global Localization,"
-*arXiv preprint arXiv:2410.08262*, 2024.
+M.B. Peterson, Y.X. Jia, Y. Tian, A. Thomas, and J.P. How, "ROMAN: Open-Set Object Map Alignment for Robust View-Invariant Global Localization,"
+*Robotics: Science and Systems*, 2025.
 
 ```
 @article{peterson2024roman,
   title={ROMAN: Open-Set Object Map Alignment for Robust View-Invariant Global Localization},
   author={Peterson, Mason B and Jia, Yi Xuan and Tian, Yulun and Thomas, Annika and How, Jonathan P},
-  journal={arXiv preprint arXiv:2410.08262},
-  year={2024}
+  booktitle={Robotics: Science and Systems (RSS)},
+  pdf={https://www.roboticsproceedings.org/rss21/p029.pdf},
+  year={2025}
 }
 ```
 
