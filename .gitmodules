@@ -4,4 +4,4 @@
 	branch = roman
 [submodule "dependencies/Kimera-RPGO"]
 	path = dependencies/Kimera-RPGO
-	url = git@github.com:MIT-SPARK/Kimera-RPGO.git
+	url = https://github.com/MIT-SPARK/Kimera-RPGO.git

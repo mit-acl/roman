@@ -1,0 +1,106 @@
+name: Install ROMAN and Run Demo
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v3
+      
+      # - name: Switch to feature/CI branch
+      #   run: |
+      #     cd roman
+      #     git checkout feature/CI
+
+      # - name: Clone roman repo
+      #   run: |
+      #     git clone https://github.com/mit-acl/roman.git roman
+      #     cd roman
+      #     git checkout feature/CI
+      #     cd ..
+
+      # - name: Install Boost and Eigen
+      #   run: sudo apt-get update && sudo apt-get install -y libboost-all-dev && sudo apt-get install -y libeigen3-dev
+
+      # - name: Install GTSAM
+      #   run: |
+      #     git clone https://github.com/borglab/gtsam.git
+      #     cd gtsam
+      #     git checkout 686e16aaae26c9a4f23d4af7f2d4a504125ec9c3
+      #     mkdir build
+      #     cd build
+      #     cmake .. -DGTSAM_POSE3_EXPMAP=ON -DGTSAM_ROT3_EXPMAP=ON
+      #     sudo make install
+      #     cd ../..
+
+      - name: Run install.sh
+        run: |
+          pwd
+          pip install --upgrade pip
+          echo "PATH=$HOME/.local/bin:$PATH" >> $GITHUB_ENV
+          export PATH="$HOME/.local/bin:$PATH"
+          export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+          ./install.sh
+      
+      # - name: Download KMD sample data
+      #   run: |
+      #     mkdir -p roman/data
+      #     cd roman/data
+      #     gdown --id 1-ubVXZ1GP9WPmF5-mtRlbR_ZqECCg2fj -O sparkal2_vio.bag
+      #     gdown --id 1Zl4Yr53LiZrm6xQSdjvKaRpo8TxqlipA -O sparkal2_gt.csv
+      #     gdown --id 1eJ3ozQZCJEtd20y2cWQRJEnSObAVKOUX -O sparkal2_camera.bag
+      #     gdown --id 1SN0Y_jYYaTg9QYrfgQ1QhqWibfMSI9fv -O sparkal1_vio.bag
+      #     gdown --id 14uEvEXYRRrHPcQD38WQp2iYtHazahFHg -O sparkal1_gt.csv
+      #     gdown --id 1mVby2dkM9ZURGcAP7fcQ3nzBFOwJGVFU -O sparkal1_camera.bag
+      #     cd ..
+      #     echo "ROMAN_DEMO_DATA=$HOME/Data" >> $GITHUB_ENV
+      #     echo "ROMAN_WEIGHTS=$PWD/weights" >> $GITHUB_ENV
+
+      - name: Patch yolov7_package to remove `.lower()`
+        run: |
+          python3 -c "import yolov7_package; print(yolov7_package.__file__)"
+          FILE=$(python3 -c "import yolov7_package.utils.google_utils as m; print(m.__file__)")
+          sed -i "s/Path(str(file).strip().replace(\"'\", '').lower())/Path(str(file).strip().replace(\"'\", ''))/" "$FILE"
+            
+      - name: Run demo
+        run: |
+          export ROMAN_DEMO_DATA=$HOME/Data
+          export ROMAN_WEIGHTS=$PWD/weights
+          source /opt/ros/humble/setup.bash
+          mkdir demo_output
+          python3 demo/demo.py \
+              -p demo/params/demo \
+              -o demo_output 
+
+      - name: Check Mapping Output
+        run: |
+          if [ -f demo_output/map/sparkal1.pkl ]; then
+            echo "✅ sparkal1.pkl was successfully created."
+          else
+            echo "❌ sparkal1.pkl not found!" >&2
+            exit 1
+          fi
+
+      
+      - name: Check ATE
+        run: |
+          ATE_FILE="$GITHUB_WORKSPACE/roman/demo_output/offline_rpgo/ate_rmse.txt"
+          if [ ! -f "$ATE_FILE" ]; then
+            echo "❌ ATE file not found at $ATE_FILE" >&2
+            exit 1
+          fi
+
+          ATE_VALUE=$(cat "$ATE_FILE")
+          echo "🔍 ATE RMSE value: $ATE_VALUE"
+          
+          if awk "BEGIN {exit !($ATE_VALUE < 1.5)}"; then
+            echo "✅ ATE RMSE is below threshold (1.5)"
+          else
+            echo "❌ ATE RMSE is above threshold (1.5)" >&2
+            exit 1
+          fi
