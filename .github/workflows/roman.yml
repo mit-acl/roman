@@ -89,7 +89,7 @@ jobs:
       
       - name: Check ATE
         run: |
-          ATE_FILE="$GITHUB_WORKSPACE/roman/demo_output/offline_rpgo/ate_rmse.txt"
+          ATE_FILE="$GITHUB_WORKSPACE/demo_output/offline_rpgo/ate_rmse.txt"
           if [ ! -f "$ATE_FILE" ]; then
             echo "❌ ATE file not found at $ATE_FILE" >&2
             exit 1
