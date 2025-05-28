@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import os
 from copy import deepcopy
 import open3d as o3d
+import tqdm
 
 from roman.map.map import Submap, SubmapParams, submaps_from_roman_map, load_roman_map
 from roman.align.results import SubmapAlignResults, plot_align_results, submaps_from_align_results
@@ -23,7 +24,7 @@ class VideoParams:
     fps: int = 10
     min_segment_dist: float = 15.0 # segment has to be within this distance to be drawn
     submap_z_diff: float = 10.0 # z offset to visualize two different submaps
-    num_3d_spins: float = 2.0 # number of spins to do in 3D visualization
+    num_3d_spins: float = 1.0 # number of spins to do in 3D visualization
     dist_from_submap_center_3d: float = 20.0 # distance from submap center in 3D visualization
 
 def get_path(path_str) -> Path:
@@ -150,7 +151,7 @@ if __name__ == '__main__':
 
         
     print("Creating video...")
-    for t in np.arange(0.0, min_time_range, 1/vid_params.fps):
+    for t in tqdm.tqdm(np.arange(0.0, min_time_range, 1/vid_params.fps)):
         
         viz_img = np.zeros((2*panel_height, 2*panel_width, 3), dtype=np.uint8)
 
