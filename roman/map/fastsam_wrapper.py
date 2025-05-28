@@ -339,6 +339,9 @@ class FastSAMWrapper():
                 interpolation=cv.INTER_NEAREST
             )).astype('uint8')
 
+            top_seen = not np.any(mask[0,:]) # mask does not include any top row pixels
+            bottom_seen = not np.any(mask[-1,:]) # mask does not include any bottom row pixels
+
             if self.clip_embedding:
                 ### Use masked image
                 # print("Img size: ", img.shape)
@@ -361,10 +364,14 @@ class FastSAMWrapper():
                     processed_img = self.clip_preprocess(Image.fromarray(img_bbox, mode='RGB')).to(self.device)
                     clip_embedding = self.clip_model.encode_image(processed_img.unsqueeze(dim=0))
                     clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
-                    self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=clip_embedding))
+                    self.observations.append(Observation(
+                        t, pose, mask, mask_downsampled, ptcld, clip_embedding=clip_embedding,
+                        top_seen=top_seen, bottom_seen=bottom_seen))
                 
             else:
-                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
+                self.observations.append(Observation(
+                    t, pose, mask, mask_downsampled, ptcld, 
+                    top_seen=top_seen, bottom_seen=bottom_seen))
                 
         return self.observations
     

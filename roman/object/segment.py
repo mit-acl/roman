@@ -77,6 +77,8 @@ class Segment(Object):
         self.last_propagated_time = None
         self.semantic_descriptor = None
         self.semantic_descriptor_cnt = 0
+        self.bottom_seen = observation.bottom_seen
+        self.top_seen = observation.top_seen
         self._center_ref = "mean" # TODO: make enum. For now: mean or bottom-middle
         
         self._integrate_points_from_observation(observation)
@@ -97,6 +99,9 @@ class Segment(Object):
         #     except:
         #         return
         self.reset_obb()
+
+        self.top_seen = self.top_seen or observation.top_seen
+        self.bottom_seen = self.bottom_seen or observation.bottom_seen
             
         # Integrate point measurements
         if integrate_points:
@@ -454,6 +459,14 @@ class Segment(Object):
     def viz_color(self):
         np.random.seed(self.id)
         color = np.random.randint(0, 255, 3).tolist()
+        if not self.bottom_seen and not self.top_seen:
+            color = [0, 0, 0]
+        elif self.bottom_seen and not self.top_seen:
+            color = [255, 0, 0]
+        elif self.top_seen and not self.bottom_seen:
+            color = [255, 255, 0]
+        elif self.bottom_seen and self.top_seen:
+            color = [255, 255, 255]
         return color
         
     @classmethod

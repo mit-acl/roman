@@ -21,6 +21,8 @@ class Observation():
     point_cloud: np.ndarray = None  # n-by-3 matrix. Each row is a 3D point.
     clip_embedding: np.ndarray = None
     voxel_grid: Dict[float, VoxelGrid] = field(default_factory=dict)
+    top_seen: bool = False
+    bottom_seen: bool = False
 
     def copy(self, include_mask: bool = True, include_ptcld = False):
         ptcld_copy = None
