@@ -25,7 +25,11 @@ class VideoParams:
     min_segment_dist: float = 15.0 # segment has to be within this distance to be drawn
     submap_z_diff: float = 10.0 # z offset to visualize two different submaps
     num_3d_spins: float = 1.0 # number of spins to do in 3D visualization
-    dist_from_submap_center_3d: float = 20.0 # distance from submap center in 3D visualization
+    dist_from_submap_center_3d: float = 25.0 # distance from submap center in 3D visualization
+    img_ratio: float = 4/3 # width / height
+    o3d_fov_deg: float = 60.0
+    time_adjustments: tuple = (0.0, 0.0) # manual time adjustment for first and second submaps
+    time_buffer: float = 1.0 # start and end this many seconds before and after the time range of the segments
 
 def get_path(path_str) -> Path:
     path = Path(path_str).expanduser()
@@ -38,6 +42,8 @@ if __name__ == '__main__':
     parser.add_argument('output_path', type=str)
     parser.add_argument('--runs', '-r', type=str, nargs=2, required=True)
     parser.add_argument('--idx', '-i', type=int, nargs=2, default=None)
+    parser.add_argument('--time-adjustments', '-t', type=float, nargs=2, default=[0.0, 0.0],
+                        help='Manual time adjustment for the two submaps. Use this if the time ranges of the submap videos does not work well.')
 
     args = parser.parse_args()
     results_dir = get_path(args.results_dir)
@@ -45,6 +51,7 @@ if __name__ == '__main__':
     params_dir = results_dir / 'params'
     output_path = get_path(args.output_path)
     vid_params = VideoParams()
+    vid_params.time_adjustments = tuple(args.time_adjustments)
 
 
     print('Loading align results...')
@@ -66,13 +73,25 @@ if __name__ == '__main__':
 
         idx_str = input("Please input two indices, separated by a space: \n")
         idxs = [int(idx) for idx in idx_str.split()]
+        
+    # get segment matches
+    submap_pair = [submaps[i][idxs[i]] for i in range(2)]
+    matched_segments = []
+    # max_id = np.max([[seg.id for seg in submap_pair[i].segments] for i in range(2)])
+    associated_objs = results.associated_objs_mat[idxs[0]][idxs[1]]
+    for seg in submap_pair[0].segments + submap_pair[1].segments:
+        seg.id += len(associated_objs)
+    for i in range(len(associated_objs)):
+        matched_segments.append((submap_pair[0].segments[associated_objs[i,0]], 
+                                 submap_pair[1].segments[associated_objs[i,1]]))
+        matched_segments[-1][0].id = i
+        matched_segments[-1][1].id = i
 
     # extract time range
-    submap_pair = [submaps[i][idxs[i]] for i in range(2)]
     time_ranges = []
     for i in range(2):
-        t0 = np.min([seg.first_seen for seg in submap_pair[i].segments])
-        tf = np.max([seg.last_seen for seg in submap_pair[i].segments])
+        t0 = np.min([segs[i].first_seen for segs in matched_segments]) - vid_params.time_buffer
+        tf = np.max([segs[i].last_seen for segs in matched_segments]) + vid_params.time_buffer
         time_ranges.append(np.array([t0, tf]))
     
     # make time ranges some duration
@@ -83,6 +102,9 @@ if __name__ == '__main__':
             time_range_diff = time_range_i - min_time_range
             time_ranges[i][0] += time_range_diff/2
             time_ranges[i][1] -= time_range_diff/2
+    
+        for j in range(2):
+            time_ranges[i][j] += vid_params.time_adjustments[i]
 
     # Load data
     data_params = [DataParams.from_yaml(str(params_dir / "data.yaml"), run=run) for run in args.runs]
@@ -104,22 +126,12 @@ if __name__ == '__main__':
         img_data.append(data_params[i].load_img_data())
 
     fc = cv.VideoWriter_fourcc(*"mp4v")
-    panel_width = img_data[0].camera_params.width
-    panel_height = img_data[0].camera_params.height
+    img_w = img_data[0].camera_params.width
+    img_h = img_data[0].camera_params.height
+    o3d_h = img_data[0].camera_params.height * 2
+    o3d_w = int(o3d_h * vid_params.img_ratio - img_w)
 
-    video = cv.VideoWriter(str(output_path), fc, vid_params.fps, (2*panel_width, 2*panel_height))
-
-    # get segment matches
-    matched_segments = []
-    # max_id = np.max([[seg.id for seg in submap_pair[i].segments] for i in range(2)])
-    associated_objs = results.associated_objs_mat[idxs[0]][idxs[1]]
-    for seg in submap_pair[0].segments + submap_pair[1].segments:
-        seg.id += len(associated_objs)
-    for i in range(len(associated_objs)):
-        matched_segments.append((submap_pair[0].segments[associated_objs[i,0]], 
-                                 submap_pair[1].segments[associated_objs[i,1]]))
-        matched_segments[-1][0].id = i
-        matched_segments[-1][1].id = i
+    video = cv.VideoWriter(str(output_path), fc, vid_params.fps, (o3d_w + img_w, o3d_h))
     
     submap_pair_in_submap_frame = deepcopy(submap_pair)
 
@@ -143,17 +155,18 @@ if __name__ == '__main__':
         include_label=False, transform=None, transform_gt=False)[0] for i in range(2)]
     edges = create_association_geometries(pcd_lists[0], pcd_lists[1], associated_objs)
 
-    renderer = o3d.visualization.rendering.OffscreenRenderer(panel_width, panel_height*2)
+    renderer = o3d.visualization.rendering.OffscreenRenderer(o3d_w, o3d_h)
     scene = renderer.scene
-    o3d_K = np.array([[panel_width, 0., panel_width/2],
-                          [0., panel_width, panel_height],
+    f = o3d_w / (2*np.tan(np.deg2rad(vid_params.o3d_fov_deg) / 2))
+    o3d_K = np.array([[f, 0., o3d_w/2],
+                          [0., f, o3d_h/2],
                           [0., 0., 1.]])
 
         
     print("Creating video...")
     for t in tqdm.tqdm(np.arange(0.0, min_time_range, 1/vid_params.fps)):
         
-        viz_img = np.zeros((2*panel_height, 2*panel_width, 3), dtype=np.uint8)
+        viz_img = np.zeros((o3d_h, o3d_w + img_w, 3), dtype=np.uint8)
 
         seg_seen = np.zeros((len(matched_segments), 2), dtype=bool)
         # draw segments
@@ -167,7 +180,7 @@ if __name__ == '__main__':
                     img_i = visualize_segment_on_img(seg, pose_data[i].pose(t_i), img_i)
                     seg_seen[j, i] = True
 
-            viz_img[panel_height*i:panel_height*(i+1), panel_width:] = img_i
+            viz_img[img_h*i:img_h*(i+1), o3d_w:] = img_i
 
         # draw segment matches
         for j in range(len(matched_segments)):
@@ -180,7 +193,7 @@ if __name__ == '__main__':
                     if new_outline is None:
                         success = False
                         continue
-                    seg_pixels.append(new_outline + np.array([panel_width, panel_height*i]))
+                    seg_pixels.append(new_outline + np.array([o3d_w, img_h*i]))
                 if not success:
                     continue
                 nearest_pixels = (seg_pixels[0][0], seg_pixels[1][0])
@@ -201,7 +214,7 @@ if __name__ == '__main__':
         behind_camera = np.eye(4)
         behind_camera[:3, 3] = np.array([0., 5., -vid_params.dist_from_submap_center_3d])
         camera_pose = camera_pose @ behind_camera
-        renderer.setup_camera(o3d_K, np.linalg.inv(camera_pose), panel_width, panel_height*2)
+        renderer.setup_camera(o3d_K, np.linalg.inv(camera_pose), o3d_w, o3d_h)
 
         edge_mat = o3d.visualization.rendering.MaterialRecord()
         edge_mat.shader = "unlitLine"
@@ -217,7 +230,7 @@ if __name__ == '__main__':
         o3d_img = cv.cvtColor(np.asarray(o3d_img), cv.COLOR_RGB2BGR)
         scene.clear_geometry()
 
-        viz_img[:, :panel_width] = o3d_img
+        viz_img[:, :o3d_w] = o3d_img
         video.write(viz_img)
 
     video.release()
