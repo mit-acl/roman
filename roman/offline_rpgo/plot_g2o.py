@@ -55,6 +55,9 @@ def plot_g2o(
     ax=None,
     map_transform=None
 ):
+    
+    num_inliers = 0
+    inlier_lcs = dict()
 
     if ax is None:
         fig, ax = plt.subplots()
@@ -87,6 +90,8 @@ def plot_g2o(
             v2 = int(edge[2])
             r1 = chr(gtsam.Symbol(v1).chr())
             r2 = chr(gtsam.Symbol(v2).chr())
+            i1 = gtsam.Symbol(v1).index()
+            i2 = gtsam.Symbol(v2).index()
             if params.unconnected_robot_transform is not None:
                 assert not (r1 in params.unconnected_robot_transform or r2 in params.unconnected_robot_transform) \
                     or (r1 == r2), "Cannot plot loop closures between unconnected robots"
@@ -123,6 +128,16 @@ def plot_g2o(
             mahalanobis = np.sqrt(xyz_rpy_err.T @ information_mat @ xyz_rpy_err)
             inlier = mahalanobis < params.inlier_mahalanobis_thresh
 
+            if inlier:
+                num_inliers += 1
+                if (g2o_symbol_to_name[r1], g2o_symbol_to_name[r2]) not in inlier_lcs:
+                    inlier_lcs[(g2o_symbol_to_name[r1], g2o_symbol_to_name[r2])] = []
+                inlier_lcs[(g2o_symbol_to_name[r1], g2o_symbol_to_name[r2])].append({
+                    'transform': T_12_lc,
+                    'i1': i1,
+                    'i2': i2,
+                })
+
             if not params.outliers and not inlier:
                 continue
             if not params.inliers and inlier:
@@ -133,6 +148,8 @@ def plot_g2o(
                     color, linewidth=params.lc_linewidth, alpha=params.lc_alpha)
 
     ax.grid(True)
+
+    return num_inliers, inlier_lcs
 
 def main(args):
     if args.robot_letters is None:

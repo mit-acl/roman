@@ -139,6 +139,7 @@ def save_submap_align_results(results: SubmapAlignResults, submaps, roman_maps: 
                     'translation': t.tolist(),
                     'rotation': q.tolist(),
                     'rotation_convention': 'xyzw',
+                    'num_associations': int(results.clipper_num_associations[i, j])
                 })
 
                 idx_a = pose_data[0].idx(submaps[0][i].time, force_single=True)
