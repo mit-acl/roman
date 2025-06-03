@@ -17,6 +17,7 @@ from roman.viz import visualize_segment_on_img
 from roman.align.align_viz import create_association_geometries, create_ptcld_geometries
 
 from robotdatapy import transform
+from robotdatapy.exceptions import NoDataNearTimeException
 
 @dataclass
 class VideoParams:
@@ -30,10 +31,33 @@ class VideoParams:
     o3d_fov_deg: float = 60.0
     time_adjustments: tuple = (0.0, 0.0) # manual time adjustment for first and second submaps
     time_buffer: float = 1.0 # start and end this many seconds before and after the time range of the segments
+    camera_only: bool = False # if true does not create open3d visualization, only camera images
+    show_segment_ids: bool = False # if true, shows segment ids on the images
+    img_rotations: tuple = (None, cv.ROTATE_180) # rotations to apply to the images
 
 def get_path(path_str) -> Path:
     path = Path(path_str).expanduser()
     return path
+
+def rotate_pixel_coords(coords, img_w, img_h, rotation_code):
+    rotated_coords = []
+
+    for x, y in coords:
+        if rotation_code == cv.ROTATE_90_CLOCKWISE:
+            x_new = img_h - 1 - y
+            y_new = x
+        elif rotation_code == cv.ROTATE_180:
+            x_new = img_w - 1 - x
+            y_new = img_h - 1 - y
+        elif rotation_code == cv.ROTATE_90_COUNTERCLOCKWISE:
+            x_new = y
+            y_new = img_w - 1 - x
+        else:
+            raise ValueError("Unsupported rotation code")
+
+        rotated_coords.append((x_new, y_new))
+
+    return rotated_coords
 
 if __name__ == '__main__':
     
@@ -130,8 +154,14 @@ if __name__ == '__main__':
     img_h = img_data[0].camera_params.height
     o3d_h = img_data[0].camera_params.height * 2
     o3d_w = int(o3d_h * vid_params.img_ratio - img_w)
+    if vid_params.camera_only:
+        vid_w = img_w * 2
+        vid_h = img_h
+    else:
+        vid_w = o3d_w + img_w
+        vid_h = o3d_h
 
-    video = cv.VideoWriter(str(output_path), fc, vid_params.fps, (o3d_w + img_w, o3d_h))
+    video = cv.VideoWriter(str(output_path), fc, vid_params.fps, (vid_w, vid_h))
     
     submap_pair_in_submap_frame = deepcopy(submap_pair)
 
@@ -141,46 +171,62 @@ if __name__ == '__main__':
         for seg in submap_pair[i].segments:
             seg.transform(T_odom_submap)
 
-    # transform other segment copy into same frame using Tij
-    T_submapi_submapj = results.T_ij_hat_mat[idxs[0],idxs[1]]
-    for seg in submap_pair_in_submap_frame[1].segments:
-        seg.transform(T_submapi_submapj)
-    # apply z offset to visualize two different submaps
-    for seg in submap_pair_in_submap_frame[0].segments:
-        seg.transform(transform.xyz_rpy_to_transform(np.array([0., 0., -vid_params.submap_z_diff]), 
-                                                     np.array([0., 0., 0.])))
-        
-    # create point cloud geometries
-    pcd_lists = [create_ptcld_geometries(submap_pair_in_submap_frame[i], color=None, 
-        include_label=False, transform=None, transform_gt=False)[0] for i in range(2)]
-    edges = create_association_geometries(pcd_lists[0], pcd_lists[1], associated_objs)
+    # open3d visualization prep
+    if not vid_params.camera_only:
+        # transform other segment copy into same frame using Tij
+        T_submapi_submapj = results.T_ij_hat_mat[idxs[0],idxs[1]]
+        for seg in submap_pair_in_submap_frame[1].segments:
+            seg.transform(T_submapi_submapj)
+        # apply z offset to visualize two different submaps
+        for seg in submap_pair_in_submap_frame[0].segments:
+            seg.transform(transform.xyz_rpy_to_transform(np.array([0., 0., -vid_params.submap_z_diff]), 
+                                                        np.array([0., 0., 0.])))
+            
+        # create point cloud geometries
+        pcd_lists = [create_ptcld_geometries(submap_pair_in_submap_frame[i], color=None, 
+            include_label=False, transform=None, transform_gt=False)[0] for i in range(2)]
+        edges = create_association_geometries(pcd_lists[0], pcd_lists[1], associated_objs)
 
-    renderer = o3d.visualization.rendering.OffscreenRenderer(o3d_w, o3d_h)
-    scene = renderer.scene
-    f = o3d_w / (2*np.tan(np.deg2rad(vid_params.o3d_fov_deg) / 2))
-    o3d_K = np.array([[f, 0., o3d_w/2],
-                          [0., f, o3d_h/2],
-                          [0., 0., 1.]])
+        renderer = o3d.visualization.rendering.OffscreenRenderer(o3d_w, o3d_h)
+        scene = renderer.scene
+        f = o3d_w / (2*np.tan(np.deg2rad(vid_params.o3d_fov_deg) / 2))
+        o3d_K = np.array([[f, 0., o3d_w/2],
+                            [0., f, o3d_h/2],
+                            [0., 0., 1.]])
 
         
     print("Creating video...")
     for t in tqdm.tqdm(np.arange(0.0, min_time_range, 1/vid_params.fps)):
         
-        viz_img = np.zeros((o3d_h, o3d_w + img_w, 3), dtype=np.uint8)
+        viz_img = np.zeros((vid_h, vid_w, 3), dtype=np.uint8)
 
         seg_seen = np.zeros((len(matched_segments), 2), dtype=bool)
         # draw segments
+        img_retrieval_success = True
         for i in range(2):
             t_i = time_ranges[i][0] + t
-            img_i = img_data[i].img(t_i)
+            try:
+                img_i = img_data[i].img(t_i)
+            except NoDataNearTimeException as e:
+                img_retrieval_success = False
+                break
+                
             
             for j in range(len(matched_segments)):
                 seg = matched_segments[j][i]
                 if np.linalg.norm(seg.center.flatten() - pose_data[i].position(t_i).flatten()) < vid_params.min_segment_dist:
-                    img_i = visualize_segment_on_img(seg, pose_data[i].pose(t_i), img_i)
+                    img_i = visualize_segment_on_img(seg, pose_data[i].pose(t_i), img_i, show_id=vid_params.show_segment_ids)
                     seg_seen[j, i] = True
 
-            viz_img[img_h*i:img_h*(i+1), o3d_w:] = img_i
+            # rotate image if specified
+            if vid_params.img_rotations[i] is not None:
+                img_i = cv.rotate(img_i, vid_params.img_rotations[i])
+            if not vid_params.camera_only:
+                viz_img[img_h*i:img_h*(i+1), o3d_w:] = img_i
+            else:
+                viz_img[:, img_w*i:img_w*(i+1)] = img_i
+        if not img_retrieval_success:
+            continue
 
         # draw segment matches
         for j in range(len(matched_segments)):
@@ -188,12 +234,15 @@ if __name__ == '__main__':
                 seg_pixels = []
                 success = True
                 for i in range(2):
+                    pixel_offset = np.array([o3d_w, img_h*i]) if not vid_params.camera_only else np.array([img_w*i, 0.0])
                     new_outline = matched_segments[j][i].outline_2d(
                         pose_data[i].pose(time_ranges[i][0] + t))
                     if new_outline is None:
                         success = False
                         continue
-                    seg_pixels.append(new_outline + np.array([o3d_w, img_h*i]))
+                    if vid_params.img_rotations[i] is not None:
+                        new_outline = rotate_pixel_coords(new_outline, img_w, img_h, vid_params.img_rotations[i])
+                    seg_pixels.append(new_outline + pixel_offset)
                 if not success:
                     continue
                 nearest_pixels = (seg_pixels[0][0], seg_pixels[1][0])
@@ -206,31 +255,32 @@ if __name__ == '__main__':
                         tuple(nearest_pixels[1].astype(np.int32)), (0, 255, 0), 2)
 
         # show 3D visualization
+        if not vid_params.camera_only:
+            vid_percent = t / min_time_range
+            camera_angle = vid_params.num_3d_spins * 360 * vid_percent
+            camera_pose = transform.T_FLURDF @ transform.xyz_rpy_to_transform(
+                np.array([0., 0., 0.]), np.array([0., camera_angle, 0.]), degrees=True)
+            behind_camera = np.eye(4)
+            behind_camera[:3, 3] = np.array([0., 5., -vid_params.dist_from_submap_center_3d])
+            camera_pose = camera_pose @ behind_camera
+            renderer.setup_camera(o3d_K, np.linalg.inv(camera_pose), o3d_w, o3d_h)
 
-        vid_percent = t / min_time_range
-        camera_angle = vid_params.num_3d_spins * 360 * vid_percent
-        camera_pose = transform.T_FLURDF @ transform.xyz_rpy_to_transform(
-            np.array([0., 0., 0.]), np.array([0., camera_angle, 0.]), degrees=True)
-        behind_camera = np.eye(4)
-        behind_camera[:3, 3] = np.array([0., 5., -vid_params.dist_from_submap_center_3d])
-        camera_pose = camera_pose @ behind_camera
-        renderer.setup_camera(o3d_K, np.linalg.inv(camera_pose), o3d_w, o3d_h)
+            edge_mat = o3d.visualization.rendering.MaterialRecord()
+            edge_mat.shader = "unlitLine"
+            edge_mat.line_width = 5.0
+            pt_mat = o3d.visualization.rendering.MaterialRecord()
+            pt_mat.point_size = 5.0
 
-        edge_mat = o3d.visualization.rendering.MaterialRecord()
-        edge_mat.shader = "unlitLine"
-        edge_mat.line_width = 5.0
-        pt_mat = o3d.visualization.rendering.MaterialRecord()
-        pt_mat.point_size = 5.0
+            for i, obj in enumerate(pcd_lists[0] + pcd_lists[1]):
+                scene.add_geometry(f"pcd-{i}", obj, pt_mat)
+            for i, edg in enumerate(edges):
+                scene.add_geometry(f"edge-{i}", edg, edge_mat)
+            o3d_img = renderer.render_to_image()
+            o3d_img = cv.cvtColor(np.asarray(o3d_img), cv.COLOR_RGB2BGR)
+            scene.clear_geometry()
 
-        for i, obj in enumerate(pcd_lists[0] + pcd_lists[1]):
-            scene.add_geometry(f"pcd-{i}", obj, pt_mat)
-        for i, edg in enumerate(edges):
-            scene.add_geometry(f"edge-{i}", edg, edge_mat)
-        o3d_img = renderer.render_to_image()
-        o3d_img = cv.cvtColor(np.asarray(o3d_img), cv.COLOR_RGB2BGR)
-        scene.clear_geometry()
-
-        viz_img[:, :o3d_w] = o3d_img
+            viz_img[:, :o3d_w] = o3d_img
+            
         video.write(viz_img)
 
     video.release()
