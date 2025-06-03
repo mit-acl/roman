@@ -103,9 +103,6 @@ class FastSAMWrapper():
         # setup default filtering
         self.setup_filtering()
 
-        self.orb_num_initial = 100
-        self.orb_num_final = 10
-        
         assert self.device == 'cuda' or self.device == 'cpu', "Device should be 'cuda' or 'cpu'."
         assert self.rotate_img is None or self.rotate_img == 'CW' or self.rotate_img == 'CCW' \
             or self.rotate_img == '180', "Invalid rotate_img option."
@@ -134,6 +131,7 @@ class FastSAMWrapper():
             use_keep_labels=params.use_keep_labels,
             keep_labels=params.keep_labels,
             keep_labels_option=params.keep_labels_option,
+            yolo_weights=expandvars_recursive(params.yolo_weights_path),
             yolo_det_img_size=params.yolo_imgsz,
             allow_tblr_edges=[True, True, True, True],
             area_bounds=[img_area / (params.min_mask_len_div**2), img_area / (params.max_mask_len_div**2)],
@@ -148,6 +146,7 @@ class FastSAMWrapper():
         use_keep_labels=False,
         keep_labels = [],
         keep_labels_option='intersect',          
+        yolo_weights=None,
         yolo_det_img_size=None,
         area_bounds=np.array([0, np.inf]),
         allow_tblr_edges = [True, True, True, True],
@@ -177,7 +176,7 @@ class FastSAMWrapper():
         if len(ignore_labels) > 0 or use_keep_labels:
             if yolo_det_img_size is None:
                 yolo_det_img_size=self.imgsz
-            self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size)
+            self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size, weights=yolo_weights)
         
         self.area_bounds = area_bounds
         self.allow_tblr_edges= allow_tblr_edges

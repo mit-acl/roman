@@ -52,7 +52,8 @@ class FastSAMParams:
         _type_: _description_
     """
     
-    weights_path: str = "$FASTSAM_WEIGHTS_PATH"
+    weights_path: str = "$ROMAN_WEIGHTS/FastSAM-x.pt"
+    yolo_weights_path: str = "$ROMAN_WEIGHTS/yolov7.pt"
     imgsz: Tuple[int, int] = (256, 256)
     device: str = 'cuda'
     mask_downsample_factor: int = 8

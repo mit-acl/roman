@@ -16,3 +16,9 @@ cmake .. && make
 # pip install
 cd $ROMAN_DIR
 pip install .
+
+# download weights
+mkdir -p $ROMAN_DIR/weights
+cd $ROMAN_DIR/weights
+wget https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7.pt
+gdown 'https://drive.google.com/uc?id=1m1sjY4ihXBU1fZXdQ-Xdj-mDltW-2Rqv'
