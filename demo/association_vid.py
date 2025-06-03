@@ -33,7 +33,7 @@ class VideoParams:
     time_buffer: float = 1.0 # start and end this many seconds before and after the time range of the segments
     camera_only: bool = False # if true does not create open3d visualization, only camera images
     show_segment_ids: bool = False # if true, shows segment ids on the images
-    img_rotations: tuple = (None, cv.ROTATE_180) # rotations to apply to the images
+    img_rotations: tuple = (None, None) # rotations to apply to the images
 
 def get_path(path_str) -> Path:
     path = Path(path_str).expanduser()
@@ -206,7 +206,7 @@ if __name__ == '__main__':
         for i in range(2):
             t_i = time_ranges[i][0] + t
             try:
-                img_i = img_data[i].img(t_i)
+                img_i = img_data[i].img(t_i).copy()
             except NoDataNearTimeException as e:
                 img_retrieval_success = False
                 break
