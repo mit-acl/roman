@@ -46,7 +46,7 @@ class SubmapAlignParams:
     # registration params
     sigma: float = 0.4
     epsilon: float = 0.6
-    mindist: float = 0.4
+    mindist: float = 0.2
     epsilon_shape: float = 0.0
     ransac_iter: int = int(1e6)
     cosine_min: float = 0.85
