@@ -29,7 +29,7 @@ setup(
         'pyyaml',
         'torch==2.4.0',
         'torchvision==0.19.0',
-        'fastsam @ git+ssh://git@github.com/CASIA-IVA-Lab/FastSAM@4d153e9',
+        'fastsam @ git+https://github.com/CASIA-IVA-Lab/FastSAM.git@4d153e9',
         'robotdatapy>=1.0.1',
         'gdown'
     ],
