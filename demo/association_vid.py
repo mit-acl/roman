@@ -68,6 +68,8 @@ if __name__ == '__main__':
     parser.add_argument('--idx', '-i', type=int, nargs=2, default=None)
     parser.add_argument('--time-adjustments', '-t', type=float, nargs=2, default=[0.0, 0.0],
                         help='Manual time adjustment for the two submaps. Use this if the time ranges of the submap videos does not work well.')
+    parser.add_argument('--max-associations', '-m', action='store_true',
+                        help='If set, will choose the pair of submaps with the maximum number of associations.')
 
     args = parser.parse_args()
     results_dir = get_path(args.results_dir)
@@ -76,6 +78,9 @@ if __name__ == '__main__':
     output_path = get_path(args.output_path)
     vid_params = VideoParams()
     vid_params.time_adjustments = tuple(args.time_adjustments)
+
+    assert args.idx is None or args.max_associations is False, \
+        "Cannot specify both --idx and --max-associations. Please choose one."
 
 
     print('Loading align results...')
@@ -91,6 +96,9 @@ if __name__ == '__main__':
     # get submap pair
     if args.idx is not None:
         idxs = args.idx
+    elif args.max_associations:
+        idxs = np.unravel_index(np.argmax(results.clipper_num_associations, axis=None), 
+                                results.clipper_num_associations.shape)
     else:
         plot_align_results(results, dpi=100)
         plt.show()
