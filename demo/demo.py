@@ -88,6 +88,14 @@ if __name__ == '__main__':
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/sparse"), exist_ok=True)
     os.makedirs(os.path.join(args.output_dir, "offline_rpgo/dense"), exist_ok=True)
+    os.makedirs(os.path.join(args.output_dir, "params"), exist_ok=True)
+
+    # copy params to output directory
+    for param_file in os.listdir(params_dir):
+        if param_file.endswith(".yaml"):
+            src = os.path.join(params_dir, param_file)
+            dst = os.path.join(args.output_dir, "params", param_file)
+            os.system(f"cp {src} {dst}")
     
     if not args.skip_map:
         

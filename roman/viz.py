@@ -21,7 +21,7 @@ def visualize_map_on_img(t, pose, img, mapper):
         img = visualize_segment_on_img(segment, pose, img)
     return img
 
-def visualize_segment_on_img(segment: Segment, pose: np.ndarray, img: np.ndarray):
+def visualize_segment_on_img(segment: Segment, pose: np.ndarray, img: np.ndarray, show_id: bool = True):
     outline = segment.outline_2d(pose)
     if outline is None:
         return img
@@ -32,7 +32,8 @@ def visualize_segment_on_img(segment: Segment, pose: np.ndarray, img: np.ndarray
         end_point = tuple(outline[i+1].astype(np.int32))
         img = cv.line(img, start_point, end_point, color, thickness=2)
 
-    img = cv.putText(img, str(segment.id), (np.array(outline[0]) + np.array([10., 10.])).astype(np.int32), 
+    if show_id:
+        img = cv.putText(img, str(segment.id), (np.array(outline[0]) + np.array([10., 10.])).astype(np.int32), 
                     cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
     return img
 
