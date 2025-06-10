@@ -54,7 +54,7 @@ def plot_align_results(results: SubmapAlignResults, dpi=500):
 
     # if no ground truth, can only show number of associations
     if None in results.submap_io.input_gt_pose_yaml:
-        fig, ax = plt.subplots(1, 1, fisize=(4,4), dpi=dpi)
+        fig, ax = plt.subplots(1, 1, figsize=(4,4), dpi=dpi)
         mp = ax.imshow(results.clipper_num_associations, cmap='viridis', vmin=0)
         fig.colorbar(mp, fraction=0.04, pad=0.04)
         ax.set_title("Number of Associations")
