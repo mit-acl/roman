@@ -106,6 +106,10 @@ if __name__ == '__main__':
         idx_str = input("Please input two indices, separated by a space: \n")
         idxs = [int(idx) for idx in idx_str.split()]
         
+    # Check that enough segments match
+    num_associations = results.clipper_num_associations[idxs[0], idxs[1]]
+    assert num_associations > 0, "Error: no associations found between submaps. Cannot create association video."
+        
     # get segment matches
     submap_pair = [submaps[i][idxs[i]] for i in range(2)]
     matched_segments = []
