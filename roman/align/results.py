@@ -51,35 +51,57 @@ def time_to_secs_nsecs(t, as_dict=False):
         return {'seconds': seconds, 'nanoseconds': nanoseconds}
 
 def plot_align_results(results: SubmapAlignResults, dpi=500):
-    # Create plots
-    fig, ax = plt.subplots(1, 5, figsize=(20, 5), dpi=dpi)
+
+    # if no ground truth, can only show number of associations
+    if None in results.submap_io.input_gt_pose_yaml:
+        fig, ax = plt.subplots(1, 1, fisize=(4,4), dpi=dpi)
+        mp = ax.imshow(results.clipper_num_associations, cmap='viridis', vmin=0)
+        fig.colorbar(mp, fraction=0.04, pad=0.04)
+        ax.set_title("Number of Associations")
+        fig.suptitle(f"{results.submap_io.run_name}: {results.submap_io.robot_names[0]}, {results.submap_io.robot_names[1]}")
+        return
+
+
+    fig, ax = plt.subplots(3, 2, figsize=(8, 12), dpi=dpi)
     fig.subplots_adjust(wspace=.3)
-    fig.suptitle(results.submap_io.run_name)
+    fig.suptitle(f"{results.submap_io.run_name}: {results.submap_io.robot_names[0]}, {results.submap_io.robot_names[1]}")
 
-    mp = ax[0].imshow(results.robots_nearby_mat, cmap='viridis', vmin=0)
-    fig.colorbar(mp, fraction=0.03, pad=0.04)
-    ax[0].set_title("Submaps Center Distance (m)")
-
-    mp = ax[1].imshow(-results.clipper_angle_mat, cmap='viridis', vmax=0, vmin=-10)
-    fig.colorbar(mp, fraction=0.03, pad=0.04)
-    ax[1].set_title("Registration Error (deg)")
-
-    mp = ax[2].imshow(-results.clipper_dist_mat, cmap='viridis', vmax=0, vmin=-5.0)
-    fig.colorbar(mp, fraction=0.03, pad=0.04)
-    ax[2].set_title("Registration Distance Error (m)")
-
-    mp = ax[3].imshow(results.clipper_num_associations, cmap='viridis', vmin=0)
-    fig.colorbar(mp, fraction=0.03, pad=0.04)
-    ax[3].set_title("Number of CLIPPER Associations")
-
-    mp = ax[4].imshow(results.submap_yaw_diff_mat, cmap='viridis', vmin=0)
+    mp = ax[0, 0].imshow(results.robots_nearby_mat, cmap='magma', vmin=0)
     fig.colorbar(mp, fraction=0.04, pad=0.04)
-    ax[4].set_title("Submap Yaw Difference (deg)")
+    ax[0, 0].set_title("Submaps Center Distance (m)")
+
+    mp = ax[0, 1].imshow(results.submap_yaw_diff_mat, cmap='magma', vmin=0)
+    fig.colorbar(mp, fraction=0.04, pad=0.04)
+    ax[0, 1].set_title("Submap Center Yaw Diff. (deg)")
+
+    angle_thresh = 10.0
+    dist_thresh = 5.0
+    angle_error_mat = results.clipper_angle_mat.copy()
+    dist_error_mat = results.clipper_dist_mat.copy()
+    angle_error_mat[np.bitwise_and(dist_error_mat > dist_thresh, 
+        np.bitwise_not(np.isnan(angle_error_mat)))] = angle_thresh
+    dist_error_mat[np.bitwise_and(angle_error_mat > angle_thresh, 
+        np.bitwise_not(np.isnan(dist_error_mat)))] = dist_thresh
+
+    mp = ax[1, 0].imshow(dist_error_mat, cmap='viridis_r', vmax=dist_thresh, vmin=0.0)
+    fig.colorbar(mp, fraction=0.04, pad=0.04)
+    ax[1, 0].set_title("Registration Translation Error (m)")
+
+    mp = ax[1, 1].imshow(angle_error_mat, cmap='viridis_r', vmax=angle_thresh, vmin=0.0)
+    fig.colorbar(mp, fraction=0.04, pad=0.04)
+    ax[1, 1].set_title("Registration Angle Error (deg)")
+
+    mp = ax[2, 0].imshow(results.clipper_num_associations, cmap='viridis', vmin=0)
+    fig.colorbar(mp, fraction=0.04, pad=0.04)
+    ax[2, 0].set_title("Number of Associations")
 
     for i in range(len(ax)):
-        ax[i].set_xlabel("submap index (robot 2)")
-        ax[i].set_ylabel("submap index (robot 1)")
-        ax[i].grid(False)
+        for j in range(len(ax[i])):
+            ax[i,j].set_xlabel("submap index (robot 2)")
+            ax[i,j].set_ylabel("submap index (robot 1)")
+            ax[i,j].grid(False)
+
+    fig.delaxes(ax[2, 1])
 
 def save_submap_align_results(results: SubmapAlignResults, submaps, roman_maps: List[ROMANMap]):
     plot_align_results(results)
