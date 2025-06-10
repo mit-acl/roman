@@ -30,7 +30,7 @@ class ROMANParams:
     semantics_dim = 0
 
     cos_min: float = 0.85
-    cos_max: float = 0.95
+    cos_max: float = 1.0
     epsilon_shape: float = None
 
 
