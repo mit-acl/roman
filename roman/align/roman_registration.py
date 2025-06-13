@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 import clipperpy
+import open3d as o3d
 
 from roman.align.object_registration import ObjectRegistration
 from roman.object.object import Object
@@ -32,6 +33,8 @@ class ROMANParams:
     cos_min: float = 0.85
     cos_max: float = 0.95
     epsilon_shape: float = None
+    
+    finegrained: bool = False
 
 
 class ROMANRegistration(ObjectRegistration):
@@ -43,6 +46,7 @@ class ROMANRegistration(ObjectRegistration):
         self.extent = params.extent
         self.pca = params.pca
         self.semantics = params.semantics_dim > 0
+        self.finegrained = params.finegrained
         
         if self.pca:
             ratio_feature_dim += 3
@@ -110,3 +114,37 @@ class ROMANRegistration(ObjectRegistration):
         # if self.use_gravity:
         #     assert map1_cl.shape[1] == 3 + 2, f"map1_cl.shape[1] = {map1_cl.shape[1]}"
         return
+    
+    def T_align(self, map1: List[Object], map2: List[Object], correspondences: np.array = None):
+        """
+        Computes the transformation that aligns map2 to map1.
+
+        Args:
+            map1 (List[Object]): Object list in frame 1
+            map2 (List[Object]): Object list in frame 2
+            correspondences (np.array, shape=(n,2), optional): If correspondences have already 
+                been found, set to None. Otherwise, performs register before aligning. Aligns using 
+                Arun's method. Defaults to None.
+
+        Returns:
+            np.array: Transformation matrix that aligns map2 to map1
+        """
+        T = super().T_align(map1, map2, correspondences)
+        if self.finegrained:
+            pcds = [o3d.geometry.PointCloud()]*2
+            pcds[0].points = o3d.utility.Vector3dVector(
+                np.vstack([obj.points for i, obj in enumerate(map1) if i in correspondences[:,0].astype(int)]))
+            pcds[1].points = o3d.utility.Vector3dVector(
+                np.vstack([obj.points for i, obj in enumerate(map2) if i in correspondences[:,1].astype(int)]))
+            # o3d.pipelines.registration.registration_icp(o3d.geometry.PointCloud(), o3d.geometry.PointCloud(), .1)
+            reg_icp = o3d.pipelines.registration.registration_icp(
+                pcds[0], pcds[1], 0.1, np.linalg.inv(T), 
+                o3d.pipelines.registration.TransformationEstimationPointToPoint())
+            # if T[0,0] < -.9 and T[1,1] < -.9:
+            #     print()
+            #     print(T)
+            #     print(np.linalg.inv(reg_icp.transformation))
+            #     print()
+            return np.linalg.inv(reg_icp.transformation)
+        else:
+            return T

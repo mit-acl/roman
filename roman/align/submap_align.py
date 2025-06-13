@@ -8,7 +8,6 @@ import os
 from tqdm import tqdm
 from typing import List
 import open3d as o3d
-import clipperpy
 import time
 import json
 from copy import deepcopy
@@ -59,7 +58,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     
     if sm_io.input_type_pkl:
         submap_params = SubmapParams.from_submap_align_params(sm_params)
-        submap_params.use_minimal_data = True
+        submap_params.use_minimal_data = False
         roman_maps = [load_roman_map(sm_io.inputs[i]) for i in range(2)]
         submaps = [submaps_from_roman_map(
             roman_maps[i], submap_params, gt_pose_data[i]) for i in range(2)]
