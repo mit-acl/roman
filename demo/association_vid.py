@@ -30,10 +30,11 @@ class VideoParams:
     img_ratio: float = 4/3 # width / height
     o3d_fov_deg: float = 60.0
     time_adjustments: tuple = (0.0, 0.0) # manual time adjustment for first and second submaps
-    time_buffer: float = 1.0 # start and end this many seconds before and after the time range of the segments
+    time_buffer: float = 2.0 # start and end this many seconds before and after the time range of the segments
     camera_only: bool = False # if true does not create open3d visualization, only camera images
     show_segment_ids: bool = False # if true, shows segment ids on the images
     img_rotations: tuple = (None, None) # rotations to apply to the images
+    use_green_edges: bool = True # otherwise uses colors of objects
 
 def get_path(path_str) -> Path:
     path = Path(path_str).expanduser()
@@ -151,14 +152,16 @@ if __name__ == '__main__':
     print(f"Loading pose data...")
     pose_data = []
     for i in range(2):
-        os.environ[data_params[i].run_env] = args.runs[i]
+        if data_params[i].run_env is not None:
+            os.environ[data_params[i].run_env] = args.runs[i]
         pose_data.append(data_params[i].load_pose_data())
         pose_data[-1].time_tol = 20.0
 
     print(f"Loading image data...")
     img_data = []
     for i in range(2):
-        os.environ[data_params[i].run_env] = args.runs[i]
+        if data_params[i].run_env is not None:
+            os.environ[data_params[i].run_env] = args.runs[i]
         img_data.append(data_params[i].load_img_data())
 
     fc = cv.VideoWriter_fourcc(*"mp4v")
@@ -263,8 +266,10 @@ if __name__ == '__main__':
                         if np.linalg.norm(pixels_ii - pixels_jj) < \
                             np.linalg.norm(nearest_pixels[0] - nearest_pixels[1]):
                             nearest_pixels = (pixels_ii, pixels_jj)
+                edge_color = (0, 255, 0) if vid_params.use_green_edges else \
+                    tuple(matched_segments[j][0].viz_color)[::-1]
                 cv.line(viz_img, tuple(nearest_pixels[0].astype(np.int32)), 
-                        tuple(nearest_pixels[1].astype(np.int32)), (0, 255, 0), 2)
+                        tuple(nearest_pixels[1].astype(np.int32)), edge_color, 2)
 
         # show 3D visualization
         if not vid_params.camera_only:
