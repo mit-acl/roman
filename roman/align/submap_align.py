@@ -25,8 +25,6 @@ from roman.utils import object_list_bounds, transform_rm_roll_pitch, aabb_inters
 from roman.params.submap_align_params import SubmapAlignParams, SubmapAlignInputOutput
 from roman.align.results import save_submap_align_results, SubmapAlignResults
 
-OVERLAP_EPS = 0.1
-
 def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     """
     Breaks maps into submaps and attempts to align each submap from one map with each submap from the second map.

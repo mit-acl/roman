@@ -9,21 +9,22 @@ This enables loop closure between robots even when a scene is observed from *opp
 
 Included in this repository is code for open-set object mapping and object map registration using our robust data association algorithm.
 For ROS1/2 integration, please see the [roman_ros](https://github.com/mit-acl/roman_ros) repo. 
-Further information, including demo videos can be found [here](https://acl.mit.edu/ROMAN).
+Further information, including demo videos can be found [here](https://acl.mit.edu/roman).
 
 ## Citation
 
-If you find ROMAN useful in your work, please cite our paper:
+If you find ROMAN useful in your work, please cite our [paper](https://www.roboticsproceedings.org/rss21/p029.pdf):
 
-M.B. Peterson, Y.X. Jia, Y. Tian and J.P. How, "ROMAN: Open-Set Object Map Alignment for Robust View-Invariant Global Localization,"
-*arXiv preprint arXiv:2410.08262*, 2024.
+M.B. Peterson, Y.X. Jia, Y. Tian, A. Thomas, and J.P. How, "ROMAN: Open-Set Object Map Alignment for Robust View-Invariant Global Localization,"
+*Robotics: Science and Systems*, 2025.
 
 ```
-@article{peterson2024roman,
+@article{peterson2025roman,
   title={ROMAN: Open-Set Object Map Alignment for Robust View-Invariant Global Localization},
   author={Peterson, Mason B and Jia, Yi Xuan and Tian, Yulun and Thomas, Annika and How, Jonathan P},
-  journal={arXiv preprint arXiv:2410.08262},
-  year={2024}
+  booktitle={Robotics: Science and Systems (RSS)},
+  pdf={https://www.roboticsproceedings.org/rss21/p029.pdf},
+  year={2025}
 }
 ```
 
@@ -67,17 +68,16 @@ Instructions for running the demo:
 
 1. Download a small portion of the [Kimera Multi Data](https://github.com/MIT-SPARK/Kimera-Multi-Data) that is used for the ROMAN SLAM demo. The data subset is available for download [here](https://drive.google.com/drive/folders/1ANdi4IyroWzJmd85ap1V-IMF8-I9haUB?usp=sharing).
 
-2. Download FastSAM model weights [here](https://drive.google.com/file/d/1m1sjY4ihXBU1fZXdQ-Xdj-mDltW-2Rqv/view). 
-If you would like to run FastSAM/CLIP on cpu, change the `device` field in [this parameter file](./demo/params/demo/fastsam.yaml) to `cpu`. Note that this will cause the demo to run much slower than real-time.
-
-3. In your `.bashrc` or in the terminal where you will run the ROMAN demo export the following environment variables: 
+2. In your `.bashrc` or in the terminal where you will run the ROMAN demo export the following environment variables: 
 
 ```
 export ROMAN_DEMO_DATA=<path to the demo data>
-export FASTSAM_WEIGHTS_PATH=<path to weights downloaded in step 2>
+export ROMAN_WEIGHTS=<path to this repo>/weights
 ```
 
-4. `cd` into this repo and run the following to start the demo
+Note that by default, FastSAM and CLIP are run on GPU, but if you would like to run on CPU, change the `device` field in [this parameter file](./demo/params/demo/fastsam.yaml) to `cpu`. Note that this will cause the demo to run much slower than real-time.
+
+3. `cd` into this repo and run the following to start the demo
 
 ```
 mkdir demo_output

@@ -13,7 +13,7 @@
 from dataclasses import dataclass
 import yaml
 
-from typing import Tuple
+from typing import Tuple, List
 
 @dataclass
 class FastSAMParams:
@@ -42,12 +42,18 @@ class FastSAMParams:
         yolo_imgsz (Tuple[int, int]): size of the YOLO image
         depth_scale (float): depth scale factor for processing depth images
         max_depth (float): maximum depth before rejecting observation points
+        triangle_ignore_masks (List[Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int]]]): 
+            list of triangles to ignore. Given as a list of triples where each element of the 
+            triple is a pixel coordinates of a triangle corner. Coordinates are (x,y) in the 
+            rotated image.
+
 
     Returns:
         _type_: _description_
     """
     
-    weights_path: str = "$FASTSAM_WEIGHTS_PATH"
+    weights_path: str = "$ROMAN_WEIGHTS/FastSAM-x.pt"
+    yolo_weights_path: str = "$ROMAN_WEIGHTS/yolov7.pt"
     imgsz: Tuple[int, int] = (256, 256)
     device: str = 'cuda'
     mask_downsample_factor: int = 8
@@ -66,6 +72,7 @@ class FastSAMParams:
     yolo_imgsz: Tuple[int, int] = (256, 256)
     depth_scale: float = 1e3
     max_depth: float = 7.5
+    triangle_ignore_masks: List[Tuple[Tuple[int,int], Tuple[int,int], Tuple[int,int]]] = None
     
     @classmethod
     def from_yaml(cls, yaml_path: str, run: str = None):
