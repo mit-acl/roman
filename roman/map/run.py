@@ -86,8 +86,7 @@ class ROMANMapRunner:
         if verbose: print("Setting up FastSAM...")
         self.fastsam = FastSAMWrapper.from_params(params=self.fastsam_params,
                                                   depth_cam_params=self.img_data.camera_params if self.data_params.use_pointcloud else 
-                                                                   self.depth_data.camera_params,
-                                                  use_pointcloud=self.data_params.use_pointcloud)
+                                                                   self.depth_data.camera_params)
 
         # TODO: start here
         if verbose: print("Setting up ROMAN mapper...")

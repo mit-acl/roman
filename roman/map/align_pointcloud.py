@@ -68,11 +68,9 @@ class AlignPointCloud():
         """
         pcl = self.pointcloud_data.pointcloud(t)
 
-        img_header = self.img_data.img_header(t)
-
         # get exact times of point cloud and image messages
         pointcloud_time = pcl.header.stamp.sec + 1e-9 * pcl.header.stamp.nanosec
-        img_time = img_header.stamp.sec + 1e-9 * img_header.stamp.nanosec
+        img_time = self.img_data.nearest_time(t)
 
         # calculate dynamic transform between robot at time of image and robot at time of pointcloud
         T_W_camera_pointcloud_time = self.camera_pose_data.T_WB(pointcloud_time)

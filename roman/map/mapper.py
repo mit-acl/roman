@@ -60,7 +60,7 @@ class Mapper():
         #                                        self.mask_similarity(seg, obs, projected=True))
         associated_pairs = global_nearest_neighbor(
             self.segments + self.segment_nursery, observations, 
-            *self.similarity_function_args()
+            **self.similarity_function_args()
         )
 
         # separate segments associated with nursery and normal segments
@@ -156,11 +156,11 @@ class Mapper():
             'chamfer': [(-self.params.max_chamfer_dist, 0)],
             'both': [(0.0, 1.0), (-self.params.max_chamfer_dist, 0)]
         }
-        return (
-            methods.get(self.params.association_method),
-            thresholds.get(self.params.association_method),
-            np.array(ranges.get(self.params.association_method))
-        )
+        return {
+            'similarity_fun': methods.get(self.params.association_method),
+            'min_similarity': thresholds.get(self.params.association_method),
+            'similarity_ranges': np.array(ranges.get(self.params.association_method))
+        }
 
     def voxel_grid_similarity(self, segment: Segment, observation: Observation):
         """

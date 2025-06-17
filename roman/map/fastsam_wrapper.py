@@ -31,6 +31,7 @@ from robotdatapy.camera import CameraParams
 from roman.map.observation import Observation
 from roman.params.fastsam_params import FastSAMParams
 from roman.utils import expandvars_recursive
+from roman.viz import viz_pointcloud_on_img
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARN)
@@ -111,14 +112,14 @@ class FastSAMWrapper():
             or self.rotate_img == '180', "Invalid rotate_img option."
             
     @classmethod
-    def from_params(cls, params: FastSAMParams, depth_cam_params: CameraParams, use_pointcloud: bool):
+    def from_params(cls, params: FastSAMParams, depth_cam_params: CameraParams):
         fastsam = cls(
             weights=expandvars_recursive(params.weights_path),
             imgsz=params.imgsz,
             device=params.device,
             mask_downsample_factor=params.mask_downsample_factor,
             rotate_img=params.rotate_img,
-            use_pointcloud=use_pointcloud
+            use_pointcloud=params.use_pointcloud
         )
         fastsam.setup_rgbd_params(
             depth_cam_params=depth_cam_params, 
@@ -288,40 +289,6 @@ class FastSAMWrapper():
             ptcld = None
             if depth_data is not None:
                 if self.use_pointcloud:
-                    # if False: # visualizations for debugging
-                    #     # point_cloud = o3d.geometry.PointCloud()
-                    #     # point_cloud.points = o3d.utility.Vector3dVector(pcl)
-                    #     # point_cloud.paint_uniform_color([1, 0, 0])
-                    #     # coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=10.0)
-
-                    #     # o3d.visualization.draw_geometries([point_cloud, coordinate_frame])
-
-                    #     import matplotlib.pyplot as plt
-
-                    #     img_shape = img.shape[:2]
-                    #     depth_image = np.zeros(img_shape, dtype=np.float32)
-                    #     depths = pcl[:, 2]
-                    #     MAX_DEPTH=15
-
-                    #     for i in range(pcl_proj.shape[0]):
-                    #         u, v = pcl_proj[i]
-                    #         u, v = int(u), int(v)
-                    #         depth = depths[i]
-                    #         if 0 <= u < img_shape[1] and 0 <= v < img_shape[0] and depth <= MAX_DEPTH:
-                    #             depth = depths[i]
-                    #             depth_image[v, u] = depth
-
-                    #     depth_normalized = cv.normalize(depth_image, None, 0, 1, cv.NORM_MINMAX)
-                    #     depth_colored = cv.applyColorMap(((1 - depth_normalized) * 255).astype(np.uint8), cv.COLORMAP_JET)
-                    #     rgb_image_rgb = cv.cvtColor(img, cv.COLOR_BGR2RGB)
-
-                    #     overlay = depth_colored
-                    #     overlay[depth_image == 0] = rgb_image_rgb[depth_image == 0]
-                    #     plt.imshow(overlay)
-                    #     plt.show()
-
-                    #     # import ipdb
-                    #     # ipdb.set_trace()
 
                     # get 3D points that project within the mask
                     inside_mask = mask[pcl_proj[:, 1], pcl_proj[:, 0]] == 1

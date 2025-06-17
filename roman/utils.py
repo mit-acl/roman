@@ -97,30 +97,6 @@ def plot_correspondences_pcd(map1: List[Object], map2: List[Object], corresponde
 
     return ax
 
-
-def transform_vec(T, vec):
-    unshaped_vec = vec.reshape(-1)
-    resized_vec = np.concatenate(
-        [unshaped_vec, np.zeros((T.shape[0] - 1 - unshaped_vec.shape[0]))]).reshape(-1)
-    resized_vec = np.concatenate(
-        [resized_vec, np.ones((T.shape[0] - resized_vec.shape[0]))]).reshape((-1, 1))
-    transformed = T @ resized_vec
-    return transformed.reshape(-1)[:unshaped_vec.shape[0]].reshape(vec.shape) 
-
-def transform(T, vecs, axis=0):
-    if len(vecs.reshape(-1)) == 2 or len(vecs.reshape(-1)) == 3:
-        return transform_vec(T, vecs)
-    vecs_horz_stacked = vecs if axis==1 else vecs.T
-    zero_padded_vecs = np.vstack(
-        [vecs_horz_stacked, np.zeros((T.shape[0] - 1 - vecs_horz_stacked.shape[0], vecs_horz_stacked.shape[1]))]
-    )
-    one_padded_vecs = np.vstack(
-        [zero_padded_vecs, np.ones((1, vecs_horz_stacked.shape[1]))]
-    )
-    transformed = T @ one_padded_vecs
-    transformed = transformed[:vecs_horz_stacked.shape[0],:] 
-    return transformed if axis == 1 else transformed.T
-
 def get_transform_matrix(R, t):
     """Assemble SE(d) transformation matrix 
     as a (d+1)-by-(d+1) matrix

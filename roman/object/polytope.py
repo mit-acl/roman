@@ -7,7 +7,7 @@ import torch
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import shapely.geometry as shapely
 
-from roman.utils import transform
+from robotdatapy.transform import transform
 from roman.object.object import Object
 
 class Polytope(Object):

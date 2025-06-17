@@ -23,7 +23,6 @@ class SegmentMinimalData(Object):
         self,
         id: int,
         center: np.array,
-        gaussian: Tuple[np.array, np.array],
         volume: float,
         linearity: float,
         planarity: float,
@@ -34,7 +33,6 @@ class SegmentMinimalData(Object):
         last_seen: float
     ):
         super().__init__(center, 3, id, volume=volume)
-        self._gaussian = gaussian # no longer dynamic
         self._linearity = linearity
         self._planarity = planarity
         self._scattering = scattering
@@ -58,10 +56,6 @@ class SegmentMinimalData(Object):
     def reference_time(self, use_avg_time=True):
         if not use_avg_time: return self.first_seen
         else: return (self.first_seen + self.last_seen) / 2.0
-    
-    @property
-    def gaussian(self):
-        return self._gaussian
 
 class Segment(Object):
 
@@ -109,14 +103,6 @@ class Segment(Object):
             force (bool, optional): If true, do not attempt 3D reconstruction. Defaults to False.
             integrate_points (bool, optional): If true, integrate point cloud contained in observation. Defaults to True.
         """
-
-        # See if this will break the reconstruction
-        # if not force:
-        #     try: 
-        #         self.reconstruction_from_observations(self.observations + [observation], width_height=False)
-        #     except:
-        #         return
-        # self.reset_memoized()
             
         # Integrate point measurements
         if integrate_points:
@@ -148,8 +134,6 @@ class Segment(Object):
         Args:
             observation (Observation): input observation object
         """
-        # self.reset_memoized()
-
         if observation.point_cloud is None:
             return
         # Convert observed points to global frame
@@ -168,7 +152,6 @@ class Segment(Object):
         Args:
             segment (Segment): _description_
         """
-        # self.reset_memoized() # reset bbox
         if segment.num_points > 0:
             self._add_points(segment.points)
         else: # TODO: not sure how this is reached?
@@ -507,7 +490,6 @@ class Segment(Object):
         return SegmentMinimalData(
             self.id,
             self.center,
-            self.gaussian,
             self.volume,
             self.linearity(e),
             self.planarity(e),
