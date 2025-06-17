@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, min_similarity: float|np.ndarray = None, similarity_ranges: np.array = None):
+def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, min_similarity: float = None, similarity_ranges: np.array = None):
     """
     Associates data1 with data2 using the global nearest neighbor algorithm.
 
@@ -9,7 +9,7 @@ def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, 
         data1 (list): List of first data items
         data2 (list): List of second data items
         similarity_fun (callable(item1, item2)): Evaluates the similarity between two items
-        min_similarity (float): Minimum similarity required to associate two items
+        min_similarity (float|np.ndarray): Minimum similarity required to associate two items
 
     Returns:
         list of pairs (data1, data2) indicies that should be associated together

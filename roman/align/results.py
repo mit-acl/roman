@@ -197,11 +197,10 @@ def save_submap_align_results(results: SubmapAlignResults, submaps, roman_maps: 
                             segment_json['robot_name'] = results.submap_io.robot_names[i]
                             segment_json['segment_index'] = segment.id
                             segment_json['centroid_odom'] = np.mean(segment.points, axis=0).tolist()
-                            e = segment.normalized_eigenvalues()
                             segment_json['shape_attributes'] = {'volume': segment.volume, 
-                                                                'linearity': segment.linearity(e), 
-                                                                'planarity': segment.planarity(e), 
-                                                                'scattering': segment.scattering(e)}
+                                                                'linearity': segment.linearity, 
+                                                                'planarity': segment.planarity, 
+                                                                'scattering': segment.scattering}
                             segment_json['first_seen'] = time_to_secs_nsecs(segment.first_seen, as_dict=True)
                             segment_json['last_seen'] = time_to_secs_nsecs(segment.last_seen, as_dict=True)
                             sm_json['segments'].append(segment_json)

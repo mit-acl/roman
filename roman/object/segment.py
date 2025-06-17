@@ -41,16 +41,16 @@ class SegmentMinimalData(Object):
         self.first_seen = first_seen
         self.last_seen = last_seen
         
-    def normalized_eigenvalues(self):
-        return None
-    
-    def linearity(self, e=None):
+    @property
+    def linearity(self):
         return self._linearity
         
-    def planarity(self, e=None):
+    @property
+    def planarity(self):
         return self._planarity
 
-    def scattering(self, e=None):
+    @property
+    def scattering(self):
         return self._scattering
     
     def reference_time(self, use_avg_time=True):
@@ -436,33 +436,33 @@ class Segment(Object):
             self._eigvals = eigvals / eigvals.sum()
         return self._eigvals
 
-    def linearity(self, e: np.ndarray=None):
+    @property
+    def linearity(self):
         """ Large if similar to a 1D line (Weinmann et al. ISPRS 2014)
 
         Args:
             e (np.ndarray): normalized eigenvalues of this point cloud
         """
-        if e is None:
-            e = self.normalized_eigenvalues
+        e = self.normalized_eigenvalues
         return (e[0]-e[1]) / e[0]
 
-    def planarity(self, e: np.ndarray=None):
+    @property
+    def planarity(self):
         """ Large if similar to a 2D plane (Weinmann et al. ISPRS 2014)
         Args:
             e (np.ndarray): normalized eigenvalues of this point cloud
         """
-        if e is None:
-            e = self.normalized_eigenvalues
+        e = self.normalized_eigenvalues
         return (e[1]-e[2]) / e[0]
 
-    def scattering(self, e: np.ndarray=None):
+    @property
+    def scattering(self):
         """Large if this object is 3D, i.e., neither a line nor a plane (Weinmann et al. ISPRS 2014)
 
         Args:
             e (np.ndarray): normalized eigenvalues of this point cloud
         """
-        if e is None:
-            e = self.normalized_eigenvalues
+        e = self.normalized_eigenvalues
         return e[2] / e[0]
     
     def _add_semantic_descriptor(self, descriptor: np.ndarray, cnt: int = 1):
@@ -486,14 +486,13 @@ class Segment(Object):
             self.reset_memoized()
             
     def minimal_data(self):
-        e = self.normalized_eigenvalues
         return SegmentMinimalData(
             self.id,
             self.center,
             self.volume,
-            self.linearity(e),
-            self.planarity(e),
-            self.scattering(e),
+            self.linearity,
+            self.planarity,
+            self.scattering,
             self.extent,
             self.semantic_descriptor,
             self.first_seen,

@@ -94,8 +94,7 @@ class ROMANRegistration(ObjectRegistration):
     def _object_to_clipper_list(self, object: Object):        
         object_as_list = object.center.reshape(-1).tolist()[:self.dim]
         if self.pca:
-            e = object.normalized_eigenvalues()
-            object_as_list += [object.linearity(e), object.planarity(e), object.scattering(e)]
+            object_as_list += [object.linearity, object.planarity, object.scattering]
         if self.volume:
             object_as_list.append(object.volume)
         if self.extent:
