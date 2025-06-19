@@ -72,6 +72,10 @@
             <span class="author-block"><sup>2</sup>University of California, San Diego</span>
           </div>
 
+          <div class="is-size-5 publication-venu">
+            Robotics: Science and Systems (RSS) 2025   
+          </div>
+
           <div class="column has-text-centered">
             <div class="publication-links">
               <span class="link-block">
@@ -126,22 +130,24 @@
     <div class="hero-body">
       <!-- Image Section -->
       <div class="image-section" align="center">
-        <iframe width="720" height="360"
-        src="https://www.youtube.com/embed/t2LlSiHKOyY?autoplay=1&mute=1">
+        <iframe width="100%" 
+        height="400" 
+        src="https://www.youtube.com/embed/y51NDoPpBy8?autoplay=1&mute=1" 
+        frameborder="0" 
+        allowfullscreen>
         </iframe>
         <!-- <img src="./static/images/wp_teaser.png" alt="Example Image"> -->
       </div>
       <div class="image-section">
-        <p class="caption">
-          ROMAN 
-          (<u>R</u>obust <u>O</u>bject <u>M</u>ap 
-          <u>A</u>lignment A<u>n</u>ywhere) 
-          is a view-invariant global localization method that 
-          maps open-set objects and uses the geometry, shape, and 
-          semantics of objects to find the transformation between a 
-          current pose and previously created object map. 
-          This enables loop closure between robots even when a scene 
-          is observed from opposite views.
+        <p>
+          <b>Abstract:</b> Global localization is a fundamental capability required for long-term and drift-free robot navigation. 
+          However, current methods fail to relocalize when faced with significantly different viewpoints. 
+          We present ROMAN (<u>R</u>obust <u>O</u>bject <u>M</u>ap 
+          <u>A</u>lignment A<u>n</u>ywhere), a global localization method capable of localizing in challenging and diverse environments by creating and aligning maps of open-set and view-invariant objects. 
+          ROMAN formulates and solves a registration problem between object submaps using a unified graph-theoretic global data association approach with a novel incorporation of a gravity direction prior and object shape and semantic similarity. 
+          This work's open-set object mapping and information-rich object association algorithm enables global localization, even in instances when maps are created from robots traveling in opposite directions. 
+          Through a set of challenging global localization experiments in indoor, urban, and unstructured/forested environments, we demonstrate that ROMAN achieves higher relative pose estimation accuracy than other image-based pose estimation methods or segment-based registration methods. 
+          Additionally, we evaluate ROMAN as a loop closure module in large-scale multi-robot SLAM and show a 35% improvement in trajectory estimation error compared to standard SLAM systems using visual features for loop closures.
         </p>
       </div>
     </div>
@@ -150,32 +156,39 @@
 
 <section class="section">
   <div class="container is-max-desktop">
+    <div class="image-section" align="center">
+      <h2 class="title is-3">System Diagram</h2>
+      <img src="./static/images/pipeline_final2_small.jpg" alt="Pipeline Image">
+    </div>
     <!-- Abstract. -->
-    <div class="columns is-centered has-text-centered">
+    <!-- <div class="columns is-centered has-text-centered">
       <div class="column is-four-fifths">
         <h2 class="title is-3">Abstract</h2>
         <div class="content has-text-justified">
           <p>
             Global localization is a fundamental capability required for long-term and drift-free robot navigation. 
-            However, current methods fail 
-            to relocalize when faced with significantly different viewpoints.
-            We present ROMAN (Robust Object Map Alignment Anywhere), a robust global localization method capable of localizing in challenging and diverse environments based on creating and aligning maps of open-set and view-invariant objects. 
-            To address localization difficulties caused by feature-sparse or perceptually aliased environments, ROMAN formulates and solves a registration problem between object submaps using a unified graph-theoretic global data association approach that simultaneously accounts for object shape and semantic similarities and a prior on gravity direction.
-            Through a set of challenging large-scale multi-robot or multi-session SLAM experiments in indoor, urban and unstructured/forested environments, 
-            we demonstrate that ROMAN achieves a maximum recall 36% higher than other object-based map alignment methods and an absolute trajectory error that is 37% lower than using visual features for loop closures.   
+            However, current methods fail to relocalize when faced with significantly different viewpoints. 
+            We present ROMAN (<u>R</u>obust <u>O</u>bject <u>M</u>ap 
+            <u>A</u>lignment A<u>n</u>ywhere), a global localization method capable of localizing in challenging and diverse environments by creating and aligning maps of open-set and view-invariant objects. 
+            ROMAN formulates and solves a registration problem between object submaps using a unified graph-theoretic global data association approach with a novel incorporation of a gravity direction prior and object shape and semantic similarity. 
+            This work's open-set object mapping and information-rich object association algorithm enables global localization, even in instances when maps are created from robots traveling in opposite directions. 
+            Through a set of challenging global localization experiments in indoor, urban, and unstructured/forested environments, we demonstrate that ROMAN achieves higher relative pose estimation accuracy than other image-based pose estimation methods or segment-based registration methods. 
+            Additionally, we evaluate ROMAN as a loop closure module in large-scale multi-robot SLAM and show a 35% improvement in trajectory estimation error compared to standard SLAM systems using visual features for loop closures.
           </p>
         </div>
       </div>
-    </div>
+    </div> -->
 
 <section class="section" id="BibTeX">
   <div class="container is-max-desktop content">
     <h2 class="title">BibTeX</h2>
-    <pre><code>@article{peterson2024roman,
-  author    = {Peterson, Mason and Jia, Yi Xuan and Tian, Yulun and Thomas, Annika and How, Jonathan},
-  title     = {ROMAN: Open-Set Object Map Alignment for Robust View-Invariant Global Localization},
-  journal   = {arXiv preprint arXiv:2410.08262},
-  year      = {2024},
+    <pre><code>@article{peterson2025roman,
+      title={ROMAN: Open-Set Object Map Alignment for Robust View-Invariant Global Localization},
+      author={Peterson, Mason B and Jia, Yi Xuan and Tian, Yulun and Thomas, Annika and How, Jonathan P},
+      booktitle={Robotics: Science and Systems (RSS)},
+      pdf={https://www.roboticsproceedings.org/rss21/p029.pdf},
+      year={2025}
+    }
 }</code></pre>
   </div>
 </section>
