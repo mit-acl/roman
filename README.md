@@ -30,7 +30,7 @@ M.B. Peterson, Y.X. Jia, Y. Tian, A. Thomas, and J.P. How, "ROMAN: Open-Set Obje
 
 ## System Overview
 
-<img src="./media/system_diagram.png" alt="System diagram" width="500"/>
+<img src="./media/system_diagram.jpg" alt="System diagram" width="700"/>
 
 ROMAN has three modules: mapping, data association, and
 pose graph optimization. The front-end mapping pipeline tracks
