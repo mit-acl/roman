@@ -61,8 +61,8 @@ class DistRegWithPruning(ObjectRegistration):
     
     def _object_shape_attributes(self, object: Segment):
         e = object.normalized_eigenvalues()
-        return np.array([object.volume, object.linearity(e), 
-                         object.planarity(e), object.scattering(e)])
+        return np.array([object.volume, object.linearity, 
+                         object.planarity, object.scattering])
         
     def _combined_shape_attributes(self, object_map: List[Object], indices: np.ndarray):
         shape_attrs = np.array([self._object_shape_attributes(obj) for obj in object_map]) # n x 4

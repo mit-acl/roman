@@ -21,7 +21,7 @@ from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat, \
 from roman.map.map import Submap, SubmapParams, submaps_from_roman_map, load_roman_map
 from roman.align.object_registration import InsufficientAssociationsException
 from roman.align.dist_reg_with_pruning import GravityConstraintError
-from roman.utils import object_list_bounds, transform_rm_roll_pitch
+from roman.utils import object_list_bounds, transform_rm_roll_pitch, aabb_intersects
 from roman.params.submap_align_params import SubmapAlignParams, SubmapAlignInputOutput
 from roman.align.results import save_submap_align_results, SubmapAlignResults
 
@@ -95,8 +95,11 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 submap_distance = norm(submaps[0][i].position_gt - submaps[1][j].position_gt)
             else:
                 submap_distance = norm(submaps[0][i].position - submaps[1][j].position)
-            if submap_distance < sm_params.submap_radius*2:
+
+            if (not sm_params.force_fill_submaps and sm_params.submap_radius is not None and submap_distance < sm_params.submap_radius*2) or \
+                       ((sm_params.force_fill_submaps or sm_params.submap_radius is None) and aabb_intersects(submaps[0][i].segments_as_global_points, submaps[1][j].segments_as_global_points)):
                 robots_nearby_mat[i, j] = submap_distance
+
 
             submap_i = deepcopy(submaps[0][i])
             submap_j = deepcopy(submaps[1][j])
@@ -164,7 +167,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 clipper_dist_mat[i, j] = np.nan
 
             clipper_num_associations[i, j] = len(associations)
-            clipper_percent_associations[i, j] = len(associations) / np.mean([len(submap_i), len(submap_j)])
+            clipper_percent_associations[i, j] = len(associations) / np.mean([len(submap_i), len(submap_j)]) if np.mean([len(submap_i), len(submap_j)]) > 0 else 0.0
             
             T_ij_mat[i, j] = T_ij
             T_ij_hat_mat[i, j] = T_ij_hat

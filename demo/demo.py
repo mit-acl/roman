@@ -5,7 +5,7 @@
 # Demo code for running full ROMAN SLAM pipeline including 
 # mapping, loop closure, and pose-graph optimization
 #
-# Authors: Mason Peterson, Yulun Tian, Lucas Jia
+# Authors: Mason Peterson, Yulun Tian, Lucas Jia, Qingyuan Li
 #
 # Dec. 21, 2024
 #
@@ -110,7 +110,7 @@ if __name__ == '__main__':
             if data_params.run_env is not None:
                 os.environ[data_params.run_env] = run
             
-            print(f"Mapping: {run}")
+            print(f"\n\n----------\nMapping: {run}\n----------\n\n")
             mapping_viz_params = \
                 mapping.VisualizationParams(
                     viz_map=args.viz_map,
@@ -124,7 +124,8 @@ if __name__ == '__main__':
                 output_path=args.output,
                 run_name=run,
                 max_time=args.max_time,
-                viz_params=mapping_viz_params
+                viz_params=mapping_viz_params,
+                verbose=True
             )
         
     if not args.skip_align:

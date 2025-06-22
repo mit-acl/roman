@@ -5,7 +5,7 @@
 # A Python wrapper for sending RGBD images to FastSAM and using segmentation 
 # masks to create object observations.
 # 
-# Authors: Jouko Kinnari, Mason Peterson, Lucas Jia, Annika Thomas
+# Authors: Jouko Kinnari, Mason Peterson, Lucas Jia, Annika Thomas, Qingyuan Li
 # 
 # Dec. 21, 2024
 #
@@ -31,6 +31,7 @@ from robotdatapy.camera import CameraParams
 from roman.map.observation import Observation
 from roman.params.fastsam_params import FastSAMParams
 from roman.utils import expandvars_recursive
+from roman.viz import viz_pointcloud_on_img
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARN)
@@ -74,8 +75,9 @@ class FastSAMWrapper():
         device='cuda',
         mask_downsample_factor=1,
         rotate_img=None,
+        use_pointcloud=False
     ):
-        """Wrapper for running FastSAM on images (especially RGB/depth pairs)
+        """Wrapper for running FastSAM on images (RGB/depth data)
 
         Args:
             weights (str): Path to FastSAM weights.
@@ -87,6 +89,7 @@ class FastSAMWrapper():
                 Defaults to 1.
             rotate_img (_type_, optional): 'CW', 'CCW', or '180' for rotating image before 
                 feeding into FastSAM. Defaults to None.
+            use_pointcloud (bool, optional): True if depth data source is pointcloud
         """
         # parameters
         self.weights = weights
@@ -96,6 +99,7 @@ class FastSAMWrapper():
         self.imgsz = imgsz
         self.mask_downsample_factor = mask_downsample_factor
         self.rotate_img = rotate_img
+        self.use_pointcloud = use_pointcloud
 
         # member variables
         self.observations = []
@@ -114,7 +118,8 @@ class FastSAMWrapper():
             imgsz=params.imgsz,
             device=params.device,
             mask_downsample_factor=params.mask_downsample_factor,
-            rotate_img=params.rotate_img
+            rotate_img=params.rotate_img,
+            use_pointcloud=params.use_pointcloud
         )
         fastsam.setup_rgbd_params(
             depth_cam_params=depth_cam_params, 
@@ -223,14 +228,15 @@ class FastSAMWrapper():
         self.max_depth = max_depth
         self.within_depth_frac = within_depth_frac
         self.depth_scale = depth_scale
-        self.depth_cam_intrinsics = o3d.camera.PinholeCameraIntrinsic(
-            width=int(depth_cam_params.width),
-            height=int(depth_cam_params.height),
-            fx=depth_cam_params.fx,
-            fy=depth_cam_params.fy,
-            cx=depth_cam_params.cx,
-            cy=depth_cam_params.cy,
-        )
+        if not self.use_pointcloud:
+            self.depth_cam_intrinsics = o3d.camera.PinholeCameraIntrinsic(
+                width=int(depth_cam_params.width),
+                height=int(depth_cam_params.height),
+                fx=depth_cam_params.fx,
+                fy=depth_cam_params.fy,
+                cx=depth_cam_params.cx,
+                cy=depth_cam_params.cy,
+            )
         self.voxel_size = voxel_size
         self.pcd_stride = pcd_stride
         if erosion_size > 0:
@@ -242,7 +248,7 @@ class FastSAMWrapper():
             self.erosion_element = None
         self.plane_filter_params = plane_filter_params
 
-    def run(self, t, pose, img, img_depth=None, plot=False):
+    def run(self, t, pose, img, depth_data=None, plot=False):
         """
         Takes and image and returns filtered FastSAM masks as Observations.
 
@@ -258,6 +264,9 @@ class FastSAMWrapper():
         # rotate image
         img_orig = img
         img = self.apply_rotation(img)
+
+        if self.use_pointcloud:
+            pcl, pcl_proj = depth_data
 
         if self.run_yolo:
             ignore_mask, keep_mask = self._create_mask(img)
@@ -278,40 +287,58 @@ class FastSAMWrapper():
 
             # Extract point cloud of object from RGBD
             ptcld = None
-            if img_depth is not None:
-                depth_obj = copy.deepcopy(img_depth)
-                if self.erosion_element is not None:
-                    eroded_mask = cv.erode(mask, self.erosion_element)
-                    depth_obj[eroded_mask==0] = 0
-                else:
-                    depth_obj[mask==0] = 0
-                logger.debug(f"img_depth type {img_depth.dtype}, shape={img_depth.shape}")
+            if depth_data is not None:
+                if self.use_pointcloud:
 
-                # Extract point cloud without truncation to heuristically check if enough of the object
-                # is within the max depth
-                pcd_test = o3d.geometry.PointCloud.create_from_depth_image(
-                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
-                    self.depth_cam_intrinsics,
-                    depth_scale=self.depth_scale,
-                    # depth_trunc=self.max_depth,
-                    stride=self.pcd_stride,
-                    project_valid_depth_only=True
-                )
-                ptcld_test = np.asarray(pcd_test.points)
-                pre_truncate_len = len(ptcld_test)
-                ptcld_test = ptcld_test[ptcld_test[:,2] < self.max_depth]
-                # require some fraction of the points to be within the max depth
-                if len(ptcld_test) < self.within_depth_frac*pre_truncate_len:
-                    continue
-                
-                pcd = o3d.geometry.PointCloud.create_from_depth_image(
-                    o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
-                    self.depth_cam_intrinsics,
-                    depth_scale=self.depth_scale,
-                    depth_trunc=self.max_depth,
-                    stride=self.pcd_stride,
-                    project_valid_depth_only=True
-                )
+                    # get 3D points that project within the mask
+                    inside_mask = mask[pcl_proj[:, 1], pcl_proj[:, 0]] == 1
+                    inside_mask_points = pcl[inside_mask]
+                    pre_truncate_len = len(inside_mask_points)
+                    ptcld_test = inside_mask_points[inside_mask_points[:, 2] < self.max_depth]
+
+                    if len(ptcld_test) < self.within_depth_frac*pre_truncate_len:
+                        continue
+
+                    pcd = o3d.geometry.PointCloud()
+                    pcd.points = o3d.utility.Vector3dVector(inside_mask_points)
+                    
+                else:
+                    depth_obj = copy.deepcopy(depth_data)
+                    if self.erosion_element is not None:
+                        eroded_mask = cv.erode(mask, self.erosion_element)
+                        depth_obj[eroded_mask==0] = 0
+                    else:
+                        depth_obj[mask==0] = 0
+                    logger.debug(f"img_depth type {depth_data.dtype}, shape={depth_data.shape}")
+
+                    # Extract point cloud without truncation to heuristically check if enough of the object
+                    # is within the max depth
+                    pcd_test = o3d.geometry.PointCloud.create_from_depth_image(
+                        o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
+                        self.depth_cam_intrinsics,
+                        depth_scale=self.depth_scale,
+                        # depth_trunc=self.max_depth,
+                        stride=self.pcd_stride,
+                        project_valid_depth_only=True
+                    )
+                    ptcld_test = np.asarray(pcd_test.points)
+                    pre_truncate_len = len(ptcld_test)
+                    ptcld_test = ptcld_test[ptcld_test[:,2] < self.max_depth]
+                    # require some fraction of the points to be within the max depth
+                    if len(ptcld_test) < self.within_depth_frac*pre_truncate_len:
+                        continue
+                    
+                    pcd = o3d.geometry.PointCloud.create_from_depth_image(
+                        o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
+                        self.depth_cam_intrinsics,
+                        depth_scale=self.depth_scale,
+                        depth_trunc=self.max_depth,
+                        stride=self.pcd_stride,
+                        project_valid_depth_only=True
+                    )
+
+                # shared for depth & rangesens, once PointCloud object is created
+
                 pcd.remove_non_finite_points()
                 pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
                 if not pcd_sampled.is_empty():

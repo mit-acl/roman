@@ -25,6 +25,7 @@ class FastSAMParams:
         weights_path (str): path to FastSAM weights
         imgsz (Tuple[int, int]): size of the input image
         device (str): device to run FastSAM on
+        use_pointcloud (bool): whether to use point cloud for depth data
         min_mask_len_div (int): minimum mask length division. The larger this parameter is the
             more smaller masks will be kept.
         max_mask_len_div (int): maximum mask length division. The smaller this parameter is the
@@ -56,6 +57,7 @@ class FastSAMParams:
     yolo_weights_path: str = "$ROMAN_WEIGHTS/yolov7.pt"
     imgsz: Tuple[int, int] = (256, 256)
     device: str = 'cuda'
+    use_pointcloud: bool = False
     mask_downsample_factor: int = 8
     min_mask_len_div: int = 30
     max_mask_len_div: int = 3

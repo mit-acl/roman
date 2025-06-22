@@ -1,15 +1,15 @@
 from setuptools import setup, find_packages
 
 project_description = """
-ROMAN is a view-invariant global localization method that maps open-set objects and uses the 
-geometry, shape, and semantics of objects to find the transformation between a current pose and 
-previously created object map. This enables loop closure between robots even when a scene is 
+ROMAN is a view-invariant global localization method that maps open-set objects and uses the
+geometry, shape, and semantics of objects to find the transformation between a current pose and
+previously created object map. This enables loop closure between robots even when a scene is
 observed from opposite views.
 """
 
 setup(
     name='roman',
-    version='0.1.2',    
+    version='0.1.3',
     description=project_description,
     url='url',
     author='Mason Peterson, Lucas Jia, and Yulun Tian',
@@ -19,7 +19,7 @@ setup(
     install_requires=[
         'numpy<2',
         'scipy',
-        'matplotlib', 
+        'matplotlib',
         'gtsam',
         'scikit-image',
         'open3d>=0.18.0',

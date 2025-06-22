@@ -4,7 +4,7 @@
 #
 # ROMAN open-set segment mapper class
 #
-# Authors: Mason Peterson, Yulun Tian, Lucas Jia
+# Authors: Mason Peterson, Yulun Tian, Lucas Jia, Qingyuan Li
 #
 # Dec. 21, 2024
 #
@@ -18,6 +18,7 @@ import open3d as o3d
 
 from robotdatapy.data.img_data import CameraParams
 
+from roman.object.similiarity_metrics import ChamferDistance
 from roman.object.segment import Segment
 from roman.map.observation import Observation
 from roman.map.global_nearest_neighbor import global_nearest_neighbor
@@ -58,7 +59,8 @@ class Mapper():
         # mask_similarity = lambda seg, obs: max(self.mask_similarity(seg, obs, projected=False), 
         #                                        self.mask_similarity(seg, obs, projected=True))
         associated_pairs = global_nearest_neighbor(
-            self.segments + self.segment_nursery, observations, self.voxel_grid_similarity, self.params.min_iou
+            self.segments + self.segment_nursery, observations, 
+            **self.similarity_function_args()
         )
 
         # separate segments associated with nursery and normal segments
@@ -92,7 +94,7 @@ class Mapper():
                 self.segments.remove(seg)
                 continue
             try:
-                seg.final_cleanup(epsilon=self.params.segment_voxel_size*5.0)
+                seg.final_cleanup(epsilon=self.params.clustering_epsilon)
                 self.inactive_segments.append(seg)
                 self.segments.remove(seg)
             except: # too few points to form clusters
@@ -135,6 +137,31 @@ class Mapper():
             
         return
     
+    def similarity_function_args(self):
+        """
+        Get the similarity function based on the association method
+        """
+        methods = {
+            'iou': self.voxel_grid_similarity,
+            'chamfer': self.chamfer_distance_similarity,
+            'both': lambda seg, obs: np.array([self.voxel_grid_similarity(seg, obs), self.chamfer_distance_similarity(seg, obs)])
+        }
+        thresholds = {
+            'iou': self.params.min_iou,
+            'chamfer': -self.params.max_chamfer_dist,  # negate: see chamfer_distance_similarity
+            'both': np.array([self.params.min_iou, -self.params.max_chamfer_dist])
+        }
+        ranges = {
+            'iou': [(0.0, 1.0)],
+            'chamfer': [(-self.params.max_chamfer_dist, 0)],
+            'both': [(0.0, 1.0), (-self.params.max_chamfer_dist, 0)]
+        }
+        return {
+            'similarity_fun': methods.get(self.params.association_method),
+            'min_similarity': thresholds.get(self.params.association_method),
+            'similarity_ranges': np.array(ranges.get(self.params.association_method))
+        }
+
     def voxel_grid_similarity(self, segment: Segment, observation: Observation):
         """
         Compute the similarity between the voxel grids of a segment and an observation
@@ -142,43 +169,14 @@ class Mapper():
         voxel_size = self.params.iou_voxel_size
         segment_voxel_grid = segment.get_voxel_grid(voxel_size)
         observation_voxel_grid = observation.get_voxel_grid(voxel_size)
-        return segment_voxel_grid.iou(observation_voxel_grid)
-
-    def mask_similarity(self, segment: Segment, observation: Observation, projected: bool = False):
-        """
-        Compute the similarity between the mask of a segment and an observation
-        """
-        if not projected or segment in self.segment_nursery:
-            segment_propagated_mask = segment.last_observation.mask_downsampled
-            # segment_propagated_mask = segment.propagated_last_mask(observation.time, observation.pose, downsample_factor=self.mask_downsample_factor)
-            if segment_propagated_mask is None:
-                iou = 0.0
-            else:
-                iou = Mapper.compute_iou(segment_propagated_mask, observation.mask_downsampled)
-
-        # compute the similarity using the projected mask rather than last mask
-        else:
-            segment_mask = segment.reconstruct_mask(observation.pose, 
-                            downsample_factor=self.params.mask_downsample_factor)
-            iou = Mapper.compute_iou(segment_mask, observation.mask_downsampled)
-        return iou
+        return segment_voxel_grid.iou(observation_voxel_grid, iom_as_iou=self.params.iom_as_iou)
     
-    @staticmethod
-    def compute_iou(mask1, mask2):
-        """Compute the intersection over union (IoU) of two masks.
-
-        Args:
-            mask1 (_type_): _description_
-            mask2 (_type_): _description_
+    def chamfer_distance_similarity(self, segment: Segment, observation: Observation):
         """
-
-        assert mask1.shape == mask2.shape
-        logger.debug(f"Compute IoU for shape {mask1.shape}")
-        intersection = np.logical_and(mask1, mask2).sum()
-        union = np.logical_or(mask1, mask2).sum()
-        if np.isclose(union, 0):
-            return 0.0
-        return float(intersection) / float(union)
+        Compute the similarity between a segment and observation using their chamfer distance
+        """
+        # Negate because smaller distance is larger similarity
+        return -ChamferDistance.chamfer_distance(segment.pcd, observation.pcd)
 
     def remove_bad_segments(self, segments: List[Segment], min_volume: float=0.0, min_max_extent: float=0.0, plane_prune_params: List[float]=[np.inf, np.inf, 0.0]):
         """
@@ -252,16 +250,31 @@ class Mapper():
                         .5 * (np.max(seg1.extent) + np.max(seg2.extent)):
                         continue 
 
-                    maks1 = seg1.reconstruct_mask(self.last_pose)
-                    maks2 = seg2.reconstruct_mask(self.last_pose)
-                    intersection2d = np.logical_and(maks1, maks2).sum()
-                    union2d = np.logical_or(maks1, maks2).sum()
-                    iou2d = intersection2d / union2d
+                    merge_flag = False
 
-                    iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
-                        seg2.get_voxel_grid(self.params.iou_voxel_size))
+                    if self.params.merge_method in ('chamfer', 'both'): # Chamfer distance-based merging
+                        chamfer_dist = ChamferDistance.chamfer_distance(seg1.pcd, seg2.pcd)
 
-                    if iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d:
+                        merge_flag |= chamfer_dist < self.params.merge_objects_max_chamfer_dist
+
+                    if self.params.merge_method in ('iou', 'both'): # IOU-based merging
+                        mask1 = seg1.reconstruct_mask(self.last_pose)
+                        mask2 = seg2.reconstruct_mask(self.last_pose)
+                        intersection2d = np.logical_and(mask1, mask2).sum()
+                        
+                        union2d = np.minimum(mask1.sum(), mask2.sum()) if self.params.iom_as_iou else np.logical_or(mask1, mask2).sum()
+                        iou2d = intersection2d / union2d if union2d > 0 else 0.0
+
+                        iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
+                            seg2.get_voxel_grid(self.params.iou_voxel_size),
+                            iom_as_iou=self.params.iom_as_iou
+                        )
+                        
+                        merge_flag |= iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d
+
+                    # print(f"chamfer: {ChamferDistance.chamfer_distance(seg1.pcd, seg2.pcd)}. iou3d: {iou3d}. iou2d: {iou2d}")
+
+                    if merge_flag:
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if seg1.num_points == 0:
@@ -281,7 +294,7 @@ class Mapper():
         Make the Mapper object pickle compatible
         """
         for seg in self.segments + self.segment_nursery + self.inactive_segments + self.segment_graveyard:
-            seg.reset_obb()
+            seg.reset_memoized()
         return
     
     def get_segment_map(self) -> List[Segment]:
@@ -292,7 +305,7 @@ class Mapper():
             self.segment_graveyard + self.inactive_segments + 
             self.segments)
         for seg in segment_map:
-            seg.reset_obb()
+            seg.reset_memoized()
         return segment_map
     
     def get_roman_map(self) -> ROMANMap:
@@ -320,4 +333,41 @@ class Mapper():
     @property
     def T_camera_flu(self):
         return self._T_camera_flu
+    
+
+    # def mask_similarity(self, segment: Segment, observation: Observation, projected: bool = False):
+    #     """
+    #     Compute the similarity between the mask of a segment and an observation
+    #     """
+    #     if not projected or segment in self.segment_nursery:
+    #         segment_propagated_mask = segment.last_observation.mask_downsampled
+    #         # segment_propagated_mask = segment.propagated_last_mask(observation.time, observation.pose, downsample_factor=self.mask_downsample_factor)
+    #         if segment_propagated_mask is None:
+    #             iou = 0.0
+    #         else:
+    #             iou = Mapper.compute_iou(segment_propagated_mask, observation.mask_downsampled)
+
+    #     # compute the similarity using the projected mask rather than last mask
+    #     else:
+    #         segment_mask = segment.reconstruct_mask(observation.pose, 
+    #                         downsample_factor=self.params.mask_downsample_factor)
+    #         iou = Mapper.compute_iou(segment_mask, observation.mask_downsampled)
+    #     return iou
+    
+    # @staticmethod
+    # def compute_iou(mask1, mask2):
+    #     """Compute the intersection over union (IoU) of two masks.
+
+    #     Args:
+    #         mask1 (_type_): _description_
+    #         mask2 (_type_): _description_
+    #     """
+
+    #     assert mask1.shape == mask2.shape
+    #     logger.debug(f"Compute IoU for shape {mask1.shape}")
+    #     intersection = np.logical_and(mask1, mask2).sum()
+    #     union = np.logical_or(mask1, mask2).sum()
+    #     if np.isclose(union, 0):
+    #         return 0.0
+    #     return float(intersection) / float(union)
             

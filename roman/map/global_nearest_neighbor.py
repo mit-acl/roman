@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, min_similarity: float = None):
+def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, min_similarity: float = None, similarity_ranges: np.array = None):
     """
     Associates data1 with data2 using the global nearest neighbor algorithm.
 
@@ -9,7 +9,7 @@ def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, 
         data1 (list): List of first data items
         data2 (list): List of second data items
         similarity_fun (callable(item1, item2)): Evaluates the similarity between two items
-        min_similarity (float): Minimum similarity required to associate two items
+        min_similarity (float|np.ndarray): Minimum similarity required to associate two items
 
     Returns:
         list of pairs (data1, data2) indicies that should be associated together
@@ -24,11 +24,13 @@ def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, 
             similarity = similarity_fun(data1[i], data2[j])
             
             # Geometry similarity value
-            if min_similarity is not None and similarity < min_similarity:
+            if min_similarity is not None and np.all(similarity < min_similarity):
                 score = M
             else:
-                score = -similarity
-            scores[i,j] = score # TODO: Hungarian is trying to associate low similarity values, score should maybe = - similarity....
+                if similarity_ranges is not None:
+                    normalized_similarity = (similarity - similarity_ranges[:, 0]) / (similarity_ranges[:, 1] - similarity_ranges[:, 0])
+                score = -np.max(normalized_similarity) # Hungarian is trying to associate low similarity values, so negate
+            scores[i,j] = score
 
     # augment cost to add option for no associations
     hungarian_cost = np.concatenate([
@@ -40,7 +42,6 @@ def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, 
     for idx1, idx2 in zip(row_ind, col_ind):
         # state and measurement associated together
         if idx1 < len1 and idx2 < len2:
-            assert scores[idx1,idx2] <= 1
             pairs.append((idx1, idx2))
 
     return pairs

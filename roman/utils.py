@@ -97,30 +97,6 @@ def plot_correspondences_pcd(map1: List[Object], map2: List[Object], corresponde
 
     return ax
 
-
-def transform_vec(T, vec):
-    unshaped_vec = vec.reshape(-1)
-    resized_vec = np.concatenate(
-        [unshaped_vec, np.zeros((T.shape[0] - 1 - unshaped_vec.shape[0]))]).reshape(-1)
-    resized_vec = np.concatenate(
-        [resized_vec, np.ones((T.shape[0] - resized_vec.shape[0]))]).reshape((-1, 1))
-    transformed = T @ resized_vec
-    return transformed.reshape(-1)[:unshaped_vec.shape[0]].reshape(vec.shape) 
-
-def transform(T, vecs, axis=0):
-    if len(vecs.reshape(-1)) == 2 or len(vecs.reshape(-1)) == 3:
-        return transform_vec(T, vecs)
-    vecs_horz_stacked = vecs if axis==1 else vecs.T
-    zero_padded_vecs = np.vstack(
-        [vecs_horz_stacked, np.zeros((T.shape[0] - 1 - vecs_horz_stacked.shape[0], vecs_horz_stacked.shape[1]))]
-    )
-    one_padded_vecs = np.vstack(
-        [zero_padded_vecs, np.ones((1, vecs_horz_stacked.shape[1]))]
-    )
-    transformed = T @ one_padded_vecs
-    transformed = transformed[:vecs_horz_stacked.shape[0],:] 
-    return transformed if axis == 1 else transformed.T
-
 def get_transform_matrix(R, t):
     """Assemble SE(d) transformation matrix 
     as a (d+1)-by-(d+1) matrix
@@ -160,3 +136,34 @@ def expandvars_recursive(path):
         if expanded_path == path:
             return expanduser(expanded_path)
         path = expanded_path
+
+def combinedicts_recursive(d1, d2):
+    """
+    Combine d1 and d2:
+
+    - if d1[k] and d2[k] are both dicts, combine them recursively
+    - otherwise:
+        - use d2[k] if k is in d2
+        - use d1[k] if k is not in d2
+    """
+    res = {}
+    for k, v in d2.items():
+        if isinstance(v, dict) and k in d1 and isinstance(d1[k], dict):
+            res[k] = combinedicts_recursive(d1[k], v)
+        else:
+            res[k] = v
+    for k, v in d1.items():
+        if k not in d2:
+            res[k] = v
+    return res
+
+def aabb_intersects(p1, p2):
+    """Check if the axis-aligned bounding boxes of two pointclouds intersect."""
+    p1_min = np.min(p1, axis=0)
+    p1_max = np.max(p1, axis=0)
+    p2_min = np.min(p2, axis=0)
+    p2_max = np.max(p2, axis=0)
+
+    return (p1_min[0] <= p2_max[0] and p1_max[0] >= p2_min[0] and
+            p1_min[1] <= p2_max[1] and p1_max[1] >= p2_min[1] and
+            p1_min[2] <= p2_max[2] and p1_max[2] >= p2_min[2])

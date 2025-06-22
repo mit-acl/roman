@@ -5,6 +5,8 @@ from scipy.spatial.transform import Rotation as Rot
 
 from typing import List
 
+import matplotlib.pyplot as plt
+
 from robotdatapy.camera import CameraParams
 from robotdatapy.transform import T_FLURDF
 
@@ -22,6 +24,8 @@ def visualize_map_on_img(t, pose, img, mapper):
     return img
 
 def visualize_segment_on_img(segment: Segment, pose: np.ndarray, img: np.ndarray, show_id: bool = True):
+    if not img.flags.writeable: img = img.copy()
+
     outline = segment.outline_2d(pose)
     if outline is None:
         return img
@@ -267,3 +271,34 @@ def render_3d_on_img(
     o3d_img = cv.cvtColor(np.asarray(o3d_img), cv.COLOR_RGB2BGR)
     scene.clear_geometry()
     return o3d_img
+
+# for debugging pointcloud projection in fastsam_wrapper
+def viz_pointcloud_on_img(pcl, pcl_proj, img):
+    point_cloud = o3d.geometry.PointCloud()
+    point_cloud.points = o3d.utility.Vector3dVector(pcl)
+    point_cloud.paint_uniform_color([1, 0, 0])
+    coordinate_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=10.0)
+
+    o3d.visualization.draw_geometries([point_cloud, coordinate_frame])
+
+    img_shape = img.shape[:2]
+    depth_image = np.zeros(img_shape, dtype=np.float32)
+    depths = pcl[:, 2]
+    MAX_DEPTH=15
+
+    for i in range(pcl_proj.shape[0]):
+        u, v = pcl_proj[i]
+        u, v = int(u), int(v)
+        depth = depths[i]
+        if 0 <= u < img_shape[1] and 0 <= v < img_shape[0] and depth <= MAX_DEPTH:
+            depth = depths[i]
+            depth_image[v, u] = depth
+
+    depth_normalized = cv.normalize(depth_image, None, 0, 1, cv.NORM_MINMAX)
+    depth_colored = cv.applyColorMap(((1 - depth_normalized) * 255).astype(np.uint8), cv.COLORMAP_JET)
+    rgb_image_rgb = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+
+    overlay = depth_colored
+    overlay[depth_image == 0] = rgb_image_rgb[depth_image == 0]
+    plt.imshow(overlay)
+    plt.show()
