@@ -122,39 +122,45 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
             if not np.isnan(robots_nearby_mat[i, j]):
                 relative_yaw_angle = transform_to_xyzrpy(T_ij)[5]
                 submap_yaw_diff_mat[i, j] = np.abs(np.rad2deg(relative_yaw_angle))
-                
-            # register the submaps
-            try:
-                start_t = time.time()
-                associations = registration.register(submap_i.segments, submap_j.segments)
-                timing_list.append(time.time() - start_t)
-                
-                if sm_params.dim == 2:
-                    T_ij_hat = registration.T_align(submap_i.segments, submap_j.segments, associations)
-                    T_error = np.linalg.inv(T_ij_hat) @ T_ij
-                    _, _, theta = transform_to_xytheta(T_error)
-                    dist = np.linalg.norm(T_error[:sm_params.dim, 3])
-
-                elif sm_params.dim == 3:
-                    T_ij_hat = registration.T_align(submap_i.segments, submap_j.segments, associations)
-                    if sm_params.force_rm_upside_down:
-                        xyzrpy = transform_to_xyzrpy(T_ij_hat)
-                        if np.abs(xyzrpy[3]) > np.deg2rad(90.) or np.abs(xyzrpy[4]) > np.deg2rad(90.):
-                            raise GravityConstraintError
-                    if sm_params.force_rm_lc_roll_pitch:
-                        T_ij_hat = transform_rm_roll_pitch(T_ij_hat)
-                    T_error = np.linalg.inv(T_ij_hat) @ T_ij
-                    theta = Rot.from_matrix(T_error[:3, :3]).magnitude()
-                    dist = np.linalg.norm(T_error[:sm_params.dim, 3])
-                else:
-                    raise ValueError("Invalid dimension")
-                
-            except (InsufficientAssociationsException, GravityConstraintError) as ex:
-                timing_list.append(time.time() - start_t)
+            
+            if norm(submaps[0][i].position - submaps[1][j].position) > 50.0:
                 T_ij_hat = np.zeros((4, 4))*np.nan
                 theta = 180.0
                 dist = 1e6
                 associations = []
+            else:
+                # register the submaps
+                try:
+                    start_t = time.time()
+                    associations = registration.register(submap_i.segments, submap_j.segments)
+                    timing_list.append(time.time() - start_t)
+                    
+                    if sm_params.dim == 2:
+                        T_ij_hat = registration.T_align(submap_i.segments, submap_j.segments, associations)
+                        T_error = np.linalg.inv(T_ij_hat) @ T_ij
+                        _, _, theta = transform_to_xytheta(T_error)
+                        dist = np.linalg.norm(T_error[:sm_params.dim, 3])
+
+                    elif sm_params.dim == 3:
+                        T_ij_hat = registration.T_align(submap_i.segments, submap_j.segments, associations)
+                        if sm_params.force_rm_upside_down:
+                            xyzrpy = transform_to_xyzrpy(T_ij_hat)
+                            if np.abs(xyzrpy[3]) > np.deg2rad(90.) or np.abs(xyzrpy[4]) > np.deg2rad(90.):
+                                raise GravityConstraintError
+                        if sm_params.force_rm_lc_roll_pitch:
+                            T_ij_hat = transform_rm_roll_pitch(T_ij_hat)
+                        T_error = np.linalg.inv(T_ij_hat) @ T_ij
+                        theta = Rot.from_matrix(T_error[:3, :3]).magnitude()
+                        dist = np.linalg.norm(T_error[:sm_params.dim, 3])
+                    else:
+                        raise ValueError("Invalid dimension")
+                    
+                except (InsufficientAssociationsException, GravityConstraintError) as ex:
+                    timing_list.append(time.time() - start_t)
+                    T_ij_hat = np.zeros((4, 4))*np.nan
+                    theta = 180.0
+                    dist = 1e6
+                    associations = []
             
             if not np.isnan(robots_nearby_mat[i, j]):
                 clipper_angle_mat[i, j] = np.abs(np.rad2deg(theta))
