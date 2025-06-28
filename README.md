@@ -75,14 +75,14 @@ export ROMAN_DEMO_DATA=<path to the demo data>
 export ROMAN_WEIGHTS=<path to this repo>/weights
 ```
 
-Note that by default, FastSAM and CLIP are run on GPU, but if you would like to run on CPU, change the `device` field in [this parameter file](./demo/params/demo/fastsam.yaml) to `cpu`. Note that this will cause the demo to run much slower than real-time.
+Note that by default, FastSAM and CLIP are run on GPU, but if you would like to run on CPU, change the `device` field in [this parameter file](./params/demo/fastsam.yaml) to `cpu`. Note that this will cause the demo to run much slower than real-time.
 
 3. `cd` into this repo and run the following to start the demo
 
 ```
 mkdir demo_output
 python3 demo/demo.py \
-    -p demo/params/demo \
+    -p params/demo \
     -o demo_output
 ```
 
