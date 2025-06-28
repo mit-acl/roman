@@ -1,0 +1,7 @@
+# odom_t_std: 0.2 # 20 cm (for sparse)
+# odom_r_std: 0.01745 # 1 deg (for sparse)
+odom_t_std: 0.02 # 2 cm
+odom_r_std: 0.001745 # .1 deg
+lc_t_std: 2.0 # 2 m
+lc_r_std: 0.1745 # 10 deg
+sparsified: False

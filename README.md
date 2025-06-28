@@ -75,7 +75,9 @@ export ROMAN_DEMO_DATA=<path to the demo data>
 export ROMAN_WEIGHTS=<path to this repo>/weights
 ```
 
-Note that by default, FastSAM and CLIP are run on GPU, but if you would like to run on CPU, change the `device` field in [this parameter file](./params/demo/fastsam.yaml) to `cpu`. Note that this will cause the demo to run much slower than real-time.
+Note that by default, FastSAM and CLIP are run on GPU. 
+If your computer does not have a GPU, you can use `-p params/demo_no_gpu` which specifies that CPU should be used for running FastSAM and additionally does not use CLIP semantic embeddings since these are extrememly slow to compute on CPU. 
+Even without CLIP semantic embeddings, the demo may run slower than real-time without using GPU.
 
 3. `cd` into this repo and run the following to start the demo
 
@@ -93,7 +95,27 @@ However, these will cause the demo to run slower.
 
 The output includes map visualization, loop closure accuracy results, and pose graph optimization results including root mean squared absolute trajectory error. 
 
-<!-- ![demo](./media/demo.mp4) -->
+### Association Visualization
+
+After running the demo, you can create a post-processed visualizations of object matches that have been found (see example [here](https://www.youtube.com/watch?v=y51NDoPpBy8&t=3s)).
+
+To create this visualization, run
+
+```
+python3 ./demo/association_vid.py ./demo_output ./demo_output/association_vid.mp4 --runs sparkal1 sparkal2
+```
+
+You will be shown the results of aligning object submaps which includes the ground truth distance between submaps,
+and the error in the estimated submap alignment poses.
+You will then be prompted to enter a submap index to visualize (in order robot 1, along y-axis then robot2, along x-axis).
+For, example, try 
+
+```
+4 7
+```
+
+Then, a video will be created showing the associations that were found between the submaps you entered.
+One thing you may notice is that the cars that are parked along the sidewalk in this example have changed (the two sessions were not taken at the same time), but ROMAN is still able to use the geometry of the newly parked cars to successfully align submaps.
 
 ## Running on Custom Data
 

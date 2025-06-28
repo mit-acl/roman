@@ -1,0 +1,18 @@
+weights_path: "$ROMAN_WEIGHTS/FastSAM-x.pt"
+yolo_weights_path: "$ROMAN_WEIGHTS/yolov7.pt"
+imgsz: [256, 256]
+device: 'cpu'
+mask_downsample_factor: 8
+min_mask_len_div: 30
+max_mask_len_div: 3
+ignore_people: False
+erosion_size: 3
+voxel_size: 0.05
+ignore_labels: ['person']
+use_keep_labels: False
+keep_labels: []
+plane_filter_params: [3.0, 1.0, 0.2]
+clip: False
+yolo_imgsz: [256, 256]
+depth_scale: 1000.0
+max_depth: 7.5
