@@ -81,7 +81,9 @@ class SubmapAlignParams:
         elif self.fusion_method == 'product':
             sim_fusion_method = clipperpy.invariants.ROMAN.PRODUCT
         if self.method == 'spvg':
-            self.method = 'roman'           
+            self.method = 'roman'
+        elif self.method == 'roman_no_semantics':
+            self.method = 'pcavolgrav'
 
         if self.method in ['clipper', 'gravity', 'pcavolgrav', 'extentvolgrav', 'roman', 'sevg', 'spv', 'semanticgrav']:
             roman_params = ROMANParams()

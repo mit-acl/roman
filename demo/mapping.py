@@ -115,7 +115,6 @@ def run(
             
     if vid:
         video.release()
-        cv.destroyAllWindows()
 
     if verbose: 
         print(f"Segment tracking took {time.time() - wc_t0:.2f} seconds")

@@ -8,18 +8,44 @@ After following the [install instructions](../README.md/#install) and the [demo 
 cd roman
 mkdir demo_output
 python3 demo/demo.py \
-    -p demo/params/demo \
+    -p params/demo \
     -o demo_output
 ```
 
 Optionally, the mapping process can be visualized with the `-m` argument to show the map projected on the camera image as it is created or `-3` command to show a 3D visualization of the map. However, these will cause the demo to run slower.
+
+Note that by default, FastSAM and CLIP are run on GPU. 
+If your computer does not have a GPU, you can use `-p params/demo_no_gpu` which specifies that CPU should be used for running FastSAM and additionally does not use CLIP semantic embeddings since these are extrememly slow to compute on CPU. 
+Even without CLIP semantic embeddings, the demo may run slower than real-time without using GPU.
+
+### Association Visualization
+
+After running the demo, you can create a post-processed visualizations of object matches that have been found (see example [here](https://www.youtube.com/watch?v=y51NDoPpBy8&t=3s)).
+
+To create this visualization, run
+
+```
+python3 ./demo/association_vid.py ./demo_output ./demo_output/association_vid.mp4 --runs sparkal1 sparkal2
+```
+
+You will be shown the results of aligning object submaps which includes the ground truth distance between submaps,
+and the error in the estimated submap alignment poses.
+You will then be prompted to enter a submap index to visualize (in order robot 1, along y-axis then robot2, along x-axis).
+For, example, try 
+
+```
+4 7
+```
+
+Then, a video will be created showing the associations that were found between the submaps you entered.
+One thing you may notice is that the cars that are parked along the sidewalk in this example have changed (the two sessions were not taken at the same time), but ROMAN is still able to use the geometry of the newly parked cars to successfully align submaps.
 
 ## Demo Output
 
 The demo output includes three directories:
 - `map`:
     - `<run>.mp4`: mapping visualization video (if demo run with `-m` or `-3` argument)
-    - `<run>.pkl`: pickled ROMAN map (see the [ROMANMap class](../roman/map/map.py). This can be visualized using the `o3d_viz.py` script in this directory
+    - `<run>.pkl`: pickled ROMAN map (see the [ROMANMap class](../roman/map/map.py). This can be visualized using the `o3d_viz.py` script in this directory)
 - `align`:
     - `<run1>_<run2>`:
         - `align.png`: global localization results. If ground truth pose data has been provided, this file shows heatmaps showing the results of attempting to perform object registration between each pair of submaps from `<run1>` and `<run2>`. Ground truth submap distance is shown, along with registration translation and rotation errors, the number of associated objects, and the ground truth heading difference between the two submap center poses. This file will be much less meaningful if ground truth pose data is not provided to the demo. 
@@ -38,10 +64,10 @@ This documentation gives instructions for how to image data from a ROS bag and h
 To run ROMAN on played back data or in real-time, use the [roman_ros](https://github.com/mit-acl/roman_ros) repository. 
 If you are interested in loading in another type of data, the [ROMANMapRunner class](../roman/map/run.py) can be edited to load other data types using the `robotdatapy` [PoseData](https://github.com/mbpeterson70/robotdatapy/blob/main/robotdatapy/data/pose_data.py) and [ImgData](https://github.com/mbpeterson70/robotdatapy/blob/main/robotdatapy/data/img_data.py) interfaces.
 
-To run ROMAN on your data, start by copying the [demo params directory](./params/demo).
+To run ROMAN on your data, start by copying the [demo params directory](../params/demo).
 In most cases, only the `data.yaml` and `fastsam.yaml` file will need to be customized. 
-Within [data.yaml](./params/demo/data.yaml), the `img_data`, `depth_data`, and `pose_data` fields will need to be edited to load your data as explained in the following sections.
-Within [fastsam.yaml](./params/demo/fastsam.yaml) the `depth_scale` and `max_depth` variables may need to be updated to reflect your depth camera.
+Within [data.yaml](../params/demo/data.yaml), the `img_data`, `depth_data`, and `pose_data` fields will need to be edited to load your data as explained in the following sections.
+Within [fastsam.yaml](../params/demo/fastsam.yaml) the `depth_scale` and `max_depth` variables may need to be updated to reflect your depth camera.
 Pass the updated params directory in using the `-p` argument.
 
 ### Loading ROS Image Data
@@ -123,7 +149,7 @@ See the section above for ways to define a transformation.
 
 ### Using environment variables in data paths/topics
 
-To enable using the same set of parameters on different robot data, the `run_env` field in your [data.yaml](./params/demo/data.yaml) can be used to export a desired environment variable with the run names specified in the `runs` field. As an example, if you have two robots, julius and augustus, you can use `runs: [julius, augustus]` and in the path field of `img_data`, specify the path as `"${ROBOT_ENV_VAR}.bag`. Then use `run_env: ROBOT_ENV_VAR` so that ROMAN will correctly grab `julius.bag` for the julius run and `augustus.bag` for the augustus run.
+To enable using the same set of parameters on different robot data, the `run_env` field in your [data.yaml](../demo/data.yaml) can be used to export a desired environment variable with the run names specified in the `runs` field. As an example, if you have two robots, julius and augustus, you can use `runs: [julius, augustus]` and in the path field of `img_data`, specify the path as `"${ROBOT_ENV_VAR}.bag`. Then use `run_env: ROBOT_ENV_VAR` so that ROMAN will correctly grab `julius.bag` for the julius run and `augustus.bag` for the augustus run.
 
 Additionally, `runs` can be used to define run-specific parameters which will override default parameters if they exist. For example, if all robots have the same organization for the image data topic except julius, you can override it:
 

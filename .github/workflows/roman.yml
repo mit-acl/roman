@@ -77,7 +77,7 @@ jobs:
           source /opt/ros/humble/setup.bash
           mkdir demo_output
           python3 demo/demo.py \
-              -p demo/params/demo \
+              -p params/demo \
               -o demo_output 
 
       - name: Check Mapping Output
