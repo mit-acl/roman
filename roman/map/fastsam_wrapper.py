@@ -25,6 +25,7 @@ from fastsam import FastSAMPrompt
 from fastsam import FastSAM
 import clip
 import logging
+from transformers import AutoImageProcessor, AutoModel
 
 from robotdatapy.camera import CameraParams
 
@@ -140,7 +141,7 @@ class FastSAMWrapper():
             yolo_det_img_size=params.yolo_imgsz,
             allow_tblr_edges=[True, True, True, True],
             area_bounds=[img_area / (params.min_mask_len_div**2), img_area / (params.max_mask_len_div**2)],
-            clip_embedding=params.clip,
+            semantics=params.semantics,
             triangle_ignore_masks=params.triangle_ignore_masks
         )
 
@@ -156,8 +157,7 @@ class FastSAMWrapper():
         area_bounds=np.array([0, np.inf]),
         allow_tblr_edges = [True, True, True, True],
         keep_mask_minimal_intersection=0.3,
-        clip_embedding=False,
-        clip_model='ViT-L/14',
+        semantics: str = None,
         triangle_ignore_masks=None
     ):
         """
@@ -187,9 +187,21 @@ class FastSAMWrapper():
         self.allow_tblr_edges= allow_tblr_edges
         self.keep_mask_minimal_intersection = keep_mask_minimal_intersection
         self.run_yolo = len(ignore_labels) > 0 or use_keep_labels
-        self.clip_embedding = clip_embedding
-        if clip_embedding:
-            self.clip_model, self.clip_preprocess = clip.load(clip_model, device=self.device)
+        self.semantics = semantics
+        if semantics.lower() == 'clip':
+            clip_model = 'ViT-L/14',
+            self.semantics_model, self.semantics_preprocess = clip.load(clip_model, device=self.device)
+        elif semantics.lower() == 'dino':
+            self.semantics_preprocess = AutoImageProcessor.from_pretrained('facebook/dinov2-base', do_center_crop=False)
+            self.semantics_model = AutoModel.from_pretrained('facebook/dinov2-base')
+            self.semantics_model.eval()
+            self.semantics_model.to(self.device)
+        elif semantics.lower() == 'none' or semantics is None:
+            self.semantics_model = None
+            self.semantics_preprocess = None
+        else:
+            raise ValueError(f"Invalid semantics option: {semantics}. Choose from 'clip', 'dino', or 'none'.")
+        
         if triangle_ignore_masks is not None:
             self.constant_ignore_mask = np.zeros((self.depth_cam_params.height, self.depth_cam_params.width), dtype=np.uint8)
             for triangle in triangle_ignore_masks:
@@ -281,6 +293,25 @@ class FastSAMWrapper():
         # run fastsam
         masks = self._process_img(img, ignore_mask=ignore_mask, keep_mask=keep_mask)
         
+        if self.semantics == 'dino':
+            # Process the image for DINO
+            dino_shape = 768
+            img_bgr = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+            preprocessed = self.semantics_preprocess(images=img_bgr, return_tensors="pt").to(self.device)
+            dino_output = self.semantics_model(**preprocessed)
+            # dino_output_patches = dino_output.last_hidden_state[:,1:, :].reshape(1, 16, 16, dino_shape)
+            dino_output_patches = dino_output.last_hidden_state[:,1:, :].reshape(1, 18, 24, dino_shape)
+            # TODO: figure out how to get this shape reliably without guessing it
+
+            # interpolate the feature map to match the size of the original image
+            dino_output_img = torch.nn.functional.interpolate(
+                dino_output_patches.permute(0, 3, 1, 2), # permute to be batch, channels, height, width
+                size=(img.shape[0], img.shape[1]),
+                mode='bilinear',
+            ) # 1 x dino_shape x h x w
+            dino_features = dino_output_img[0].permute(1, 2, 0) # h x w x dino_shape
+
+        
         for mask in masks:
             
             mask = self.unapply_rotation(mask)
@@ -366,16 +397,7 @@ class FastSAMWrapper():
                 interpolation=cv.INTER_NEAREST
             )).astype('uint8')
 
-            if self.clip_embedding:
-                ### Use masked image
-                # print("Img size: ", img.shape)
-                # print("Mask shape: ", mask.shape)
-                # # print("Masked image: ", cv.bitwise_and(img, img, mask = mask.astype('uint8')).shape)
-                # pre_processed_img = self.clip_preprocess(Image.fromarray(cv.bitwise_and(img, img, mask = mask.astype('uint8')))).to(self.device)
-                # clip_embedding = self.clip_model.encode_image(pre_processed_img.unsqueeze(dim=0))
-                # print("Clip embedding shape: ", clip_embedding.shape)
-                # clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
-
+            if self.semantics == 'clip':
                 ### Use bounding box
                 bbox = mask_bounding_box(mask.astype('uint8'))
                 if bbox is None:
@@ -385,10 +407,18 @@ class FastSAMWrapper():
                     min_col, min_row, max_col, max_row = bbox
                     img_bbox = self.apply_rotation(img_orig[min_row:max_row, min_col:max_col])
                     img_bbox = cv.cvtColor(img_bbox, cv.COLOR_BGR2RGB)
-                    processed_img = self.clip_preprocess(Image.fromarray(img_bbox, mode='RGB')).to(self.device)
-                    clip_embedding = self.clip_model.encode_image(processed_img.unsqueeze(dim=0))
+                    processed_img = self.semantics_preprocess(Image.fromarray(img_bbox, mode='RGB')).to(self.device)
+                    clip_embedding = self.semantics_model.encode_image(processed_img.unsqueeze(dim=0))
                     clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
                     self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=clip_embedding))
+            elif self.semantics == 'dino':
+                assert mask.shape[0] == dino_features.shape[0] and mask.shape[1] == dino_features.shape[1], \
+                    "Mask and DINO features must have the same shape."
+                dino_mask = dino_features[mask.astype(bool)] # num-pixels x dino_shape
+                dino_mask = dino_mask.cpu().detach().numpy()
+                mean_dino = np.mean(dino_mask, axis=0) # dino_shape
+                mean_dino = mean_dino / np.linalg.norm(mean_dino) # normalize
+                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=mean_dino))
                 
             else:
                 self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))

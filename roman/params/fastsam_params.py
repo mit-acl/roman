@@ -39,7 +39,7 @@ class FastSAMParams:
         keep_labels_option (dict): options for keep labels
         plane_filter_params (tuple): parameters for plane filtering
         rotate_img (str): how to rotate the image ('CW', 'CCW', '180')
-        clip (bool): whether to compute clip embeddings for observations
+        semantics (str): which semantics to use for observations ('clip', 'dino', or 'none')
         yolo_imgsz (Tuple[int, int]): size of the YOLO image
         depth_scale (float): depth scale factor for processing depth images
         max_depth (float): maximum depth before rejecting observation points
@@ -70,7 +70,7 @@ class FastSAMParams:
     keep_labels_option: dict = None
     plane_filter_params: tuple = tuple([3.0, 1.0, 0.2])
     rotate_img: str = None
-    clip: bool = True
+    semantics: str = 'dino'
     yolo_imgsz: Tuple[int, int] = (256, 256)
     depth_scale: float = 1e3
     max_depth: float = 7.5

@@ -31,7 +31,8 @@ setup(
         'torchvision==0.19.0',
         'fastsam @ git+https://github.com/CASIA-IVA-Lab/FastSAM.git@4d153e9',
         'robotdatapy>=1.1.0',
-        'gdown'
+        'gdown',
+        'transformers'
     ],
 )
 
