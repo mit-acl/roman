@@ -189,7 +189,7 @@ def mapping(
         # (add dt/2 in case of floating point error)
         while start_time + data_params.max_time * mapping_iter + data_params.dt / 2.0 < end_time:
 
-            data_params, fastsam_params, mapper_params = \
+            _, fastsam_params, mapper_params = \
                 extract_params(data_params_path, fastsam_params_path, mapper_params_path, run_name=run_name)
 
             # time range for this iteration, bounded by end_time

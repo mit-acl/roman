@@ -188,7 +188,10 @@ class FastSAMWrapper():
         self.keep_mask_minimal_intersection = keep_mask_minimal_intersection
         self.run_yolo = len(ignore_labels) > 0 or use_keep_labels
         self.semantics = semantics
-        if semantics.lower() == 'clip':
+        if semantics is None or semantics.lower() == 'none':
+            self.semantics_model = None
+            self.semantics_preprocess = None
+        elif semantics.lower() == 'clip':
             clip_model = 'ViT-L/14',
             self.semantics_model, self.semantics_preprocess = clip.load(clip_model, device=self.device)
         elif semantics.lower() == 'dino':
@@ -196,9 +199,6 @@ class FastSAMWrapper():
             self.semantics_model = AutoModel.from_pretrained('facebook/dinov2-base')
             self.semantics_model.eval()
             self.semantics_model.to(self.device)
-        elif semantics.lower() == 'none' or semantics is None:
-            self.semantics_model = None
-            self.semantics_preprocess = None
         else:
             raise ValueError(f"Invalid semantics option: {semantics}. Choose from 'clip', 'dino', or 'none'.")
         
