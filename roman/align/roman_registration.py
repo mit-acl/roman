@@ -2,6 +2,7 @@ import numpy as np
 from typing import List
 from dataclasses import dataclass
 from enum import Enum
+from sklearn.neighbors import NearestNeighbors
 
 import clipperpy
 
@@ -73,6 +74,7 @@ class ROMANRegistration(ObjectRegistration):
         self.iparams.gravity_guided = params.gravity
         self.iparams.drift_aware = False
         
+        self.k = 1
         return
     
     def _setup_clipper(self):
@@ -82,14 +84,40 @@ class ROMANRegistration(ObjectRegistration):
         return clipper
     
     def _clipper_score_all_to_all(self, clipper, map1: List[Object], map2: List[Object]):
-        A_init = clipperpy.utils.create_all_to_all(len(map1), len(map2))
+        # A_init = clipperpy.utils.create_all_to_all(len(map1), len(map2))
+        map1_features = np.array([p.semantic_descriptor.tolist() + [p.linearity(), p.planarity(), p.scattering()] for p in map1])
+        map2_features = np.array([p.semantic_descriptor.tolist() + [p.linearity(), p.planarity(), p.scattering()] for p in map2])
+        
+        map1_indices = self._knn(map1_features, map2_features)
+        map2_indices = self._knn(map2_features, map1_features)
+        pairs_set = set()
+        for i, idx in enumerate(map1_indices):
+            for j in idx:
+                pairs_set.add((i, j))
+        for j, idx in enumerate(map2_indices):
+            for i in idx:
+                pairs_set.add((i, j))
+        print("PAIRS SET SIZE: ", len(pairs_set))
+        print(pairs_set[:5,:])
+        A_put = np.array(list(pairs_set)).astype(np.int32)
+
 
         map1_cl = np.array([self._object_to_clipper_list(p) for p in map1])
         map2_cl = np.array([self._object_to_clipper_list(p) for p in map2])
         self._check_clipper_arrays(map1_cl, map2_cl)
+        print(map1_cl[0,:])
+        print(f"cosine similarity")
+        print(np.sum(map1_cl[A_put[0,0],3:].reshape(-1) * map2_cl[A_put[0,1],3:].reshape(-1)))
 
-        clipper.score_pairwise_and_single_consistency(map1_cl.T, map2_cl.T, A_init)
-        return clipper, A_init
+        print(map1_cl.T.shape, map2_cl.T.shape, A_put.shape)
+        print(map1_cl.dtype, map2_cl.dtype, A_put.dtype)
+        print(A_put)
+        clipper.score_pairwise_and_single_consistency(map1_cl.T, map2_cl.T, A_put)
+        M = clipper.get_affinity_matrix()
+        print(M)
+        C = clipper.get_constraint_matrix()
+        print(C)
+        return clipper, A_put
 
     def _object_to_clipper_list(self, object: Object):        
         object_as_list = object.center.reshape(-1).tolist()[:self.dim]
@@ -101,7 +129,7 @@ class ROMANRegistration(ObjectRegistration):
         if self.extent:
             object_as_list += sorted(object.extent)
         if self.semantics:
-            object_as_list += np.array(object.semantic_descriptor).tolist()
+            object_as_list += (np.array(object.semantic_descriptor) / np.linalg.norm(np.array(object.semantic_descriptor))).tolist()
         return object_as_list 
     
     def _check_clipper_arrays(self, map1_cl, map2_cl):
@@ -110,3 +138,13 @@ class ROMANRegistration(ObjectRegistration):
         # if self.use_gravity:
         #     assert map1_cl.shape[1] == 3 + 2, f"map1_cl.shape[1] = {map1_cl.shape[1]}"
         return
+    
+    def _knn(self, query, reference):
+        """
+        Find the k nearest neighbors of each point in query in reference
+        query: np.array of shape (n, d)
+        reference: np.array of shape (m, d)
+        """
+        nbrs = NearestNeighbors(n_neighbors=self.k, algorithm='kd_tree').fit(reference)
+        _, indices = nbrs.kneighbors(query) # dimensions: (n, k)
+        return indices
