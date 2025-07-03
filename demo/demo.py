@@ -18,6 +18,7 @@ import argparse
 from typing import List
 import os
 import yaml
+import json
 
 from roman.params.submap_align_params import SubmapAlignInputOutput, SubmapAlignParams
 from roman.align.submap_align import submap_align
@@ -30,6 +31,8 @@ from roman.offline_rpgo.evaluate import evaluate
 from roman.offline_rpgo.edit_g2o_edge_information import edit_g2o_edge_information
 from roman.params.offline_rpgo_params import OfflineRPGOParams
 from roman.params.data_params import DataParams
+
+from robotdatapy.transform import transform_to_xyz_quat
 
 import mapping
 
@@ -249,7 +252,7 @@ if __name__ == '__main__':
         for i in range(3):
             g2o_plot_params.axes = [(0, 1), (0, 2), (1, 2)][i]
             g2o_plot_params.legend = (i == 0)
-            plot_g2o(
+            num_inliers, inlier_lcs = plot_g2o(
                 g2o_path=result_g2o_file,
                 g2o_symbol_to_name=g2o_symbol_to_name,
                 g2o_symbol_to_color=DEFAULT_TRAJECTORY_COLORS,
@@ -258,6 +261,7 @@ if __name__ == '__main__':
             )
         plt.savefig(os.path.join(args.output_dir, "offline_rpgo", "result.png"))
         print(f"Results saved to {os.path.join(args.output_dir, 'offline_rpgo', 'result.png')}")
+        robots_pose_data = {}
         
         # Save csv files with resulting trajectories
         for i, run in enumerate(data_params.runs):
@@ -265,8 +269,34 @@ if __name__ == '__main__':
                                                   odom_sparse_all_time_file if offline_rpgo_params.sparsified else odom_dense_all_time_file, 
                                                   robot_id=i)
             pose_data.to_csv(os.path.join(args.output_dir, "offline_rpgo", f"{run}.csv"))
+            robots_pose_data[run] = pose_data
             print(f"Saving {run} pose data to {os.path.join(args.output_dir, 'offline_rpgo', f'{run}.csv')}")
 
+        # save inlier loop closures in json format
+        for i, run_i in enumerate(data_params.runs):
+            for j, run_j in enumerate(data_params.runs[i:]):
+                print('hi')
+                if (run_i, run_j) not in inlier_lcs:
+                    inlier_lcs[(run_i, run_j)] = []
+                json_output = []
+                for lc in inlier_lcs[(run_i, run_j)]:
+                    t, q = transform_to_xyz_quat(lc['transform'], separate=True)
+                    t1 = robots_pose_data[run_i].times[lc['i1']]
+                    t2 = robots_pose_data[run_j].times[lc['i2']]
+                    json_output.append({
+                        'seconds': [int(t1), int(t2)],
+                        'nanoseconds': [int((t1 % 1) * 1e9), int((t2 % 1) * 1e9)],
+                        'names': [run_i, run_j],
+                        'translation': t.tolist(),
+                        'rotation': q.tolist(),
+                        'rotation_convention': 'xyzw',
+                        'num_associations': int(1000000)
+                    })
+                print(f"saving to {os.path.join(args.output_dir, 'align', f'{run_i}_{run_j}', 'align_inliers.json')}")
+                with open(os.path.join(args.output_dir, "align", f"{run_i}_{run_j}", "align_inliers.json"), 'w') as f:
+                    json.dump(json_output, f, indent=4)
+                    f.close()
+                    
         # Report ATE results
         if has_gt:
             ate_rmse = evaluate(
