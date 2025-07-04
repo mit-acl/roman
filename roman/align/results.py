@@ -28,6 +28,7 @@ class SubmapAlignResults:
     timing_list: List[float]
     submap_align_params: SubmapAlignParams
     submap_io: SubmapAlignInputOutput
+    total_time: float = -np.inf
     
     def save(self):
         pkl_file = open(self.submap_io.output_pkl, 'wb')
