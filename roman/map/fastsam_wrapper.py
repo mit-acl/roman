@@ -14,6 +14,7 @@
 
 import cv2 as cv
 import numpy as np
+from numpy.typing import ArrayLike
 import open3d as o3d
 import copy
 import torch
@@ -201,6 +202,7 @@ class FastSAMWrapper():
             self.semantics_model.to(self.device)
         else:
             raise ValueError(f"Invalid semantics option: {semantics}. Choose from 'clip', 'dino', or 'none'.")
+        self.semantic_patches_shape = None
         
         if triangle_ignore_masks is not None:
             self.constant_ignore_mask = np.zeros((self.depth_cam_params.height, self.depth_cam_params.width), dtype=np.uint8)
@@ -299,17 +301,11 @@ class FastSAMWrapper():
             img_bgr = cv.cvtColor(img, cv.COLOR_BGR2RGB)
             preprocessed = self.semantics_preprocess(images=img_bgr, return_tensors="pt").to(self.device)
             dino_output = self.semantics_model(**preprocessed)
-            # dino_output_patches = dino_output.last_hidden_state[:,1:, :].reshape(1, 16, 16, dino_shape)
-            dino_output_patches = dino_output.last_hidden_state[:,1:, :].reshape(1, 18, 24, dino_shape)
-            # TODO: figure out how to get this shape reliably without guessing it
-
-            # interpolate the feature map to match the size of the original image
-            dino_output_img = torch.nn.functional.interpolate(
-                dino_output_patches.permute(0, 3, 1, 2), # permute to be batch, channels, height, width
-                size=(img.shape[0], img.shape[1]),
-                mode='bilinear',
-            ) # 1 x dino_shape x h x w
-            dino_features = dino_output_img[0].permute(1, 2, 0) # h x w x dino_shape
+            dino_features = self.get_per_pixel_features(
+                model_output=dino_output.last_hidden_state, 
+                img_shape=img.shape, 
+                feature_dim=dino_shape
+            )
 
         
         for mask in masks:
@@ -579,3 +575,39 @@ class FastSAMWrapper():
             return []
 
         return segmask
+
+    def get_per_pixel_features(self, model_output: ArrayLike, img_shape: ArrayLike, 
+            feature_dim: int) -> ArrayLike:
+        """
+        Extract (Dino) per-pixel features
+
+        Args:
+            model_output (ArrayLike): Last hidden state of (Dino) model
+            img_shape (ArrayLike): Original image shape
+            feature_dim (int): Expected (Dino) feature dimension
+
+        Returns:
+            ArrayLike: Reshaped (Dino) output
+        """
+        model_output_flat_patches = model_output[:,1:, :]
+        if self.semantic_patches_shape is None:
+            ratio = img_shape[1] / img_shape[0] # width / height
+            num_patches = model_output_flat_patches.shape[1]
+            h = int(np.sqrt(num_patches / ratio)) # number of patches along y-axis
+            w = int(ratio * h) # number of patches along x-axis
+            self.semantic_patches_shape = (1, h, w, feature_dim)
+            
+        model_output_patches = model_output_flat_patches.reshape(self.semantic_patches_shape)
+
+        # interpolate the feature map to match the size of the original image
+        per_pixel_features = torch.nn.functional.interpolate(
+            model_output_patches.permute(0, 3, 1, 2), # permute to be batch, channels, height, width
+            size=(img_shape[0], img_shape[1]),
+            mode='bilinear',
+        ) # 1 x dino_shape x h x w
+
+        # reshape
+        per_pixel_features = per_pixel_features[0].permute(1, 2, 0) # h x w x feature_dim
+
+        return per_pixel_features # h x w x feature_dim
+        
