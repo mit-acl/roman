@@ -341,7 +341,7 @@ class FastSAMWrapper():
                     # Extract point cloud without truncation to heuristically check if enough of the object
                     # is within the max depth
                     pcd_test = o3d.geometry.PointCloud.create_from_depth_image(
-                        o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
+                        o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.dtype(depth_obj.dtype).type)),
                         self.depth_cam_intrinsics,
                         depth_scale=self.depth_scale,
                         # depth_trunc=self.max_depth,
@@ -356,7 +356,7 @@ class FastSAMWrapper():
                         continue
                     
                     pcd = o3d.geometry.PointCloud.create_from_depth_image(
-                        o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.uint16)),
+                        o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.dtype(depth_obj.dtype).type)),
                         self.depth_cam_intrinsics,
                         depth_scale=self.depth_scale,
                         depth_trunc=self.max_depth,
