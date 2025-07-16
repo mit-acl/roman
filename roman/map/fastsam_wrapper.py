@@ -593,8 +593,9 @@ class FastSAMWrapper():
         if self.semantic_patches_shape is None:
             ratio = img_shape[1] / img_shape[0] # width / height
             num_patches = model_output_flat_patches.shape[1]
-            h = int(np.sqrt(num_patches / ratio)) # number of patches along y-axis
-            w = int(ratio * h) # number of patches along x-axis
+            h = np.round(np.sqrt(num_patches / ratio)).astype(int) # number of patches along y-axis
+            w = np.round(np.sqrt(num_patches * ratio)).astype(int) # number of patches along x-axis
+
             self.semantic_patches_shape = (1, h, w, feature_dim)
             
         model_output_patches = model_output_flat_patches.reshape(self.semantic_patches_shape)
