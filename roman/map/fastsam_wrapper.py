@@ -102,6 +102,7 @@ class FastSAMWrapper():
         self.mask_downsample_factor = mask_downsample_factor
         self.rotate_img = rotate_img
         self.use_pointcloud = use_pointcloud
+        self.params = FastSAMParams()
 
         # member variables
         self.observations = []
@@ -145,6 +146,7 @@ class FastSAMWrapper():
             semantics=params.semantics,
             triangle_ignore_masks=params.triangle_ignore_masks
         )
+        fastsam.params = params
 
         return fastsam
             
@@ -299,6 +301,11 @@ class FastSAMWrapper():
             # Process the image for DINO
             dino_shape = 768
             img_bgr = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+            if self.params.semantics_downsample_factor > 1:
+                img_bgr = cv.resize(img_bgr, 
+                    (img_bgr.shape[1] // self.params.semantics_downsample_factor,
+                     img_bgr.shape[0] // self.params.semantics_downsample_factor),
+                    interpolation=cv.INTER_LINEAR)
             preprocessed = self.semantics_preprocess(images=img_bgr, return_tensors="pt").to(self.device)
             dino_output = self.semantics_model(**preprocessed)
             dino_features = self.get_per_pixel_features(
