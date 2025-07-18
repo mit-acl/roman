@@ -193,7 +193,7 @@ class FastSAMWrapper():
             self.semantics_model = None
             self.semantics_preprocess = None
         elif semantics.lower() == 'clip':
-            clip_model = 'ViT-L/14',
+            clip_model = 'ViT-L/14'
             self.semantics_model, self.semantics_preprocess = clip.load(clip_model, device=self.device)
         elif semantics.lower() == 'dino':
             self.semantics_preprocess = AutoImageProcessor.from_pretrained('facebook/dinov2-base', do_center_crop=False)

@@ -42,11 +42,17 @@ class SubmapAlignParams:
     submap_overlap: int = int(0.5 * submap_max_size)  # Number of overlapping segments between submaps
 
     # the following are applicable only if force_fill_submaps is false -----------
-    submap_radius: float = 15.0             # Radius of submap in meters. If set to None, segments are never excluded from submaps based on distance (though they may still be pruned)
+    submap_radius: float = 15.0             # Radius of submap in meters. If set to None, segments 
+                                            #    are never excluded from submaps based on distance 
+                                            #    (though they may still be pruned)
     submap_center_dist: float = 10.0        # Distance between submap centers in meters
     submap_center_time: float = 50.0        # time threshold between segments and submap center times
-    submap_pruning_method: str = 'distance' # Metric for pruning segments in a submap: ('time', 'distance') -> max gets pruned
+    submap_pruning_method: str = 'distance' # Metric for pruning segments in a submap: 
+                                            #    ('time', 'distance') -> max gets pruned
     # ----------------------------------------------------------------------------
+    submap_descriptor: str = None           # Type of submap descriptor. Either 'none' or 'mean_semantic'.
+    submap_descriptor_thresh: float = 0.8   # ROMAN object matching will only be run if submap 
+                                            #    descriptor cosine similarity is above this threshold.
 
 
     single_robot_lc: bool = False           # If true, do not try and perform loop closures with submaps
@@ -66,6 +72,10 @@ class SubmapAlignParams:
     cosine_min: float = 0.5
     cosine_max: float = 0.7
     semantics_dim: int = 768
+    
+    def __post_init__(self):
+        if type(self.submap_descriptor) == str and self.submap_descriptor.lower() == 'none':
+            self.submap_descriptor = None
 
     @classmethod
     def from_yaml(cls, yaml_file):

@@ -86,6 +86,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     # Registration method
     registration = sm_params.get_object_registration()
 
+    total_time_t0 = time.time()
 
     # iterate over pairs of submaps and create registration results
     for i in tqdm(range(len(submaps[0]))):
@@ -126,39 +127,55 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 relative_yaw_angle = transform_to_xyzrpy(T_ij)[5]
                 submap_yaw_diff_mat[i, j] = np.abs(np.rad2deg(relative_yaw_angle))
                 
-            # register the submaps
-            try:
-                start_t = time.time()
-                associations = registration.register(submap_i.segments, submap_j.segments)
-                timing_list.append(time.time() - start_t)
+            if sm_params.submap_descriptor is not None:
+                submap_sim = np.sum(submap_i.descriptor * submap_j.descriptor) / \
+                    (np.linalg.norm(submap_i.descriptor) * np.linalg.norm(submap_j.descriptor))
+            else:
+                submap_sim = np.inf # always try to register object maps if no descriptor is used
                 
-                if sm_params.dim == 2:
-                    T_ij_hat = registration.T_align(submap_i.segments, submap_j.segments, associations)
-                    T_error = np.linalg.inv(T_ij_hat) @ T_ij
-                    _, _, theta = transform_to_xytheta(T_error)
-                    dist = np.linalg.norm(T_error[:sm_params.dim, 3])
-
-                elif sm_params.dim == 3:
-                    T_ij_hat = registration.T_align(submap_i.segments, submap_j.segments, associations)
-                    if sm_params.force_rm_upside_down:
-                        xyzrpy = transform_to_xyzrpy(T_ij_hat)
-                        if np.abs(xyzrpy[3]) > np.deg2rad(90.) or np.abs(xyzrpy[4]) > np.deg2rad(90.):
-                            raise GravityConstraintError
-                    if sm_params.force_rm_lc_roll_pitch:
-                        T_ij_hat = transform_rm_roll_pitch(T_ij_hat)
-                    T_error = np.linalg.inv(T_ij_hat) @ T_ij
-                    theta = Rot.from_matrix(T_error[:3, :3]).magnitude()
-                    dist = np.linalg.norm(T_error[:sm_params.dim, 3])
-                else:
-                    raise ValueError("Invalid dimension")
-                
-            except (InsufficientAssociationsException, GravityConstraintError) as ex:
-                timing_list.append(time.time() - start_t)
+            if submap_sim < sm_params.submap_descriptor_thresh:
+                # skip registration
                 T_ij_hat = np.zeros((4, 4))*np.nan
                 theta = 180.0
                 dist = 1e6
                 associations = []
+                    
+            else:
+
+                # register the submaps
+                try:
+                    start_t = time.time()
+                    associations = registration.register(submap_i.segments, submap_j.segments)
+                    timing_list.append(time.time() - start_t)
+                    
+                    if sm_params.dim == 2:
+                        T_ij_hat = registration.T_align(submap_i.segments, submap_j.segments, associations)
+                        T_error = np.linalg.inv(T_ij_hat) @ T_ij
+                        _, _, theta = transform_to_xytheta(T_error)
+                        dist = np.linalg.norm(T_error[:sm_params.dim, 3])
+
+                    elif sm_params.dim == 3:
+                        T_ij_hat = registration.T_align(submap_i.segments, submap_j.segments, associations)
+                        if sm_params.force_rm_upside_down:
+                            xyzrpy = transform_to_xyzrpy(T_ij_hat)
+                            if np.abs(xyzrpy[3]) > np.deg2rad(90.) or np.abs(xyzrpy[4]) > np.deg2rad(90.):
+                                raise GravityConstraintError
+                        if sm_params.force_rm_lc_roll_pitch:
+                            T_ij_hat = transform_rm_roll_pitch(T_ij_hat)
+                        T_error = np.linalg.inv(T_ij_hat) @ T_ij
+                        theta = Rot.from_matrix(T_error[:3, :3]).magnitude()
+                        dist = np.linalg.norm(T_error[:sm_params.dim, 3])
+                    else:
+                        raise ValueError("Invalid dimension")
+                    
+                except (InsufficientAssociationsException, GravityConstraintError) as ex:
+                    timing_list.append(time.time() - start_t)
+                    T_ij_hat = np.zeros((4, 4))*np.nan
+                    theta = 180.0
+                    dist = 1e6
+                    associations = []
             
+            # for each submap pair, report the results
             if not np.isnan(robots_nearby_mat[i, j]):
                 clipper_angle_mat[i, j] = np.abs(np.rad2deg(theta))
                 clipper_dist_mat[i, j] = dist
@@ -172,6 +189,8 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
             T_ij_mat[i, j] = T_ij
             T_ij_hat_mat[i, j] = T_ij_hat
             associated_objs_mat[i][j] = associations
+            
+    total_time = time.time() - total_time_t0
 
     # save results
     results = SubmapAlignResults(
@@ -185,6 +204,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
         associated_objs_mat=associated_objs_mat,
         timing_list=timing_list,
         submap_align_params=sm_params,
-        submap_io=sm_io
+        submap_io=sm_io,
+        total_time=total_time
     )
     save_submap_align_results(results, submaps, roman_maps)
