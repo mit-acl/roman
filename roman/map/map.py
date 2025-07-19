@@ -100,6 +100,7 @@ class Submap:
     pose_flu: np.ndarray
     pose_flu_gt: np.ndarray = None
     segment_frame: str = 'submap_gravity_aligned'
+    descriptor: np.ndarray = None
 
     @property
     def pose_gravity_aligned(self):
@@ -145,6 +146,7 @@ class SubmapParams:
     use_avg_time_as_segment_ref_time: bool = True
     object_center_ref: str = 'mean'
     use_minimal_data: bool = True
+    submap_descriptor: str = None
 
     @classmethod
     def from_submap_align_params(cls, submap_align_params: SubmapAlignParams):
@@ -156,7 +158,8 @@ class SubmapParams:
             distance=submap_align_params.submap_center_dist,
             time_threshold=submap_align_params.submap_center_time,
             pruning_method=submap_align_params.submap_pruning_method,
-            use_avg_time_as_segment_ref_time=submap_align_params.use_avg_time_as_segment_ref_time
+            use_avg_time_as_segment_ref_time=submap_align_params.use_avg_time_as_segment_ref_time,
+            submap_descriptor=submap_align_params.submap_descriptor
         )
 
 def load_roman_map(map_file: str) -> ROMANMap:
@@ -283,7 +286,12 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
                 segments_sorted_by_key = sorted(sm.segments, key=pruning_key)
                 sm.segments = segments_sorted_by_key[:submap_params.max_size]
 
-    return [submap for submap in submaps if len(submap.segments) > 0]
+    submaps = [submap for submap in submaps if len(submap.segments) > 0]
+    if submap_params.submap_descriptor == 'mean_semantic':
+        # compute mean semantic for each submap
+        for submap in submaps:
+            submap.descriptor = np.mean([seg.semantic_descriptor for seg in submap.segments], axis=0).flatten()
+    return submaps
 
 
 
