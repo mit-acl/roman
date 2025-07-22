@@ -68,3 +68,23 @@ class ChamferDistance():
         if not pcd1.has_points() or not pcd2.has_points():
             return np.inf
         return min(np.mean(pcd1.compute_point_cloud_distance(pcd2)), np.mean(pcd2.compute_point_cloud_distance(pcd1)))
+    
+    @classmethod
+    def norm_chamfer_distance(cls, pcd1, pcd2):
+        """
+        Compute the normalized chamfer distance between two point clouds.
+        
+        Normalization is done by dividing the chamfer distance by the 
+        
+        Args:
+            pcd1 (o3d.geometry.PointCloud): first point cloud
+            pcd2 (o3d.geometry.PointCloud): second point cloud
+        """
+        chamfer_dist = cls.chamfer_distance(pcd1, pcd2)
+        aabb1 = pcd1.get_axis_aligned_bounding_box()
+        aabb2 = pcd2.get_axis_aligned_bounding_box()
+        merged_min_bound = np.minimum(aabb1.min_bound, aabb2.min_bound)
+        merged_max_bound = np.maximum(aabb1.max_bound, aabb2.max_bound)
+        merged_spread = merged_max_bound - merged_min_bound
+        diag = np.linalg.norm(merged_spread)
+        return chamfer_dist / diag if diag > 0 else 0
