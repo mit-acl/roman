@@ -406,7 +406,7 @@ class FastSAMWrapper():
                     processed_img = self.semantics_preprocess(Image.fromarray(img_bbox, mode='RGB')).to(self.device)
                     clip_embedding = self.semantics_model.encode_image(processed_img.unsqueeze(dim=0))
                     clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
-                    self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=clip_embedding))
+                    self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, semantic_descriptor=clip_embedding))
             elif self.semantics == 'dino':
                 assert mask.shape[0] == dino_features.shape[0] and mask.shape[1] == dino_features.shape[1], \
                     "Mask and DINO features must have the same shape."
@@ -414,7 +414,7 @@ class FastSAMWrapper():
                 dino_mask = dino_mask.cpu().detach().numpy()
                 mean_dino = np.mean(dino_mask, axis=0) # dino_shape
                 mean_dino = mean_dino / np.linalg.norm(mean_dino) # normalize
-                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=mean_dino))
+                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, semantic_descriptor=mean_dino))
                 
             else:
                 self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))

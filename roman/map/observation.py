@@ -20,7 +20,7 @@ class Observation():
     mask: np.ndarray = None
     mask_downsampled: np.ndarray = None
     point_cloud: np.ndarray = None  # n-by-3 matrix. Each row is a 3D point.
-    clip_embedding: np.ndarray = None
+    semantic_descriptor: np.ndarray = None
     voxel_grid: Dict[float, VoxelGrid] = field(default_factory=dict)
     _transformed_points: np.ndarray = None
     _pcd: o3d.geometry.PointCloud = None

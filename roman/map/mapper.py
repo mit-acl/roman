@@ -11,7 +11,7 @@
 ###########################################################
 
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Union
 from dataclasses import dataclass
 import cv2 as cv
 import open3d as o3d
@@ -34,6 +34,10 @@ class Mapper():
     def __init__(self, params: MapperParams, camera_params: CameraParams):
         self.params = params
         self.camera_params = camera_params
+
+        self._cached_assoc_func = None
+        self._cached_geo_assoc_method = None
+        self._cached_sem_assoc_method = None
 
         self.segment_nursery = []
         self.segments = []
@@ -60,7 +64,7 @@ class Mapper():
         #                                        self.mask_similarity(seg, obs, projected=True))
         associated_pairs = global_nearest_neighbor(
             self.segments + self.segment_nursery, observations, 
-            **self.similarity_function_args()
+            self.similarity_function, self.params.min_association_score
         )
 
         # separate segments associated with nursery and normal segments
@@ -137,46 +141,74 @@ class Mapper():
             
         return
     
-    def similarity_function_args(self):
+    @property
+    def similarity_function(self):
         """
         Get the similarity function based on the association method
         """
-        methods = {
-            'iou': self.voxel_grid_similarity,
-            'chamfer': self.chamfer_distance_similarity,
-            'both': lambda seg, obs: np.array([self.voxel_grid_similarity(seg, obs), self.chamfer_distance_similarity(seg, obs)])
-        }
-        thresholds = {
-            'iou': self.params.min_iou,
-            'chamfer': -self.params.max_chamfer_dist,  # negate: see chamfer_distance_similarity
-            'both': np.array([self.params.min_iou, -self.params.max_chamfer_dist])
-        }
-        ranges = {
-            'iou': [(0.0, 1.0)],
-            'chamfer': [(-self.params.max_chamfer_dist, 0)],
-            'both': [(0.0, 1.0), (-self.params.max_chamfer_dist, 0)]
-        }
-        return {
-            'similarity_fun': methods.get(self.params.association_method),
-            'min_similarity': thresholds.get(self.params.association_method),
-            'similarity_ranges': np.array(ranges.get(self.params.association_method))
-        }
+        if self._cached_assoc_func is None or self._cached_geo_assoc_method != self.params.geometric_local_assoication_method \
+            or self._cached_sem_assoc_method != self.params.semantic_local_association_method:
 
-    def voxel_grid_similarity(self, segment: Segment, observation: Observation):
+            self._cached_geo_assoc_method = self.params.geometric_local_assoication_method
+            self._cached_sem_assoc_method = self.params.semantic_local_association_method
+
+            geometric_methods = {
+                'iou': self.iou_similarity,
+                'iom': self.iom_similarity,
+                'chamfer': self.chamfer_distance_similarity,
+            }
+            semantic_methods = {
+                'cosine_similarity': self.cosine_similarity,
+            }
+            combination_methods = {
+                'gm': lambda g, s: np.sqrt(g * s),
+                'am': lambda g, s: (g + s) / 2,
+                'prod': lambda g, s: g * s,
+                'max': lambda g, s: np.maximum(g, s),
+            }
+
+            if self.params.semantic_local_association_method is None:
+                self._cached_assoc_func = geometric_methods[self.params.geometric_local_assoication_method]
+            else:
+                self._cached_assoc_func = lambda segment, segment_or_observation: combination_methods[self.params.association_method_combination](
+                    geometric_methods[self.params.geometric_local_assoication_method](segment, segment_or_observation),
+                    semantic_methods[self.params.semantic_local_association_method](segment, segment_or_observation)
+                )
+            
+        return self._cached_assoc_func
+
+    def iou_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation]): 
+        return self.voxel_grid_similarity(segment, segment_or_observation)
+
+    def iom_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation]): 
+        return self.voxel_grid_similarity(segment, segment_or_observation, iom_as_iou=True)
+
+    def voxel_grid_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation], iom_as_iou: bool = False):
         """
-        Compute the similarity between the voxel grids of a segment and an observation
+        Compute the similarity between the voxel grids of a segment and an observation/other segment. Always [0, 1].
         """
         voxel_size = self.params.iou_voxel_size
         segment_voxel_grid = segment.get_voxel_grid(voxel_size)
-        observation_voxel_grid = observation.get_voxel_grid(voxel_size)
-        return segment_voxel_grid.iou(observation_voxel_grid, iom_as_iou=self.params.iom_as_iou)
+        segment_or_observation_voxel_grid = segment_or_observation.get_voxel_grid(voxel_size)
+        return segment_voxel_grid.iou(segment_or_observation_voxel_grid, iom_as_iou=iom_as_iou)
     
-    def chamfer_distance_similarity(self, segment: Segment, observation: Observation):
+    def chamfer_distance_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation]):
         """
-        Compute the similarity between a segment and observation using their chamfer distance
+        Compute the similarity between a segment and observation/other segment using their chamfer distance,
+        normalized to [0, 1].
         """
-        # Negate because smaller distance is larger similarity
-        return -ChamferDistance.chamfer_distance(segment.pcd, observation.pcd)
+        return ChamferDistance.norm_chamfer_distance(segment.pcd, segment_or_observation.pcd)
+    
+    def cosine_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation]):
+        """
+        Compute the cosine similarity between the semantic descriptors of a segment and an observation/other segment,
+        normalized to [0, 1].
+        """
+        if segment.semantic_descriptor is None or segment_or_observation.semantic_descriptor is None:
+            return 0.0
+        return (np.dot(segment.semantic_descriptor, segment_or_observation.semantic_descriptor) / (
+            np.linalg.norm(segment.semantic_descriptor) * np.linalg.norm(segment_or_observation.semantic_descriptor)
+        ) + 1) / 2.0 # TODO: see if clamping to [0, 1] instead improves performance
 
     def remove_bad_segments(self, segments: List[Segment], min_volume: float=0.0, min_max_extent: float=0.0, plane_prune_params: List[float]=[np.inf, np.inf, 0.0]):
         """
@@ -250,31 +282,31 @@ class Mapper():
                         .5 * (np.max(seg1.extent) + np.max(seg2.extent)):
                         continue 
 
-                    merge_flag = False
+                    # merge_flag = False
 
-                    if self.params.merge_method in ('chamfer', 'both'): # Chamfer distance-based merging
-                        chamfer_dist = ChamferDistance.chamfer_distance(seg1.pcd, seg2.pcd)
+                    # if self.params.merge_method in ('chamfer', 'both'): # Chamfer distance-based merging
+                    #     chamfer_dist = ChamferDistance.chamfer_distance(seg1.pcd, seg2.pcd)
 
-                        merge_flag |= chamfer_dist < self.params.merge_objects_max_chamfer_dist
+                    #     merge_flag |= chamfer_dist < self.params.merge_objects_max_chamfer_dist
 
-                    if self.params.merge_method in ('iou', 'both'): # IOU-based merging
-                        mask1 = seg1.reconstruct_mask(self.last_pose)
-                        mask2 = seg2.reconstruct_mask(self.last_pose)
-                        intersection2d = np.logical_and(mask1, mask2).sum()
+                    # if self.params.merge_method in ('iou', 'both'): # IOU-based merging
+                    #     mask1 = seg1.reconstruct_mask(self.last_pose)
+                    #     mask2 = seg2.reconstruct_mask(self.last_pose)
+                    #     intersection2d = np.logical_and(mask1, mask2).sum()
                         
-                        union2d = np.minimum(mask1.sum(), mask2.sum()) if self.params.iom_as_iou else np.logical_or(mask1, mask2).sum()
-                        iou2d = intersection2d / union2d if union2d > 0 else 0.0
+                    #     union2d = np.minimum(mask1.sum(), mask2.sum()) if self.params.iom_as_iou else np.logical_or(mask1, mask2).sum()
+                    #     iou2d = intersection2d / union2d if union2d > 0 else 0.0
 
-                        iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
-                            seg2.get_voxel_grid(self.params.iou_voxel_size),
-                            iom_as_iou=self.params.iom_as_iou
-                        )
+                    #     iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
+                    #         seg2.get_voxel_grid(self.params.iou_voxel_size),
+                    #         iom_as_iou=self.params.iom_as_iou
+                    #     )
                         
-                        merge_flag |= iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d
+                    #     merge_flag |= iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d
 
                     # print(f"chamfer: {ChamferDistance.chamfer_distance(seg1.pcd, seg2.pcd)}. iou3d: {iou3d}. iou2d: {iou2d}")
 
-                    if merge_flag:
+                    if self.similarity_function(seg1, seg2) >= self.params.min_association_score:
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if seg1.num_points == 0:

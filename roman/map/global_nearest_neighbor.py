@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, min_similarity: float = None, similarity_ranges: np.array = None):
+def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, min_similarity: float = None):
     """
     Associates data1 with data2 using the global nearest neighbor algorithm.
 
@@ -24,12 +24,10 @@ def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, 
             similarity = similarity_fun(data1[i], data2[j])
             
             # Geometry similarity value
-            if min_similarity is not None and np.all(similarity < min_similarity):
+            if min_similarity is not None and similarity < min_similarity:
                 score = M
             else:
-                if similarity_ranges is not None:
-                    normalized_similarity = (similarity - similarity_ranges[:, 0]) / (similarity_ranges[:, 1] - similarity_ranges[:, 0])
-                score = -np.max(normalized_similarity) # Hungarian is trying to associate low similarity values, so negate
+                score = -similarity # Hungarian is trying to associate low similarity values, so negate
             scores[i,j] = score
 
     # augment cost to add option for no associations
