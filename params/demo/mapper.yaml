@@ -1,4 +1,7 @@
-min_iou: 0.25
+geometric_assoication_method: 'iou'
+semantic_association_method: 'cosine_similarity'
+min_geometric_score: float = 0.25
+min_semantic_score: float = 0.8
 min_sightings: 2
 max_t_no_sightings: 0.4
 merge_objects_iou_3d: 0.25

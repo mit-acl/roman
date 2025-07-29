@@ -1,14 +1,15 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+from typing import Union
 
-def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, min_similarity: float = None):
+def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, min_similarity: Union[float, np.ndarray] = None):
     """
     Associates data1 with data2 using the global nearest neighbor algorithm.
 
     Args:
         data1 (list): List of first data items
         data2 (list): List of second data items
-        similarity_fun (callable(item1, item2)): Evaluates the similarity between two items
+        similarity_fun (callable(item1, item2)->float|np.ndarray): Evaluates the similarity between two items
         min_similarity (float|np.ndarray): Minimum similarity required to associate two items
 
     Returns:
@@ -24,10 +25,14 @@ def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, 
             similarity = similarity_fun(data1[i], data2[j])
             
             # Geometry similarity value
-            if min_similarity is not None and similarity < min_similarity:
+            if min_similarity is not None and np.all(similarity < min_similarity):
                 score = M
             else:
-                score = -similarity # Hungarian is trying to associate low similarity values, so negate
+                if isinstance(similarity, np.ndarray):
+                    sim_norm = (similarity - min_similarity) / (np.ones_like(similarity) - min_similarity)
+                    score = np.max(sim_norm) # use max similarity TODO: correct?
+                else:
+                    score = -similarity # Hungarian is trying to associate low similarity values, so negate
             scores[i,j] = score
 
     # augment cost to add option for no associations

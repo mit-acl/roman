@@ -415,7 +415,6 @@ class FastSAMWrapper():
                 mean_dino = np.mean(dino_mask, axis=0) # dino_shape
                 mean_dino = mean_dino / np.linalg.norm(mean_dino) # normalize
                 self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, semantic_descriptor=mean_dino))
-                
             else:
                 self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
                 

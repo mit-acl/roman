@@ -59,7 +59,6 @@ class SegmentMinimalData(Object):
 
 class Segment(Object):
 
-    # TODO: separate from observation and from points class
     def __init__(self, observation: Observation, camera_params: CameraParams, 
                  id: int = 0, voxel_size: float = 0.05):
         # initialize parent class
@@ -93,6 +92,8 @@ class Segment(Object):
         self._convex_hull = None
         self._convex_hull_last_pose = np.nan
         
+        # TODO: check if this is correct
+        self._add_semantic_descriptor(observation.semantic_descriptor)
         self._integrate_points_from_observation(observation)
 
     def update(self, observation: Observation, integrate_points=True):

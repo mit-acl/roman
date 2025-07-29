@@ -42,10 +42,6 @@ class Wasserstein():
         mu2, sigma2 = gaussian_2
         sigma2_sqrt = cls.principle_square_root(sigma2)
         return np.linalg.norm(mu1 - mu2) + np.trace(sigma1 + sigma2 - 2 * cls.principle_square_root(sigma2_sqrt @ sigma1 @ sigma2_sqrt))
-        mu1, sigma1 = g1
-        mu2, sigma2 = g2
-        sigma2_sqrt = cls.principle_square_root(sigma2)
-        return np.linalg.norm(mu1 - mu2) + np.trace(sigma1 + sigma2 - 2 * cls.principle_square_root(sigma2_sqrt @ sigma1 @ sigma2_sqrt))
     
 class ChamferDistance():
 
@@ -75,6 +71,7 @@ class ChamferDistance():
         Compute the normalized chamfer distance between two point clouds.
         
         Normalization is done by dividing the chamfer distance by the 
+        diagonal of the axis-aligned bounding box that contains both point clouds.
         
         Args:
             pcd1 (o3d.geometry.PointCloud): first point cloud
@@ -84,7 +81,8 @@ class ChamferDistance():
         aabb1 = pcd1.get_axis_aligned_bounding_box()
         aabb2 = pcd2.get_axis_aligned_bounding_box()
         merged_min_bound = np.minimum(aabb1.min_bound, aabb2.min_bound)
-        merged_max_bound = np.maximum(aabb1.max_bound, aabb2.max_bound)
+        merged_max_bound = np.maximum(aabb1.max_bound, aabb2.max_bound) # TODO: try OBB from pointcloud
+        # of OBB vertices instead
         merged_spread = merged_max_bound - merged_min_bound
         diag = np.linalg.norm(merged_spread)
-        return chamfer_dist / diag if diag > 0 else 0
+        return 1 - (chamfer_dist / diag) if diag > 0 else 1.0

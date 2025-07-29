@@ -13,6 +13,7 @@
 import numpy as np
 from typing import List, Tuple, Union
 from dataclasses import dataclass
+from functools import cached_property
 import cv2 as cv
 import open3d as o3d
 
@@ -34,10 +35,6 @@ class Mapper():
     def __init__(self, params: MapperParams, camera_params: CameraParams):
         self.params = params
         self.camera_params = camera_params
-
-        self._cached_assoc_func = None
-        self._cached_geo_assoc_method = None
-        self._cached_sem_assoc_method = None
 
         self.segment_nursery = []
         self.segments = []
@@ -64,7 +61,7 @@ class Mapper():
         #                                        self.mask_similarity(seg, obs, projected=True))
         associated_pairs = global_nearest_neighbor(
             self.segments + self.segment_nursery, observations, 
-            self.similarity_function, self.params.min_association_score
+            self.similarity_function, self.min_similarity
         )
 
         # separate segments associated with nursery and normal segments
@@ -141,41 +138,36 @@ class Mapper():
             
         return
     
-    @property
+    @cached_property
     def similarity_function(self):
         """
         Get the similarity function based on the association method
         """
-        if self._cached_assoc_func is None or self._cached_geo_assoc_method != self.params.geometric_local_assoication_method \
-            or self._cached_sem_assoc_method != self.params.semantic_local_association_method:
+      
+        geometric_methods = {
+            'iou': self.iou_similarity,
+            'iom': self.iom_similarity,
+            'chamfer': self.chamfer_distance_similarity,
+        }
+        semantic_methods = {
+            'cosine_similarity': self.cosine_similarity,
+        }
 
-            self._cached_geo_assoc_method = self.params.geometric_local_assoication_method
-            self._cached_sem_assoc_method = self.params.semantic_local_association_method
+        if self.params.semantic_association_method is None:
+            return geometric_methods[self.params.geometric_local_assoication_method]
+        else:
+            return lambda segment, segment_or_observation: np.array([
+                geometric_methods[self.params.geometric_assoication_method](segment, segment_or_observation),
+                semantic_methods[self.params.semantic_association_method](segment, segment_or_observation)
+            ])
 
-            geometric_methods = {
-                'iou': self.iou_similarity,
-                'iom': self.iom_similarity,
-                'chamfer': self.chamfer_distance_similarity,
-            }
-            semantic_methods = {
-                'cosine_similarity': self.cosine_similarity,
-            }
-            combination_methods = {
-                'gm': lambda g, s: np.sqrt(g * s),
-                'am': lambda g, s: (g + s) / 2,
-                'prod': lambda g, s: g * s,
-                'max': lambda g, s: np.maximum(g, s),
-            }
-
-            if self.params.semantic_local_association_method is None:
-                self._cached_assoc_func = geometric_methods[self.params.geometric_local_assoication_method]
-            else:
-                self._cached_assoc_func = lambda segment, segment_or_observation: combination_methods[self.params.association_method_combination](
-                    geometric_methods[self.params.geometric_local_assoication_method](segment, segment_or_observation),
-                    semantic_methods[self.params.semantic_local_association_method](segment, segment_or_observation)
-                )
-            
-        return self._cached_assoc_func
+    @cached_property
+    def min_similarity(self):
+        """
+        Get the minimum similarity threshold for self.similarity_function required to associate two items
+        """
+        return self.params.min_geometric_score if self.params.semantic_association_method is None else \
+            np.array([self.params.min_geometric_score, self.params.min_semantic_score])
 
     def iou_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation]): 
         return self.voxel_grid_similarity(segment, segment_or_observation)
@@ -282,31 +274,7 @@ class Mapper():
                         .5 * (np.max(seg1.extent) + np.max(seg2.extent)):
                         continue 
 
-                    # merge_flag = False
-
-                    # if self.params.merge_method in ('chamfer', 'both'): # Chamfer distance-based merging
-                    #     chamfer_dist = ChamferDistance.chamfer_distance(seg1.pcd, seg2.pcd)
-
-                    #     merge_flag |= chamfer_dist < self.params.merge_objects_max_chamfer_dist
-
-                    # if self.params.merge_method in ('iou', 'both'): # IOU-based merging
-                    #     mask1 = seg1.reconstruct_mask(self.last_pose)
-                    #     mask2 = seg2.reconstruct_mask(self.last_pose)
-                    #     intersection2d = np.logical_and(mask1, mask2).sum()
-                        
-                    #     union2d = np.minimum(mask1.sum(), mask2.sum()) if self.params.iom_as_iou else np.logical_or(mask1, mask2).sum()
-                    #     iou2d = intersection2d / union2d if union2d > 0 else 0.0
-
-                    #     iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
-                    #         seg2.get_voxel_grid(self.params.iou_voxel_size),
-                    #         iom_as_iou=self.params.iom_as_iou
-                    #     )
-                        
-                    #     merge_flag |= iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d
-
-                    # print(f"chamfer: {ChamferDistance.chamfer_distance(seg1.pcd, seg2.pcd)}. iou3d: {iou3d}. iou2d: {iou2d}")
-
-                    if self.similarity_function(seg1, seg2) >= self.params.min_association_score:
+                    if np.any(self.similarity_function(seg1, seg2) >= self.min_similarity):
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if seg1.num_points == 0:
