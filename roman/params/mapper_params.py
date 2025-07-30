@@ -46,7 +46,7 @@ class MapperParams():
     geometric_assoication_method: str = 'iou'
     semantic_association_method: str = 'cosine_similarity'
     min_geometric_score: float = 0.25
-    min_semantic_score: float = 0.6
+    min_semantic_score: float = 0.95
 
     min_sightings: int = 2
     max_t_no_sightings: int = 0.4
