@@ -24,10 +24,16 @@ class MapperParams():
             ('chamfer', 'iou, 'iom') for chamfer distance, voxel IOU, or voxel Intersection-over-Minimum (IOM).
         semantic_association_method (str): semantic method for associating segments across frames.
             ('cosine_similarity', 'none') for cosine similarity or no semantic association.
-        min_geometric_score (float): minimum geometric association score (normalized to 0-1)
-            for frame-to-frame association or merging objects. 
-        min_semantic_score (float): minimum semantic association score (normalized to 0-1)
-            for frame-to-frame association or merging objects. Only used if semantic_association_method is not None.
+        geometric_score_range (Tuple[float]): threshold and maximum geometric association score.
+            The threshold is used for both frame-to-frame association and merging objects, while the maximum
+            is used to normalize the association score using the formula ((score - threshold) / (max - threshold)) 
+            to potentially combine with a normalized semantic score for frame-to-frame association. 
+            The max should be 1 for IOU/IOM. Note that chamfer distance is negated, since smaller distances 
+            are more similar, so the range should be negative, e.g. [-0.1, 0.0] for a threshold of 0.1m
+            and 'maximum' similarity at 0 distance. 
+        semantic_score_range (Tuple[float]): threshold and maximum semantic association score.
+            Used the same way as geometric_score_range. The max should be -1 for cosine similarity.
+            Only used if semantic_association_method is not None.
         min_sightings (int): minimum number of sightings to consider an object
         max_t_no_sightings (int): maximum time without a sighting before moving 
             an object to inactive
@@ -45,8 +51,8 @@ class MapperParams():
 
     geometric_assoication_method: str = 'iou'
     semantic_association_method: str = 'cosine_similarity'
-    min_geometric_score: float = 0.25
-    min_semantic_score: float = 0.95
+    geometric_score_range: Tuple[float] = (0.25, 1.0)
+    semantic_score_range: Tuple[float] = (0.9, 1.0)
 
     min_sightings: int = 2
     max_t_no_sightings: int = 0.4

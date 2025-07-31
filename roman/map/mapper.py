@@ -61,7 +61,7 @@ class Mapper():
         #                                        self.mask_similarity(seg, obs, projected=True))
         associated_pairs = global_nearest_neighbor(
             self.segments + self.segment_nursery, observations, 
-            self.similarity_function, self.min_similarity
+            self.similarity_function, self.similarity_range
         )
 
         # separate segments associated with nursery and normal segments
@@ -166,8 +166,15 @@ class Mapper():
         """
         Get the minimum similarity threshold for self.similarity_function required to associate two items
         """
-        return self.params.min_geometric_score if self.params.semantic_association_method is None else \
-            np.array([self.params.min_geometric_score, self.params.min_semantic_score])
+        return self.similarity_range[0, :]
+    
+    @cached_property
+    def similarity_range(self):
+        """
+        Get an (2, N) array of minimum, threshold, and maximum similarity scores for the similarity function
+        """
+        return np.array(self.params.geometric_score_range).reshape(2, 1) if self.params.semantic_association_method is None else \
+               np.array([self.params.geometric_score_range, self.params.semantic_score_range]).T 
 
     def iou_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation]): 
         return self.voxel_grid_similarity(segment, segment_or_observation)
@@ -186,21 +193,20 @@ class Mapper():
     
     def chamfer_distance_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation]):
         """
-        Compute the similarity between a segment and observation/other segment using their chamfer distance,
-        normalized to [0, 1].
+        Compute the similarity between a segment and observation/other segment using their chamfer distance.
         """
-        return ChamferDistance.norm_chamfer_distance(segment.pcd, segment_or_observation.pcd)
+        # larger distance is less similar
+        return -ChamferDistance.chamfer_distance(segment.pcd, segment_or_observation.pcd)
     
     def cosine_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation]):
         """
-        Compute the cosine similarity between the semantic descriptors of a segment and an observation/other segment,
-        normalized to [0, 1].
+        Compute the cosine similarity between the semantic descriptors of a segment and an observation/other segment.
         """
         if segment.semantic_descriptor is None or segment_or_observation.semantic_descriptor is None:
             return 0.0
-        return (np.dot(segment.semantic_descriptor, segment_or_observation.semantic_descriptor) / (
+        return np.dot(segment.semantic_descriptor, segment_or_observation.semantic_descriptor) / (
             np.linalg.norm(segment.semantic_descriptor) * np.linalg.norm(segment_or_observation.semantic_descriptor)
-        ) + 1) / 2.0 # TODO: see if clamping to [0, 1] instead improves performance
+        )
 
     def remove_bad_segments(self, segments: List[Segment], min_volume: float=0.0, min_max_extent: float=0.0, plane_prune_params: List[float]=[np.inf, np.inf, 0.0]):
         """
@@ -274,7 +280,7 @@ class Mapper():
                         .5 * (np.max(seg1.extent) + np.max(seg2.extent)):
                         continue 
 
-                    if np.any(self.similarity_function(seg1, seg2) >= self.min_similarity):
+                    if np.all(self.similarity_function(seg1, seg2) >= self.min_similarity):
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if seg1.num_points == 0:
