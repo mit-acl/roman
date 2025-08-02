@@ -20,7 +20,7 @@ class MapperParams():
     Params for ROMAN open-set segment mapper object.
     
     Args:
-        geometric_assoication_method (str): geometric method for associating segments across frames.
+        geometric_association_method (str): geometric method for associating segments across frames.
             ('chamfer', 'iou, 'iom') for chamfer distance, voxel IOU, or voxel Intersection-over-Minimum (IOM).
         semantic_association_method (str): semantic method for associating segments across frames.
             ('cosine_similarity', 'none') for cosine similarity or no semantic association.
@@ -42,14 +42,14 @@ class MapperParams():
         plane_prune_params (Tuple[float]): to get rid of planar objects (likely background)
         segment_graveyard_time (float): time after which an inactive segment is sent to the graveyard
         segment_graveyard_dist (float): distance traveled after which an inactive segment is sent to the graveyard
-        iou_voxel_size (float): voxel size for IOU calculation (used if geometric_assoication_method is 'iou' or 'iom')
+        iou_voxel_size (float): voxel size for IOU calculation (used if geometric_association_method is 'iou' or 'iom')
         segment_voxel_size (float): voxel size for segment representation (point-cloud downsampling)
 
     Returns:
         MapperParams: params object
     """
 
-    geometric_assoication_method: str = 'iou'
+    geometric_association_method: str = 'iou'
     semantic_association_method: str = 'cosine_similarity'
     geometric_score_range: Tuple[float] = (0.25, 1.0)
     semantic_score_range: Tuple[float] = (0.9, 1.0)

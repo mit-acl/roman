@@ -1,4 +1,4 @@
-geometric_assoication_method: 'iou'
+geometric_association_method: 'iou'
 semantic_association_method: 'cosine_similarity'
 geometric_score_range: [0.25, 1.0]
 semantic_score_range: [0.9, 1.0]

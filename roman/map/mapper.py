@@ -154,10 +154,10 @@ class Mapper():
         }
 
         if self.params.semantic_association_method is None:
-            return geometric_methods[self.params.geometric_local_assoication_method]
+            return geometric_methods[self.params.geometric_association_method]
         else:
             return lambda segment, segment_or_observation: np.array([
-                geometric_methods[self.params.geometric_assoication_method](segment, segment_or_observation),
+                geometric_methods[self.params.geometric_association_method](segment, segment_or_observation),
                 semantic_methods[self.params.semantic_association_method](segment, segment_or_observation)
             ])
 
