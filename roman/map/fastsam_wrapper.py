@@ -337,23 +337,6 @@ class FastSAMWrapper():
                     else:
                         depth_obj[mask==0] = 0
                     logger.debug(f"img_depth type {depth_data.dtype}, shape={depth_data.shape}")
-
-                    # Extract point cloud without truncation to heuristically check if enough of the object
-                    # is within the max depth
-                    pcd_test = o3d.geometry.PointCloud.create_from_depth_image(
-                        o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.dtype(depth_obj.dtype).type)),
-                        self.depth_cam_intrinsics,
-                        depth_scale=self.depth_scale,
-                        # depth_trunc=self.max_depth,
-                        stride=self.pcd_stride,
-                        project_valid_depth_only=True
-                    )
-                    ptcld_test = np.asarray(pcd_test.points)
-                    pre_truncate_len = len(ptcld_test)
-                    ptcld_test = ptcld_test[ptcld_test[:,2] < self.max_depth]
-                    # require some fraction of the points to be within the max depth
-                    if len(ptcld_test) < self.within_depth_frac*pre_truncate_len:
-                        continue
                     
                     pcd = o3d.geometry.PointCloud.create_from_depth_image(
                         o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.dtype(depth_obj.dtype).type)),

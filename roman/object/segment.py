@@ -178,7 +178,8 @@ class Segment(Object):
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(self.points)
             pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
-            pcd_pruned, _ = pcd_sampled.remove_statistical_outlier(10, 1.0)
+            pcd_pruned = pcd_sampled
+            # pcd_pruned, _ = pcd_sampled.remove_statistical_outlier(10, 1.0)
 
             if pcd_pruned.is_empty():
                 self.points = None
@@ -195,6 +196,19 @@ class Segment(Object):
             epsilon (float, optional): Max distance between two samples to be eligible to be in same cluster. Defaults to 0.25.
             min_points (int, optional): Number of points needed to form a cluster. Defaults to 10.
         """
+        if self.points is not None:
+            
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(self.points)
+            pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
+            pcd_pruned = pcd_sampled
+            pcd_pruned, _ = pcd_sampled.remove_statistical_outlier(10, 2.0)
+            
+            if pcd_pruned.is_empty():
+                self.points = None
+            else:
+                self.points = np.asarray(pcd_pruned.points) 
+            
         if self.points is not None:
             # Perform DBSCAN clustering
             labels = np.array(self.pcd.cluster_dbscan(eps=epsilon, min_points=min_points))
