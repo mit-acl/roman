@@ -27,7 +27,8 @@ class ROMANParams:
     volume: bool = False
     pca: bool = False
     extent: bool = False
-    semantics_dim = 0
+    semantics_dim: int = 0
+    gravity_unc_ang_rad: float = 0.0872665
 
     cos_min: float = 0.85
     cos_max: float = 1.0
@@ -72,6 +73,9 @@ class ROMANRegistration(ObjectRegistration):
 
         self.iparams.gravity_guided = params.gravity
         self.iparams.drift_aware = False
+        
+        if params.gravity:
+            self.iparams.gravity_unc_ang_rad = params.gravity_unc_ang_rad
         
         return
     
