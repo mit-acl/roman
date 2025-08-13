@@ -12,7 +12,7 @@
 
 from dataclasses import dataclass
 import yaml
-from typing import Tuple
+from typing import Tuple, Union
 
 @dataclass
 class MapperParams():
@@ -34,6 +34,7 @@ class MapperParams():
         semantic_score_range (Tuple[float]): threshold and maximum semantic association score.
             Used the same way as geometric_score_range. The max should be -1 for cosine similarity.
             Only used if semantic_association_method is not None.
+        min_2d_iou (float|None): minimum 2D IOU for merging objects. 2D IOU will not be used if set to None.
         min_sightings (int): minimum number of sightings to consider an object
         max_t_no_sightings (int): maximum time without a sighting before moving 
             an object to inactive
@@ -52,7 +53,8 @@ class MapperParams():
     geometric_association_method: str = 'iou'
     semantic_association_method: str = 'cosine_similarity'
     geometric_score_range: Tuple[float] = (0.25, 1.0)
-    semantic_score_range: Tuple[float] = (0.9, 1.0)
+    semantic_score_range: Tuple[float] = (0.8, 1.0)
+    min_2d_iou: Union[float, None] = 0.8
 
     min_sightings: int = 2
     max_t_no_sightings: int = 0.4

@@ -12,10 +12,7 @@
 
 import numpy as np
 from typing import List, Tuple, Union
-from dataclasses import dataclass
 from functools import cached_property
-import cv2 as cv
-import open3d as o3d
 
 from robotdatapy.data.img_data import CameraParams
 
@@ -203,7 +200,7 @@ class Mapper():
         Compute the cosine similarity between the semantic descriptors of a segment and an observation/other segment.
         """
         if segment.semantic_descriptor is None or segment_or_observation.semantic_descriptor is None:
-            return 0.0
+            return 1.0
         return np.dot(segment.semantic_descriptor, segment_or_observation.semantic_descriptor) / (
             np.linalg.norm(segment.semantic_descriptor) * np.linalg.norm(segment_or_observation.semantic_descriptor)
         )
@@ -280,7 +277,22 @@ class Mapper():
                         .5 * (np.max(seg1.extent) + np.max(seg2.extent)):
                         continue 
 
-                    if np.all(self.similarity_function(seg1, seg2) >= self.min_similarity):
+                    merge_flag = False
+
+                    # 2D IOU check
+                    if self.params.min_2d_iou is not None:
+                        mask1 = seg1.reconstruct_mask(self.last_pose)
+                        mask2 = seg2.reconstruct_mask(self.last_pose)
+                        intersection2d = np.logical_and(mask1, mask2).sum()
+                        union2d = np.logical_or(mask1, mask2).sum()
+                        iou2d = intersection2d / union2d if union2d > 0 else 0.0
+                        
+                        merge_flag |= (iou2d >= self.params.min_2d_iou)
+                        
+                    # Similarity check
+                    merge_flag |= (np.all(self.similarity_function(seg1, seg2) >= self.min_similarity))
+                        
+                    if merge_flag:
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)
                         if seg1.num_points == 0:

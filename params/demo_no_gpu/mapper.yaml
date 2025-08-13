@@ -1,7 +1,7 @@
 geometric_association_method: 'iou'
 semantic_association_method: 'none'
 geometric_score_range: [0.25, 1.0]
-semantic_score_range: [0.9, 1.0]
+semantic_score_range: [0.8, 1.0]
 min_sightings: 2
 max_t_no_sightings: 0.4
 mask_downsample_factor: 8

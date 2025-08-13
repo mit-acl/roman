@@ -92,7 +92,6 @@ class Segment(Object):
         self._convex_hull = None
         self._convex_hull_last_pose = np.nan
         
-        # TODO: check if this is correct
         self._add_semantic_descriptor(observation.semantic_descriptor)
         self._integrate_points_from_observation(observation)
 
