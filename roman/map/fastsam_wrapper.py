@@ -306,6 +306,8 @@ class FastSAMWrapper():
                 img_shape=img.shape, 
                 feature_dim=dino_shape
             )
+            dino_features = self.unapply_rotation(dino_features)
+
 
         
         for mask in masks:
@@ -425,15 +427,22 @@ class FastSAMWrapper():
         if self.rotate_img is None:
             result = img
         elif self.rotate_img == 'CW':
-            result = cv.rotate(img, cv.ROTATE_90_CLOCKWISE 
-                               if not unrotate else cv.ROTATE_90_COUNTERCLOCKWISE)
+            # result = cv.rotate(img, cv.ROTATE_90_CLOCKWISE 
+            #                    if not unrotate else cv.ROTATE_90_COUNTERCLOCKWISE)
+            k = 3 if not unrotate else 1
         elif self.rotate_img == 'CCW':
-            result = cv.rotate(img, cv.ROTATE_90_COUNTERCLOCKWISE 
-                               if not unrotate else cv.ROTATE_90_CLOCKWISE)
+            # result = cv.rotate(img, cv.ROTATE_90_COUNTERCLOCKWISE 
+            #                    if not unrotate else cv.ROTATE_90_CLOCKWISE)
+            k = 1 if not unrotate else 3
         elif self.rotate_img == '180':
-            result = cv.rotate(img, cv.ROTATE_180)
+            # result = cv.rotate(img, cv.ROTATE_180)
+            k = 2
         else:
             raise Exception("Invalid rotate_img option.")
+        if type(img) == np.ndarray:
+            result = np.rot90(img, k)
+        else:
+            result = torch.rot90(img, k)
         return result
         
     def unapply_rotation(self, img):

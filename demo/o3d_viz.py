@@ -15,7 +15,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument('pickle_file', type=str, help='Path to pickle file')
-    parser.add_argument('--no-text', action='store_true', help='Do not display text labels')
+    parser.add_argument('--show-text', action='store_true', help='Display text labels')
     parser.add_argument('--no-orig', action='store_true', help='Do not display origin')
     parser.add_argument('-t', '--time-range', type=float, nargs=2, help='Time range to display')
     args = parser.parse_args()
@@ -23,6 +23,6 @@ if __name__ == "__main__":
     visualize_3d(
         roman_map=ROMANMap.from_pickle(args.pickle_file),
         time_range=args.time_range,
-        show_labels=not args.no_text,
+        show_labels=args.show_text,
         show_origin=not args.no_orig,
     )
