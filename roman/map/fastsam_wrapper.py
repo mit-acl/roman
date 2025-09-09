@@ -396,7 +396,7 @@ class FastSAMWrapper():
     
     def apply_rotation(self, img, unrotate=False):
         if self.rotate_img is None:
-            result = img
+            return img
         elif self.rotate_img == 'CW':
             k = 3 if not unrotate else 1
         elif self.rotate_img == 'CCW':
