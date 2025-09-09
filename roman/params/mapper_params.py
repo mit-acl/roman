@@ -51,7 +51,7 @@ class MapperParams():
     """
 
     geometric_association_method: str = 'iou'
-    semantic_association_method: str = 'cosine_similarity'
+    semantic_association_method: str = 'none'
     geometric_score_range: Tuple[float] = (0.25, 1.0)
     semantic_score_range: Tuple[float] = (0.8, 1.0)
     min_2d_iou: Union[float, None] = 0.8
