@@ -121,7 +121,9 @@ class FastSAMWrapper():
             device=params.device,
             mask_downsample_factor=params.mask_downsample_factor,
             rotate_img=params.rotate_img,
-            use_pointcloud=params.use_pointcloud
+            use_pointcloud=params.use_pointcloud,
+            conf=params.conf,
+            iou=params.iou
         )
         fastsam.setup_rgbd_params(
             depth_cam_params=depth_cam_params, 

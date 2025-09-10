@@ -75,7 +75,9 @@ class FastSAMParams:
     depth_scale: float = 1e3
     max_depth: float = 7.5
     triangle_ignore_masks: List[Tuple[Tuple[int,int], Tuple[int,int], Tuple[int,int]]] = None
-    
+    conf: float = .5
+    iou: float = .9
+
     @classmethod
     def from_yaml(cls, yaml_path: str, run: str = None):
         with open(yaml_path) as f:

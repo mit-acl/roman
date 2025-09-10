@@ -466,6 +466,8 @@ class Segment(Object):
         return e[2] / e[0]
     
     def _add_semantic_descriptor(self, descriptor: np.ndarray, cnt: int = 1):
+        if descriptor is None:
+            return
         if self.semantic_descriptor is None:
             assert cnt == 1, "Multiple Initialization of Semantic Descriptor"
             self.semantic_descriptor = descriptor / norm(descriptor)
