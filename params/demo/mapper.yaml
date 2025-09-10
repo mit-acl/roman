@@ -1,7 +1,7 @@
 geometric_association_method: 'iom'
 semantic_association_method: 'cosine_similarity'
-geometric_score_range: [0.1, 1.0]
-semantic_score_range: [0.7, 1.0]
+geometric_score_range: [0.2, 1.0]
+semantic_score_range: [0.8, 1.0]
 min_sightings: 2
 max_t_no_sightings: 0.4
 mask_downsample_factor: 8
@@ -9,5 +9,5 @@ min_max_extent: 0.25
 plane_prune_params: [100.0, 100.0, 0.0]
 segment_graveyard_time: 15.0
 segment_graveyard_dist: 10.0
-iou_voxel_size: 0.4
+iou_voxel_size: 0.25
 segment_voxel_size: 0.05

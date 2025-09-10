@@ -5,8 +5,7 @@ device: 'cuda'
 mask_downsample_factor: 8
 min_mask_len_div: 30
 max_mask_len_div: 1
-ignore_people: False
-erosion_size: 3
+erosion_size: 5
 voxel_size: 0.05
 ignore_labels: ['person']
 use_keep_labels: False
@@ -15,4 +14,4 @@ plane_filter_params: [100.0, 100.0, 0.0]
 semantics: 'dino'
 yolo_imgsz: [256, 256]
 depth_scale: 1000.0
-max_depth: 7.5
+max_depth: 6.0
