@@ -73,6 +73,7 @@ class SubmapAlignParams:
     cosine_max: float = 0.7
     semantics_dim: int = 768
     gravity_unc_ang_rad: float = 0.0872665
+    pre_prune: bool = False                 # If true, prunes associations based on semantic and shape descriptors
     
     def __post_init__(self):
         if type(self.submap_descriptor) == str and self.submap_descriptor.lower() == 'none':
@@ -112,6 +113,7 @@ class SubmapAlignParams:
             roman_params.cos_max = self.cosine_max
             roman_params.epsilon_shape = self.epsilon_shape
             roman_params.gravity_unc_ang_rad=self.gravity_unc_ang_rad
+            roman_params.pre_prune = self.pre_prune
             
             if self.method in ['roman', 'sevg', 'semanticgrav']:
                 roman_params.semantics_dim = self.semantics_dim

@@ -59,15 +59,6 @@ class DistRegWithPruning(ObjectRegistration):
     def _object_to_clipper_list(self, object: Object):
         return object.center.reshape(-1)[:self.dim].tolist()
     
-    def _object_shape_attributes(self, object: Segment):
-        e = object.normalized_eigenvalues()
-        return np.array([object.volume, object.linearity, 
-                         object.planarity, object.scattering])
-        
-    def _combined_shape_attributes(self, object_map: List[Object], indices: np.ndarray):
-        shape_attrs = np.array([self._object_shape_attributes(obj) for obj in object_map]) # n x 4
-        return shape_attrs[indices, :]
-    
     def _score_pruned_assoc(self, clipper, map1, map2):
         A_all = clipperpy.utils.create_all_to_all(len(map1), len(map2))
 

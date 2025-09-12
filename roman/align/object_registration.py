@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import clipperpy
 
 from roman.object.object import Object
+from roman.object.segment import Segment
 
 class InsufficientAssociationsException(Exception):
     
@@ -158,3 +159,11 @@ class ObjectRegistration():
         
         ax.set_aspect('equal')
         return ax
+    
+    def _object_shape_attributes(self, object: Segment):
+        return np.array([object.volume, object.linearity, 
+                         object.planarity, object.scattering])
+        
+    def _combined_shape_attributes(self, object_map: List[Object], indices: np.ndarray):
+        shape_attrs = np.array([self._object_shape_attributes(obj) for obj in object_map]) # n x 4
+        return shape_attrs[indices, :]
