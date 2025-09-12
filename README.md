@@ -19,8 +19,8 @@ M.B. Peterson, Y.X. Jia, Y. Tian, A. Thomas, and J.P. How, "ROMAN: Open-Set Obje
 *Robotics: Science and Systems*, 2025.
 
 ```
-@inproceedings{{peterson2025roman,
-  title={ROMAN: Open-Set Object Map Alignment for Robust View-Invariant Global Localization},
+@inproceedings{peterson2025roman,
+  title={{ROMAN: Open-Set Object Map Alignment for Robust View-Invariant Global Localization}},
   author={Peterson, Mason B and Jia, Yi Xuan and Tian, Yulun and Thomas, Annika and How, Jonathan P},
   booktitle={Robotics: Science and Systems (RSS)},
   pdf={https://www.roboticsproceedings.org/rss21/p029.pdf},
