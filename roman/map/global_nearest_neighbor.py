@@ -1,15 +1,16 @@
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+from typing import Union
 
-def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, min_similarity: float = None, similarity_ranges: np.array = None):
+def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, similarity_range: np.ndarray = None):
     """
     Associates data1 with data2 using the global nearest neighbor algorithm.
 
     Args:
         data1 (list): List of first data items
         data2 (list): List of second data items
-        similarity_fun (callable(item1, item2)): Evaluates the similarity between two items
-        min_similarity (float|np.ndarray): Minimum similarity required to associate two items
+        similarity_fun (callable(item1, item2)->float|np.ndarray): Evaluates the similarity between two items
+        similarity_range (np.ndarray): (2, N) array of threshold and maximum similarity scores
 
     Returns:
         list of pairs (data1, data2) indicies that should be associated together
@@ -23,13 +24,15 @@ def global_nearest_neighbor(data1: list, data2: list, similarity_fun: callable, 
         for j in range(len2):
             similarity = similarity_fun(data1[i], data2[j])
             
-            # Geometry similarity value
-            if min_similarity is not None and np.all(similarity < min_similarity):
+            # both scores must be above threshold for association
+            if np.any(similarity < similarity_range[0, :]):
                 score = M
             else:
-                if similarity_ranges is not None:
-                    normalized_similarity = (similarity - similarity_ranges[:, 0]) / (similarity_ranges[:, 1] - similarity_ranges[:, 0])
-                score = -np.max(normalized_similarity) # Hungarian is trying to associate low similarity values, so negate
+                if isinstance(similarity, np.ndarray):
+                    sim_norm = (similarity - similarity_range[0, :]) / (similarity_range[1, :] - similarity_range[0, :])
+                    score = -np.power(np.prod(sim_norm), 1.0/len(similarity)) # geometric mean
+                else:
+                    score = -similarity # Hungarian is trying to associate low similarity values, so negate
             scores[i,j] = score
 
     # augment cost to add option for no associations

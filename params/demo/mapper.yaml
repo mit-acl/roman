@@ -1,8 +1,9 @@
-min_iou: 0.25
+geometric_association_method: 'iou'
+semantic_association_method: 'none'
+geometric_score_range: [0.25, 1.0]
+semantic_score_range: [0.8, 1.0]
 min_sightings: 2
 max_t_no_sightings: 0.4
-merge_objects_iou_3d: 0.25
-merge_objects_iou_2d: 0.8
 mask_downsample_factor: 8
 min_max_extent: 0.25
 plane_prune_params: [3.0, 3.0, 0.5]

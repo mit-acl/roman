@@ -59,7 +59,6 @@ class SegmentMinimalData(Object):
 
 class Segment(Object):
 
-    # TODO: separate from observation and from points class
     def __init__(self, observation: Observation, camera_params: CameraParams, 
                  id: int = 0, voxel_size: float = 0.05):
         # initialize parent class
@@ -93,6 +92,7 @@ class Segment(Object):
         self._convex_hull = None
         self._convex_hull_last_pose = np.nan
         
+        self._add_semantic_descriptor(observation.semantic_descriptor)
         self._integrate_points_from_observation(observation)
 
     def update(self, observation: Observation, integrate_points=True):
@@ -107,8 +107,8 @@ class Segment(Object):
         # Integrate point measurements
         if integrate_points:
             self._integrate_points_from_observation(observation)
-            if observation.clip_embedding is not None:
-                self._add_semantic_descriptor(observation.clip_embedding)
+            if observation.semantic_descriptor is not None:
+                self._add_semantic_descriptor(observation.semantic_descriptor)
 
         self.num_sightings += 1
         self.observations.append(observation.copy(include_mask=False))
