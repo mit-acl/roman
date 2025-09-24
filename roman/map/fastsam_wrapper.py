@@ -38,35 +38,6 @@ from roman.viz import viz_pointcloud_on_img
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARN)
 
-'''
-Helper function from Annika
-'''
-# my function to calculate a boounding box around a mask
-def mask_bounding_box(mask):
-    # Find the indices of the True values
-    true_indices = np.argwhere(mask)
-
-    if len(true_indices) == 0:
-        # No True values found, return None or an appropriate response
-        return None
-
-    # Calculate the mean of the indices
-    mean_coords = np.mean(true_indices, axis=0)
-
-    # Calculate the width and height based on the min and max indices in each dimension
-    min_row, min_col = np.min(true_indices, axis=0)
-    max_row, max_col = np.max(true_indices, axis=0)
-    width = max_col - min_col + 1
-    height = max_row - min_row + 1
-
-    # Define a bounding box around the mean coordinates with the calculated width and height
-    min_row = int(max(mean_coords[0] - height // 2, 0))
-    max_row = int(min(mean_coords[0] + height // 2, mask.shape[0] - 1))
-    min_col = int(max(mean_coords[1] - width // 2, 0))
-    max_col = int(min(mean_coords[1] + width // 2, mask.shape[1] - 1))
-
-    return (min_col, min_row, max_col, max_row,)
-
 class FastSAMWrapper():
 
     def __init__(self, 
@@ -308,6 +279,8 @@ class FastSAMWrapper():
                 img_shape=img.shape, 
                 feature_dim=dino_shape
             )
+            dino_features = self.unapply_rotation(dino_features)
+
 
         
         for mask in masks:
@@ -397,7 +370,7 @@ class FastSAMWrapper():
 
             if self.semantics == 'clip':
                 ### Use bounding box
-                bbox = mask_bounding_box(mask.astype('uint8'))
+                bbox = self.mask_bounding_box(mask.astype('uint8'))
                 if bbox is None:
                     assert False, "Bounding box is None."
                     self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
@@ -424,17 +397,19 @@ class FastSAMWrapper():
     
     def apply_rotation(self, img, unrotate=False):
         if self.rotate_img is None:
-            result = img
+            return img
         elif self.rotate_img == 'CW':
-            result = cv.rotate(img, cv.ROTATE_90_CLOCKWISE 
-                               if not unrotate else cv.ROTATE_90_COUNTERCLOCKWISE)
+            k = 3 if not unrotate else 1
         elif self.rotate_img == 'CCW':
-            result = cv.rotate(img, cv.ROTATE_90_COUNTERCLOCKWISE 
-                               if not unrotate else cv.ROTATE_90_CLOCKWISE)
+            k = 1 if not unrotate else 3
         elif self.rotate_img == '180':
-            result = cv.rotate(img, cv.ROTATE_180)
+            k = 2
         else:
             raise Exception("Invalid rotate_img option.")
+        if type(img) == np.ndarray:
+            result = np.rot90(img, k)
+        else:
+            result = torch.rot90(img, k)
         return result
         
     def unapply_rotation(self, img):
@@ -576,6 +551,31 @@ class FastSAMWrapper():
             return []
 
         return segmask
+    
+    def mask_bounding_box(self, mask):
+        # Find the indices of the True values
+        true_indices = np.argwhere(mask)
+
+        if len(true_indices) == 0:
+            # No True values found, return None or an appropriate response
+            return None
+
+        # Calculate the mean of the indices
+        mean_coords = np.mean(true_indices, axis=0)
+
+        # Calculate the width and height based on the min and max indices in each dimension
+        min_row, min_col = np.min(true_indices, axis=0)
+        max_row, max_col = np.max(true_indices, axis=0)
+        width = max_col - min_col + 1
+        height = max_row - min_row + 1
+
+        # Define a bounding box around the mean coordinates with the calculated width and height
+        min_row = int(max(mean_coords[0] - height // 2, 0))
+        max_row = int(min(mean_coords[0] + height // 2, mask.shape[0] - 1))
+        min_col = int(max(mean_coords[1] - width // 2, 0))
+        max_col = int(min(mean_coords[1] + width // 2, mask.shape[1] - 1))
+
+        return (min_col, min_row, max_col, max_row,)
 
     def get_per_pixel_features(self, model_output: ArrayLike, img_shape: ArrayLike, 
             feature_dim: int) -> ArrayLike:
