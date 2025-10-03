@@ -6,4 +6,4 @@ VOLUMES="-v $ROMAN_DEMO_DATA:/roman_demo_data"
 VARS="-e ROMAN_DEMO_DATA=/roman_demo_data -e ROMAN_WEIGHTS=/roman/weights"
 
 docker run -it --rm --net=host \
-    $VOLUMES $VARS roman
+    $VOLUMES $VARS --gpus all roman
