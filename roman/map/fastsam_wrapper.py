@@ -271,8 +271,8 @@ class FastSAMWrapper():
         if self.semantics == 'dino':
             # Process the image for DINO
             dino_shape = 768
-            img_bgr = cv.cvtColor(img, cv.COLOR_BGR2RGB)
-            preprocessed = self.semantics_preprocess(images=img_bgr, return_tensors="pt").to(self.device)
+            img_rgb = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+            preprocessed = self.semantics_preprocess(images=img_rgb, return_tensors="pt").to(self.device)
             dino_output = self.semantics_model(**preprocessed)
             dino_features = self.get_per_pixel_features(
                 model_output=dino_output.last_hidden_state, 
