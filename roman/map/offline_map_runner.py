@@ -29,9 +29,9 @@ from roman.params.data_params import DataParams
 from roman.params.mapper_params import MapperParams
 from roman.params.fastsam_params import FastSAMParams
 from roman.utils import expandvars_recursive
+from roman.map.merge_maps import merge_maps
 
 from robotdatapy.data import ImgData
-from merge_demo_output import merge_demo_output
 
 @dataclass
 class VisualizationParams:
@@ -204,9 +204,9 @@ def mapping(
             
             mapping_iter += 1
 
+        merge_maps(demo_output_files, f"{output_path}.pkl")
         # merge files
         demo_output_files = [f"{output_path}_{mi}.pkl" for mi in range(mapping_iter)]
-        merge_demo_output(demo_output_files, f"{output_path}.pkl")
     
     else:
         if verbose: print(f"\n---\nRunning mapping\n---\n")

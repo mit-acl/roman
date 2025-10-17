@@ -5,7 +5,7 @@ import argparse
 
 from roman.map.map import load_roman_map, ROMANMap
 
-def merge_demo_output(input_files, output_file):
+def merge_maps(input_files, output_file):
     
     roman_maps = []
     for input_file in input_files:
@@ -24,4 +24,4 @@ if __name__ == '__main__':
     parser.add_argument('--output', '-o', type=str, help='Output file')
     args = parser.parse_args()
     
-    merge_demo_output(args.input, args.output)
+    merge_maps(args.input, args.output)

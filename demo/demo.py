@@ -30,8 +30,7 @@ from roman.offline_rpgo.evaluate import evaluate
 from roman.offline_rpgo.edit_g2o_edge_information import edit_g2o_edge_information
 from roman.params.offline_rpgo_params import OfflineRPGOParams
 from roman.params.data_params import DataParams
-
-import mapping
+from roman.map.offline_map_runner import mapping
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
