@@ -204,9 +204,9 @@ def mapping(
             
             mapping_iter += 1
 
-        merge_maps(demo_output_files, f"{output_path}.pkl")
         # merge files
         demo_output_files = [f"{output_path}_{mi}.pkl" for mi in range(mapping_iter)]
+        merge_maps(demo_output_files, f"{output_path}.pkl")
     
     else:
         if verbose: print(f"\n---\nRunning mapping\n---\n")
