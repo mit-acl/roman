@@ -125,7 +125,7 @@ class Mapper():
         new_observations = [obs for idx, obs in enumerate(observations) \
                             if idx not in associated_obs]
         for obs in new_observations:
-            new_seg = Segment(obs, self.camera_params, self.id_counter, self.params.segment_voxel_size)
+            new_seg = Segment(obs, self.camera_params, self.id_counter, self.params.get_segment_params())
             if new_seg.num_points == 0: # guard from observations coming in with no points
                 continue
             self.segment_nursery.append(new_seg)

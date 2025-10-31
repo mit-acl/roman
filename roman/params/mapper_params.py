@@ -10,6 +10,7 @@
 #
 ###########################################################
 
+import numpy as np
 from dataclasses import dataclass
 import yaml
 from typing import Tuple, Union
@@ -45,6 +46,10 @@ class MapperParams():
         segment_graveyard_dist (float): distance traveled after which an inactive segment is sent to the graveyard
         iou_voxel_size (float): voxel size for IOU calculation (used if geometric_association_method is 'iou' or 'iom')
         segment_voxel_size (float): voxel size for segment representation (point-cloud downsampling)
+        segment_outlier_removal_std (float): standard deviation for statistical outlier removal of 
+            segment point clouds. If points are further than this many standard deviations from the mean
+            distance to neighbors, they are considered outliers and removed. If <= 0 or inf, no outlier 
+            removal is performed.
 
     Returns:
         MapperParams: params object
@@ -66,6 +71,7 @@ class MapperParams():
     segment_graveyard_dist: float = 10.0
     iou_voxel_size: float = 0.2
     segment_voxel_size: float = 0.05
+    segment_outlier_removal_std: float = 1.0
     
     def __post_init__(self):
         if self.semantic_association_method.lower() == 'none':
@@ -78,3 +84,20 @@ class MapperParams():
         if run is not None and run in data:
             data = data[run]
         return cls(**data)
+
+    def get_segment_params(self) -> 'SegmentParams':
+        return SegmentParams(
+            voxel_size=self.segment_voxel_size,
+            outlier_removal_std=self.segment_outlier_removal_std
+        )
+    
+@dataclass
+class SegmentParams():
+
+    voxel_size: float = 0.05
+    outlier_removal_std: float = 1.0
+
+    def __post_init__(self):
+        if self.outlier_removal_std <= 0 or \
+                np.isinf(self.outlier_removal_std):
+            self.outlier_removal_std = None
