@@ -59,6 +59,10 @@ if __name__ == '__main__':
     parser.add_argument('--skip-align', action='store_true', help='Skip alignment')
     parser.add_argument('--skip-rpgo', action='store_true', help='Skip robust pose graph optimization')
     parser.add_argument('--skip-indices', type=int, nargs='+', help='Skip specific runs in mapping and alignment')
+    parser.add_argument('--skip-self-lc', action='store_true', help='Skip self loop closures in submap_align')
+    parser.add_argument('--skip-distance', type=float, help='Skip trying to align submaps that ' +
+                        'are farther away than this threshold (meters). By default, all alignment ' +
+                        'is attempted for all submaps.', default=np.inf)
 
     args = parser.parse_args()
 
@@ -135,6 +139,8 @@ if __name__ == '__main__':
             if args.skip_indices and i in args.skip_indices:
                 continue
             for j in range(i, len(data_params.runs)):
+                if args.skip_self_lc and i == j:
+                    continue
                 if args.skip_indices and j in args.skip_indices:
                     continue
                 output_dir = os.path.join(args.output_dir, "align", f"{data_params.runs[i]}_{data_params.runs[j]}")
@@ -149,6 +155,7 @@ if __name__ == '__main__':
                     input_gt_pose_yaml=[gt_files[i], gt_files[j]],
                     robot_names=[data_params.runs[i], data_params.runs[j]],
                     robot_env=data_params.run_env,
+                    skip_distance=args.skip_distance
                 )
                 submap_align_params.single_robot_lc = (i == j)
                 submap_align(sm_params=submap_align_params, sm_io=sm_io)

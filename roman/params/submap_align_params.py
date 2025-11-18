@@ -165,6 +165,7 @@ class SubmapAlignInputOutput:
     g2o_t_std: float = 0.5
     g2o_r_std: float = np.deg2rad(0.5)
     debug_show_maps: bool = False
+    skip_distance: float = np.inf
     
     @property
     def output_img(self):

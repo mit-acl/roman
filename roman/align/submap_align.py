@@ -126,6 +126,13 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
             if not np.isnan(robots_nearby_mat[i, j]):
                 relative_yaw_angle = transform_to_xyzrpy(T_ij)[5]
                 submap_yaw_diff_mat[i, j] = np.abs(np.rad2deg(relative_yaw_angle))
+            if submap_distance > sm_io.skip_distance:
+                clipper_num_associations[i, j] = 0
+                clipper_percent_associations[i, j] = 0.0
+                T_ij_mat[i, j] = T_ij
+                T_ij_hat_mat[i, j] = np.zeros((4, 4))*np.nan
+                associated_objs_mat[i][j] = []
+                continue
                 
             if sm_params.submap_descriptor is not None:
                 submap_sim = np.sum(submap_i.descriptor * submap_j.descriptor) / \
