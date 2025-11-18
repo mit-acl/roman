@@ -37,11 +37,21 @@ def find_transformation(bag_path, param_dict) -> np.array:
             raise ValueError("Invalid string.")
     elif param_dict['input_type'] == 'tf':
         bag_path = expandvars_recursive(bag_path)
-        T = PoseData.any_static_tf_from_bag(
-            expandvars_recursive(bag_path), 
-            expandvars_recursive(param_dict['parent']), 
-            expandvars_recursive(param_dict['child'])
-        )
+        # by default looks for a static tf, but if the user wants to reference a tf that is
+        # theoretically static, but is published under /tf, then 'try_non_static_tf' can be set.
+        if param_dict.get('try_non_static_tf', False):
+            tf_data = PoseData.from_bag_tf(
+                expandvars_recursive(bag_path),
+                expandvars_recursive(param_dict['parent']),
+                expandvars_recursive(param_dict['child'])
+            )
+            T = tf_data.pose(tf_data.t0)
+        else:
+            T = PoseData.any_static_tf_from_bag(
+                expandvars_recursive(bag_path),
+                expandvars_recursive(param_dict['parent']),
+                expandvars_recursive(param_dict['child'])
+            )
         if 'inv' in param_dict.keys() and param_dict['inv']:
             T = np.linalg.inv(T)
         return T
