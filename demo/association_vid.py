@@ -71,6 +71,9 @@ if __name__ == '__main__':
                         help='Manual time adjustment for the two submaps. Use this if the time ranges of the submap videos does not work well.')
     parser.add_argument('--max-associations', '-m', action='store_true',
                         help='If set, will choose the pair of submaps with the maximum number of associations.')
+    parser.add_argument('--original-pose-data', action='store_true',
+                        help='If set, will use the original pose data from the data params. ' + 
+                        'Otherwise, the sparser trajectory from the ROMAN map will be used for speed.')
 
     args = parser.parse_args()
     results_dir = get_path(args.results_dir)
@@ -156,12 +159,14 @@ if __name__ == '__main__':
     for i in range(2):
         os.environ[data_params[i].run_env] = args.runs[i]
         # for now, use the sparser trajectory from roman map for faster load time
-        # pose_data.append(data_params[i].load_pose_data())
-        # pose_data[-1].time_tol = 20.0
-        new_pose_data = rdp.data.PoseData.from_times_and_poses(roman_maps[i].times, roman_maps[i].trajectory)
-        new_pose_data.time_tol = 20.0
-        new_pose_data.T_postmultiply = np.linalg.inv(data_params[i].pose_data_params.T_camera_flu)
-        pose_data.append(new_pose_data)
+        if args.original_pose_data:
+            pose_data.append(data_params[i].load_pose_data())
+            pose_data[-1].time_tol = 20.0
+        else:
+            new_pose_data = rdp.data.PoseData.from_times_and_poses(roman_maps[i].times, roman_maps[i].trajectory)
+            new_pose_data.time_tol = 20.0
+            new_pose_data.T_postmultiply = np.linalg.inv(data_params[i].pose_data_params.T_camera_flu)
+            pose_data.append(new_pose_data)
 
     print(f"Loading image data...")
     img_data = []
