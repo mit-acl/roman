@@ -10,7 +10,7 @@ from copy import deepcopy
 import open3d as o3d
 import tqdm
 
-from roman.map.map import Submap, SubmapParams, submaps_from_roman_map, load_roman_map
+from roman.map.map import ROMANMap
 from roman.align.results import SubmapAlignResults, plot_align_results, submaps_from_align_results
 from roman.params.data_params import DataParams
 from roman.viz import visualize_segment_on_img
@@ -18,6 +18,7 @@ from roman.align.align_viz import create_association_geometries, create_ptcld_ge
 
 from robotdatapy import transform
 from robotdatapy.exceptions import NoDataNearTimeException
+import robotdatapy as rdp
 
 @dataclass
 class VideoParams:
@@ -70,6 +71,9 @@ if __name__ == '__main__':
                         help='Manual time adjustment for the two submaps. Use this if the time ranges of the submap videos does not work well.')
     parser.add_argument('--max-associations', '-m', action='store_true',
                         help='If set, will choose the pair of submaps with the maximum number of associations.')
+    parser.add_argument('--original-pose-data', action='store_true',
+                        help='If set, will use the original pose data from the data params. ' + 
+                        'Otherwise, the sparser trajectory from the ROMAN map will be used for speed.')
 
     args = parser.parse_args()
     results_dir = get_path(args.results_dir)
@@ -90,6 +94,8 @@ if __name__ == '__main__':
     pkl_file.close()
 
     submaps = submaps_from_align_results(results)
+    roman_map_paths = results.submap_io.inputs
+    roman_maps = [ROMANMap.from_pickle(roman_map_paths[i]) for i in range(2)]
     
     print(f'Loaded {len(submaps[0])} and {len(submaps[1])} submaps.')
 
@@ -152,8 +158,15 @@ if __name__ == '__main__':
     pose_data = []
     for i in range(2):
         os.environ[data_params[i].run_env] = args.runs[i]
-        pose_data.append(data_params[i].load_pose_data())
-        pose_data[-1].time_tol = 20.0
+        # for now, use the sparser trajectory from roman map for faster load time
+        if args.original_pose_data:
+            pose_data.append(data_params[i].load_pose_data())
+            pose_data[-1].time_tol = 20.0
+        else:
+            new_pose_data = rdp.data.PoseData.from_times_and_poses(roman_maps[i].times, roman_maps[i].trajectory)
+            new_pose_data.time_tol = 20.0
+            new_pose_data.T_postmultiply = np.linalg.inv(data_params[i].pose_data_params.T_camera_flu)
+            pose_data.append(new_pose_data)
 
     print(f"Loading image data...")
     img_data = []
@@ -166,6 +179,8 @@ if __name__ == '__main__':
     img_h = img_data[0].camera_params.height
     o3d_h = img_data[0].camera_params.height * 2
     o3d_w = int(o3d_h * vid_params.img_ratio - img_w)
+    # Assumes both cameras have the same width/height aspect ratio
+    img1_scale = img_w / img_data[1].camera_params.width
     if vid_params.camera_only:
         vid_w = img_w * 2
         vid_h = img_h
@@ -233,6 +248,8 @@ if __name__ == '__main__':
             # rotate image if specified
             if vid_params.img_rotations[i] is not None:
                 img_i = cv.rotate(img_i, vid_params.img_rotations[i])
+            if i == 1 and not np.isclose(img1_scale, 1.0):
+                img_i = cv.resize(img_i, dsize=(img_w, img_h))
             if not vid_params.camera_only:
                 viz_img[img_h*i:img_h*(i+1), o3d_w:] = img_i
             else:
@@ -254,6 +271,8 @@ if __name__ == '__main__':
                         continue
                     if vid_params.img_rotations[i] is not None:
                         new_outline = rotate_pixel_coords(new_outline, img_w, img_h, vid_params.img_rotations[i])
+                    if i == 1:
+                        new_outline *= img1_scale
                     seg_pixels.append(new_outline + pixel_offset)
                 if not success:
                     continue
