@@ -143,6 +143,7 @@ class FastSAMWrapper():
             allow_tblr_edges=[True, True, True, True],
             area_bounds=[img_area / (params.min_mask_len_div**2), img_area / (params.max_mask_len_div**2)],
             semantics=params.semantics,
+            frame_descriptor=params.frame_descriptor,
             triangle_ignore_masks=params.triangle_ignore_masks
         )
 
@@ -159,6 +160,7 @@ class FastSAMWrapper():
         allow_tblr_edges = [True, True, True, True],
         keep_mask_minimal_intersection=0.3,
         semantics: str = None,
+        frame_descriptor: str = None,
         triangle_ignore_masks=None
     ):
         """
@@ -203,6 +205,9 @@ class FastSAMWrapper():
         else:
             raise ValueError(f"Invalid semantics option: {semantics}. Choose from 'clip', 'dino', or 'none'.")
         self.semantic_patches_shape = None
+        self.frame_descriptor_type = frame_descriptor
+        if frame_descriptor is not None:
+            assert self.semantics.lower() == 'dino', "Frame descriptor only supported with DINO semantics."
         
         if triangle_ignore_masks is not None:
             self.constant_ignore_mask = np.zeros((self.depth_cam_params.height, self.depth_cam_params.width), dtype=np.uint8)
@@ -262,16 +267,16 @@ class FastSAMWrapper():
             self.erosion_element = None
         self.plane_filter_params = plane_filter_params
 
-    def run(self, t, pose, img, depth_data=None, plot=False):
+    def run(self, t, pose, img, depth_data=None):
         """
         Takes and image and returns filtered FastSAM masks as Observations.
 
         Args:
             img (cv image): camera image
-            plot (bool, optional): Returns plots if true. Defaults to False.
 
         Returns:
             self.observations (list): list of Observations
+            frame_descriptor (np.ndarray): semantic descriptor of the frame if frame_descriptor is not None, else None
         """
         self.observations = []
         
@@ -294,19 +299,26 @@ class FastSAMWrapper():
         
         # run fastsam
         masks = self._process_img(img, ignore_mask=ignore_mask, keep_mask=keep_mask)
-        
+                
         if self.semantics == 'dino':
             # Process the image for DINO
             dino_shape = 768
             img_bgr = cv.cvtColor(img, cv.COLOR_BGR2RGB)
             preprocessed = self.semantics_preprocess(images=img_bgr, return_tensors="pt").to(self.device)
             dino_output = self.semantics_model(**preprocessed)
-            dino_features = self.get_per_pixel_features(
+            dino_output_patches = self.get_output_patches(
                 model_output=dino_output.last_hidden_state, 
                 img_shape=img.shape, 
                 feature_dim=dino_shape
             )
-
+            dino_features = self.get_per_pixel_features(
+                model_output_patches=dino_output_patches,
+                img_shape=img.shape
+            )
+            
+        frame_descriptor = None
+        if self.frame_descriptor_type is not None:
+            frame_descriptor = self.get_frame_descriptor(dino_output_patches)
         
         for mask in masks:
             
@@ -406,7 +418,7 @@ class FastSAMWrapper():
                     processed_img = self.semantics_preprocess(Image.fromarray(img_bbox, mode='RGB')).to(self.device)
                     clip_embedding = self.semantics_model.encode_image(processed_img.unsqueeze(dim=0))
                     clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
-                    self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=clip_embedding))
+                    self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, semantic_descriptor=clip_embedding))
             elif self.semantics == 'dino':
                 assert mask.shape[0] == dino_features.shape[0] and mask.shape[1] == dino_features.shape[1], \
                     "Mask and DINO features must have the same shape."
@@ -414,12 +426,12 @@ class FastSAMWrapper():
                 dino_mask = dino_mask.cpu().detach().numpy()
                 mean_dino = np.mean(dino_mask, axis=0) # dino_shape
                 mean_dino = mean_dino / np.linalg.norm(mean_dino) # normalize
-                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, clip_embedding=mean_dino))
+                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, semantic_descriptor=mean_dino))
                 
             else:
                 self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
                 
-        return self.observations
+        return self.observations, frame_descriptor
     
     def apply_rotation(self, img, unrotate=False):
         if self.rotate_img is None:
@@ -575,11 +587,10 @@ class FastSAMWrapper():
             return []
 
         return segmask
-
-    def get_per_pixel_features(self, model_output: ArrayLike, img_shape: ArrayLike, 
-            feature_dim: int) -> ArrayLike:
+    
+    def get_output_patches(self, model_output: ArrayLike, img_shape: ArrayLike, feature_dim: int) -> ArrayLike:
         """
-        Extract (Dino) per-pixel features
+        Extract (Dino) output patches
 
         Args:
             model_output (ArrayLike): Last hidden state of (Dino) model
@@ -600,6 +611,19 @@ class FastSAMWrapper():
             
         model_output_patches = model_output_flat_patches.reshape(self.semantic_patches_shape)
 
+        return model_output_patches # 1 x h x w x feature_dim
+
+    def get_per_pixel_features(self, model_output_patches: ArrayLike, img_shape: ArrayLike) -> ArrayLike:
+        """
+        Extract (Dino) per-pixel features
+
+        Args:
+            model_output_patches (ArrayLike): Reshaped (Dino) output patches
+            img_shape (ArrayLike): Original image shape
+
+        Returns:
+            ArrayLike: Reshaped (Dino) output
+        """
         # interpolate the feature map to match the size of the original image
         per_pixel_features = torch.nn.functional.interpolate(
             model_output_patches.permute(0, 3, 1, 2), # permute to be batch, channels, height, width
@@ -612,3 +636,21 @@ class FastSAMWrapper():
 
         return per_pixel_features # h x w x feature_dim
         
+    def get_frame_descriptor(self, dino_features: torch.Tensor) -> np.ndarray:   
+        with torch.no_grad(): # prevent memory leak
+            dino_features_flat = dino_features.view(-1, dino_features.shape[-1])
+            if self.frame_descriptor_type == 'dino-gap':
+                frame_descriptor = torch.sum(dino_features_flat, dim=0)
+            elif self.frame_descriptor_type == 'dino-gmp':
+                frame_descriptor = torch.max(dino_features_flat, dim=0).values
+            elif self.frame_descriptor_type == 'dino-gem':
+                cubed_descriptor = torch.mean(dino_features_flat ** 3, dim=0)
+                frame_descriptor = torch.sign(cubed_descriptor) * \
+                                   (torch.abs(cubed_descriptor).clamp(min=1e-12) ** (1.0 / 3)) # avoid NaN from negative or zero root
+            else:
+                raise ValueError(f"frame descriptor must be one of 'dino-gap', 'dino-gmp', or 'dino-gem'.")
+                
+            frame_descriptor /= torch.norm(frame_descriptor)
+                                            
+        return frame_descriptor.cpu().detach().numpy()
+            

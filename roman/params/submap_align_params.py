@@ -35,23 +35,23 @@ class SubmapAlignParams:
     use_avg_time_as_segment_ref_time: bool = True  # If true, use (first_seen + last_seen) / 2 for each segment reference time 
                                                    # (only applicable if force_fill_submaps == True or submap_pruning_method == 'time')
 
-    force_fill_submaps: bool = False        # If true, force all submaps to be filled with segments
+    force_fill_submaps: bool = False         # If true, force all submaps to be filled with segments
     submap_max_size: int = 40               # Maximum number of segments in a submap (to save computation)
 
     # the following is applicable only if force_fill_submaps is true
     submap_overlap: int = int(0.5 * submap_max_size)  # Number of overlapping segments between submaps
 
     # the following are applicable only if force_fill_submaps is false -----------
-    submap_radius: float = 15.0             # Radius of submap in meters. If set to None, segments 
+    submap_radius: float = 15.0              # Radius of submap in meters. If set to None, segments 
                                             #    are never excluded from submaps based on distance 
                                             #    (though they may still be pruned)
-    submap_center_dist: float = 10.0        # Distance between submap centers in meters
-    submap_center_time: float = 50.0        # time threshold between segments and submap center times
+    submap_center_dist: float = 10.0         # Distance between submap centers in meters
+    submap_center_time: float = 50.0         # time threshold between segments and submap center times
     submap_pruning_method: str = 'distance' # Metric for pruning segments in a submap: 
                                             #    ('time', 'distance') -> max gets pruned
     # ----------------------------------------------------------------------------
-    submap_descriptor: str = None           # Type of submap descriptor. Either 'none' or 'mean_semantic'.
-    submap_descriptor_thresh: float = 0.8   # ROMAN object matching will only be run if submap 
+    submap_descriptor: str = None           # Type of submap descriptor. Either 'none', 'mean_semantic', or 'mean_frame_descriptor'.
+    submap_descriptor_thresh: float = 0.8    # ROMAN object matching will only be run if submap 
                                             #    descriptor cosine similarity is above this threshold.
 
 

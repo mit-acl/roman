@@ -107,8 +107,8 @@ class Segment(Object):
         # Integrate point measurements
         if integrate_points:
             self._integrate_points_from_observation(observation)
-            if observation.clip_embedding is not None:
-                self._add_semantic_descriptor(observation.clip_embedding)
+            if observation.semantic_descriptor is not None:
+                self._add_semantic_descriptor(observation.semantic_descriptor)
 
         self.num_sightings += 1
         self.observations.append(observation.copy(include_mask=False))

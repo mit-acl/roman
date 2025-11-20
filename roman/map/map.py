@@ -22,6 +22,7 @@ class ROMANMap:
     segments: List[Segment]
     trajectory: List[np.ndarray]
     times: np.ndarray
+    descriptors: List[np.ndarray] = None
     poses_are_flu: bool = True
 
     def __post_init__(self):
@@ -36,6 +37,7 @@ class ROMANMap:
             segments=[seg.minimal_data() for seg in self.segments],
             trajectory=self.trajectory,
             times=self.times,
+            descriptors=self.descriptors,
             poses_are_flu=self.poses_are_flu
         )
         
@@ -53,19 +55,9 @@ class ROMANMap:
     def from_pickle(cls, pickle_file: str):
         # extract pickled data
         with open(os.path.expanduser(pickle_file), 'rb') as f:
-            pickle_data = pickle.load(f)
-            
-            if type(pickle_data) == cls:
-                roman_map = pickle_data
-            else:
-                assert len(pickle_data) == 3
-                mapper, poses, times = pickle_data
-                roman_map = cls(
-                    segments=mapper.get_segment_map(),
-                    trajectory=poses,
-                    times=times
-                )
-        return roman_map
+            roman_map = pickle.load(f)
+            assert(type(roman_map) == cls)     
+            return roman_map
         
     @classmethod
     def concatenate(cls, roman_maps: list):
@@ -82,6 +74,8 @@ class ROMANMap:
                 segments=reference.segments + other.segments,
                 trajectory=reference.trajectory + other.trajectory,
                 times=reference.times + other.times,
+                descriptors = reference.descriptors + other.descriptors if \
+                              reference.descriptors is not None and other.descriptors is not None else None,
                 poses_are_flu=reference.poses_are_flu
             )
         
@@ -123,11 +117,19 @@ class Submap:
         return self.pose_flu_gt is not None
     
     @property
+    def first_seen(self):
+        return min([seg.first_seen for seg in self.segments])
+    
+    @property
+    def last_seen(self):
+        return max([seg.last_seen for seg in self.segments])
+    
+    @property
     def segments_as_global_points(self):
         # self.pose_gravity_aligned returns T_odom_center
         # which is transformation from center frame to odom frame
         # so this transforms segments back to the global (odom) frame
-        T_odom_center = self.pose_gravity_aligned_gt if self.pose_flu_gt is not None else self.pose_gravity_aligned
+        T_odom_center = self.pose_gravity_aligned_gt if self.has_gt else self.pose_gravity_aligned
         return transform(T_odom_center, np.vstack([seg.center.T for seg in self.segments])) # (1, 3) -> (N, 3)
 
     def __len__(self):
@@ -174,19 +176,9 @@ def load_roman_map(map_file: str) -> ROMANMap:
     """
     # extract pickled data
     with open(os.path.expanduser(map_file), 'rb') as f:
-        pickle_data = pickle.load(f)
-        
-        if type(pickle_data) == ROMANMap:
-            roman_map = pickle_data
-        else:
-            assert len(pickle_data) == 3
-            mapper, poses, times = pickle_data
-            roman_map = ROMANMap(
-                segments=mapper.get_segment_map(),
-                trajectory=poses,
-                times=times
-            )
-    return roman_map
+        roman_map = pickle.load(f)
+        assert type(roman_map) == ROMANMap
+        return roman_map
 
 def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams, 
                            gt_flu_pose_data: PoseData=None) -> List[Submap]:
@@ -233,10 +225,8 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
                 pose_flu_gt=gt_flu_pose_data.pose(submap_time_roman_map) if gt_flu_pose_data is not None else None
             )
 
-            # sm.pose is the pose of center w.r.t. odom, which is T_odom_center (center is child, odom is parent frame)
-            # T_odom_center is also transformation from center frame to odom frame
-            # so its inverse, T_center_odom, is transformation from odom frame to center frame
-            # which transforms the segments into the center frame (centered w.r.t submap centroid) since they are in the odom frame
+            # sm.pose is the pose of center w.r.t. odom, which is T_odom_center, inverse is T_center_odom
+            # transforms the segments into the center frame (centered w.r.t submap centroid) since they are in the odom frame
             T_center_odom = np.linalg.inv(sm.pose_gravity_aligned)
             for seg in sm.segments:
                 seg.transform(T_center_odom)
@@ -291,6 +281,14 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
         # compute mean semantic for each submap
         for submap in submaps:
             submap.descriptor = np.mean([seg.semantic_descriptor for seg in submap.segments], axis=0).flatten()
+    elif submap_params.submap_descriptor == 'mean_frame_descriptor':
+        assert roman_map.descriptors is not None, "ROMAN map must have frame descriptors to compute submap descriptors from them."
+        map_times_np = np.array(roman_map.times)
+        descriptors_np = np.vstack(roman_map.descriptors)
+        for submap in submaps:
+            frame_mask = (map_times_np >= submap.first_seen) & (map_times_np <= submap.last_seen)
+            submap.descriptor = descriptors_np[frame_mask].mean(axis=0)
+            
     return submaps
 
 
