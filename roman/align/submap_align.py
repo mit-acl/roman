@@ -129,8 +129,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 submap_yaw_diff_mat[i, j] = np.abs(np.rad2deg(relative_yaw_angle))
                 
             if sm_params.submap_descriptor is not None:
-                submap_sim = np.sum(submap_i.descriptor * submap_j.descriptor) / \
-                    (np.linalg.norm(submap_i.descriptor) * np.linalg.norm(submap_j.descriptor))
+                submap_sim = Submap.similarity(submap_i, submap_j)
             else:
                 submap_sim = np.inf # always try to register object maps if no descriptor is used
                 

@@ -13,7 +13,7 @@
 import numpy as np
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Tuple, Union
 import os
 import yaml
 
@@ -25,43 +25,42 @@ from roman.align.dist_reg_with_pruning import DistRegWithPruning, GravityConstra
 @dataclass
 class SubmapAlignParams:
 
-    dim: int = 3                            # 2 or 3. 2D or 3D object map registration
-    method: str = 'roman'                   # by default, use semantic + pca + volume + gravity
-                                            # same as in ROMAN paper.
-                                            # See get_object_registration for other methods
-    fusion_method: str = 'geometric_mean'   # How to fuse similarity scores. (geometric_mean, 
-                                            # arithmetic_mean, product)
-    
-    use_avg_time_as_segment_ref_time: bool = True  # If true, use (first_seen + last_seen) / 2 for each segment reference time 
-                                                   # (only applicable if force_fill_submaps == True or submap_pruning_method == 'time')
+    dim: int = 3                                            # 2 or 3. 2D or 3D object map registration
+    method: str = 'roman'                                   # by default, use semantic + pca + volume + gravity
+                                                            #   same as in ROMAN paper.
+                                                            #   See get_object_registration for other methods
+    fusion_method: str = 'geometric_mean'                   # How to fuse similarity scores. (geometric_mean, 
+                                                            #   arithmetic_mean, product)
 
-    force_fill_submaps: bool = False         # If true, force all submaps to be filled with segments
-    submap_max_size: int = 40               # Maximum number of segments in a submap (to save computation)
+    force_fill_submaps: bool = False                        # If true, force all submaps to be filled with segments
+    submap_max_size: int = 40                               # Maximum number of segments in a submap (to save computation)
 
-    # the following is applicable only if force_fill_submaps is true
-    submap_overlap: int = int(0.5 * submap_max_size)  # Number of overlapping segments between submaps
+    # the following is applicable only if force_fill_submaps is true -----------------------------------
+    submap_overlap: int = int(0.5 * submap_max_size)        # Number of overlapping segments between submaps
 
-    # the following are applicable only if force_fill_submaps is false -----------
-    submap_radius: float = 15.0              # Radius of submap in meters. If set to None, segments 
-                                            #    are never excluded from submaps based on distance 
-                                            #    (though they may still be pruned)
-    submap_center_dist: float = 10.0         # Distance between submap centers in meters
-    submap_center_time: float = 50.0         # time threshold between segments and submap center times
-    submap_pruning_method: str = 'distance' # Metric for pruning segments in a submap: 
-                                            #    ('time', 'distance') -> max gets pruned
-    # ----------------------------------------------------------------------------
-    submap_descriptor: str = None           # Type of submap descriptor. Either 'none', 'mean_semantic', or 'mean_frame_descriptor'.
-    submap_descriptor_thresh: float = 0.8    # ROMAN object matching will only be run if submap 
-                                            #    descriptor cosine similarity is above this threshold.
+    # the following are applicable only if force_fill_submaps is false ---------------------------------
+    submap_radius: float = 15.0                             # Radius of submap in meters. If set to None, segments 
+                                                            #    are never excluded from submaps based on distance 
+                                                            #    (though they may still be pruned)
+    submap_center_dist: float = 10.0                        # Distance between submap centers in meters
+    submap_center_time: float = 50.0                        # time threshold between segments and submap center times
+    submap_pruning_method: str = 'distance'                 # Metric for pruning segments in a submap: 
+                                                            #    ('time', 'distance') -> max gets pruned
+    # --------------------------------------------------------------------------------------------------
+    submap_descriptor: Union[str, None] = None              # Type of submap descriptor. Either 'none', 'mean_semantic', 'mean_frame_descriptor', 
+                                                            #    or 'stacked_frame_descriptors'.
+    frame_descriptor_dist: float = None                     # If submap_descriptor=='stacked_frame_descriptors', dist threshold to sequentially
+                                                            #    add a new frame descriptors to each submap descriptor
+    submap_descriptor_thresh: float = 0.8                   # ROMAN object matching will only be run if submap 
+                                                            #    descriptor cosine similarity is above this threshold.
 
-
-    single_robot_lc: bool = False           # If true, do not try and perform loop closures with submaps
-                                            # nearby in time
-    single_robot_lc_time_thresh: float = 50.0   # Time threshold for single robot loop closure
-    force_rm_lc_roll_pitch: bool = True     # If true, remove parts of rotation about x or y axes
-    force_rm_upside_down: bool = True       # If true, assumes upside down submap rotations are incorrect
-    use_object_bottom_middle: bool = False  # If true, uses the bottom middle of the object as a reference
-                                            # point for registration rather than the center of the object
+    single_robot_lc: bool = False                           # If true, do not try and perform loop closures with submaps
+                                                            #   nearby in time
+    single_robot_lc_time_thresh: float = 50.0               # Time threshold for single robot loop closure
+    force_rm_lc_roll_pitch: bool = True                     # If true, remove parts of rotation about x or y axes
+    force_rm_upside_down: bool = True                       # If true, assumes upside down submap rotations are incorrect
+    use_object_bottom_middle: bool = False                  # If true, uses the bottom middle of the object as a reference
+                                                            #   point for registration rather than the center of the object
     
     # registration params
     sigma: float = 0.4
