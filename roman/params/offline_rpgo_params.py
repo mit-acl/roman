@@ -22,11 +22,11 @@ class OfflineRPGOParams:
     
     # odometrys closure covariance params
     odom_t_std: float = 0.1
-    odom_r_std: float = np.deg2rad(1.0)
+    odom_r_std: float = np.deg2rad(0.5)
     
     # loop closure covariance params
-    lc_t_std: float = 0.5
-    lc_r_std: float = np.deg2rad(0.5)
+    lc_t_std: float = 1.0
+    lc_r_std: float = np.deg2rad(2.0)
     
     # sparse or dense
     sparsified: bool = True

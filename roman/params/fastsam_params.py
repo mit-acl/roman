@@ -77,7 +77,9 @@ class FastSAMParams:
     depth_scale: float = 1e3
     max_depth: float = 7.5
     triangle_ignore_masks: List[Tuple[Tuple[int,int], Tuple[int,int], Tuple[int,int]]] = None
-    
+    conf: float = .5
+    iou: float = .9
+
     def __post_init__(self):
         if self.frame_descriptor.lower() == 'none':
             self.frame_descriptor = None

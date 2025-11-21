@@ -11,10 +11,8 @@
 ###########################################################
 
 import numpy as np
-from typing import List, Tuple
-from dataclasses import dataclass
-import cv2 as cv
-import open3d as o3d
+from typing import List, Tuple, Union
+from functools import cached_property
 
 from robotdatapy.data.img_data import CameraParams
 
@@ -63,7 +61,7 @@ class Mapper():
         #                                        self.mask_similarity(seg, obs, projected=True))
         associated_pairs = global_nearest_neighbor(
             self.segments + self.segment_nursery, observations, 
-            **self.similarity_function_args()
+            self.similarity_function, self.similarity_range
         )
 
         # separate segments associated with nursery and normal segments
@@ -130,7 +128,7 @@ class Mapper():
         new_observations = [obs for idx, obs in enumerate(observations) \
                             if idx not in associated_obs]
         for obs in new_observations:
-            new_seg = Segment(obs, self.camera_params, self.id_counter, self.params.segment_voxel_size)
+            new_seg = Segment(obs, self.camera_params, self.id_counter, self.params.get_segment_params())
             if new_seg.num_points == 0: # guard from observations coming in with no points
                 continue
             self.segment_nursery.append(new_seg)
@@ -140,46 +138,75 @@ class Mapper():
             
         return
     
-    def similarity_function_args(self):
+    @cached_property
+    def similarity_function(self):
         """
         Get the similarity function based on the association method
         """
-        methods = {
-            'iou': self.voxel_grid_similarity,
+      
+        geometric_methods = {
+            'iou': self.iou_similarity,
+            'iom': self.iom_similarity,
             'chamfer': self.chamfer_distance_similarity,
-            'both': lambda seg, obs: np.array([self.voxel_grid_similarity(seg, obs), self.chamfer_distance_similarity(seg, obs)])
         }
-        thresholds = {
-            'iou': self.params.min_iou,
-            'chamfer': -self.params.max_chamfer_dist,  # negate: see chamfer_distance_similarity
-            'both': np.array([self.params.min_iou, -self.params.max_chamfer_dist])
-        }
-        ranges = {
-            'iou': [(0.0, 1.0)],
-            'chamfer': [(-self.params.max_chamfer_dist, 0)],
-            'both': [(0.0, 1.0), (-self.params.max_chamfer_dist, 0)]
-        }
-        return {
-            'similarity_fun': methods.get(self.params.association_method),
-            'min_similarity': thresholds.get(self.params.association_method),
-            'similarity_ranges': np.array(ranges.get(self.params.association_method))
+        semantic_methods = {
+            'cosine_similarity': self.cosine_similarity,
         }
 
-    def voxel_grid_similarity(self, segment: Segment, observation: Observation):
+        if self.params.semantic_association_method is None:
+            return geometric_methods[self.params.geometric_association_method]
+        else:
+            return lambda segment, segment_or_observation: np.array([
+                geometric_methods[self.params.geometric_association_method](segment, segment_or_observation),
+                semantic_methods[self.params.semantic_association_method](segment, segment_or_observation)
+            ])
+
+    @cached_property
+    def min_similarity(self):
         """
-        Compute the similarity between the voxel grids of a segment and an observation
+        Get the minimum similarity threshold for self.similarity_function required to associate two items
+        """
+        return self.similarity_range[0, :]
+    
+    @cached_property
+    def similarity_range(self):
+        """
+        Get an (2, N) array of minimum, threshold, and maximum similarity scores for the similarity function
+        """
+        return np.array(self.params.geometric_score_range).reshape(2, 1) if self.params.semantic_association_method is None else \
+               np.array([self.params.geometric_score_range, self.params.semantic_score_range]).T 
+
+    def iou_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation]): 
+        return self.voxel_grid_similarity(segment, segment_or_observation)
+
+    def iom_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation]): 
+        return self.voxel_grid_similarity(segment, segment_or_observation, iom_as_iou=True)
+
+    def voxel_grid_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation], iom_as_iou: bool = False):
+        """
+        Compute the similarity between the voxel grids of a segment and an observation/other segment. Always [0, 1].
         """
         voxel_size = self.params.iou_voxel_size
         segment_voxel_grid = segment.get_voxel_grid(voxel_size)
-        observation_voxel_grid = observation.get_voxel_grid(voxel_size)
-        return segment_voxel_grid.iou(observation_voxel_grid, iom_as_iou=self.params.iom_as_iou)
+        segment_or_observation_voxel_grid = segment_or_observation.get_voxel_grid(voxel_size)
+        return segment_voxel_grid.iou(segment_or_observation_voxel_grid, iom_as_iou=iom_as_iou)
     
-    def chamfer_distance_similarity(self, segment: Segment, observation: Observation):
+    def chamfer_distance_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation]):
         """
-        Compute the similarity between a segment and observation using their chamfer distance
+        Compute the similarity between a segment and observation/other segment using their chamfer distance.
         """
-        # Negate because smaller distance is larger similarity
-        return -ChamferDistance.chamfer_distance(segment.pcd, observation.pcd)
+        # larger distance is less similar
+        return -ChamferDistance.chamfer_distance(segment.pcd, segment_or_observation.pcd)
+    
+    def cosine_similarity(self, segment: Segment, segment_or_observation: Union[Segment, Observation]):
+        """
+        Compute the cosine similarity between the semantic descriptors of a segment and an observation/other segment.
+        """
+        if segment.semantic_descriptor is None or segment_or_observation.semantic_descriptor is None:
+            return 1.0
+        return np.dot(segment.semantic_descriptor, segment_or_observation.semantic_descriptor) / (
+            np.linalg.norm(segment.semantic_descriptor) * np.linalg.norm(segment_or_observation.semantic_descriptor)
+        )
 
     def remove_bad_segments(self, segments: List[Segment], min_volume: float=0.0, min_max_extent: float=0.0, plane_prune_params: List[float]=[np.inf, np.inf, 0.0]):
         """
@@ -255,28 +282,19 @@ class Mapper():
 
                     merge_flag = False
 
-                    if self.params.merge_method in ('chamfer', 'both'): # Chamfer distance-based merging
-                        chamfer_dist = ChamferDistance.chamfer_distance(seg1.pcd, seg2.pcd)
-
-                        merge_flag |= chamfer_dist < self.params.merge_objects_max_chamfer_dist
-
-                    if self.params.merge_method in ('iou', 'both'): # IOU-based merging
+                    # 2D IOU check
+                    if self.params.min_2d_iou is not None:
                         mask1 = seg1.reconstruct_mask(self.last_pose)
                         mask2 = seg2.reconstruct_mask(self.last_pose)
                         intersection2d = np.logical_and(mask1, mask2).sum()
-                        
-                        union2d = np.minimum(mask1.sum(), mask2.sum()) if self.params.iom_as_iou else np.logical_or(mask1, mask2).sum()
+                        union2d = np.logical_or(mask1, mask2).sum()
                         iou2d = intersection2d / union2d if union2d > 0 else 0.0
-
-                        iou3d = seg1.get_voxel_grid(self.params.iou_voxel_size).iou(
-                            seg2.get_voxel_grid(self.params.iou_voxel_size),
-                            iom_as_iou=self.params.iom_as_iou
-                        )
                         
-                        merge_flag |= iou3d > self.params.merge_objects_iou_3d or iou2d > self.params.merge_objects_iou_2d
-
-                    # print(f"chamfer: {ChamferDistance.chamfer_distance(seg1.pcd, seg2.pcd)}. iou3d: {iou3d}. iou2d: {iou2d}")
-
+                        merge_flag |= (iou2d >= self.params.min_2d_iou)
+                        
+                    # Similarity check
+                    merge_flag |= (np.all(self.similarity_function(seg1, seg2) >= self.min_similarity))
+                        
                     if merge_flag:
                         seg1.update_from_segment(seg2)
                         seg1.id = min(seg1.id, seg2.id)

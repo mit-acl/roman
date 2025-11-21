@@ -13,3 +13,5 @@ use_object_bottom_middle: True
 cosine_min: 0.5
 cosine_max: 0.7
 semantics_dim: 768
+
+submap_descriptor: 'mean_frame_descriptor'

@@ -13,6 +13,7 @@ import open3d as o3d
 from roman.map.observation import Observation 
 from roman.map.voxel_grid import VoxelGrid
 from roman.object.object import Object
+from roman.params.mapper_params import SegmentParams
 
 
 class SegmentMinimalData(Object):
@@ -59,9 +60,8 @@ class SegmentMinimalData(Object):
 
 class Segment(Object):
 
-    # TODO: separate from observation and from points class
     def __init__(self, observation: Observation, camera_params: CameraParams, 
-                 id: int = 0, voxel_size: float = 0.05):
+                 id: int = 0, params: SegmentParams = SegmentParams()):
         # initialize parent class
         super().__init__(centroid=np.zeros(3), dim=3, id=id)
         self.observations = [observation.copy(include_mask=False)]
@@ -72,7 +72,8 @@ class Segment(Object):
         self.edited = True
         self.last_observation = observation
         self.points = None
-        self.voxel_size = voxel_size  # voxel size used for maintaining point clouds
+        self.params = params
+        self.voxel_size = params.voxel_size  # voxel size used for maintaining point clouds
         self.voxel_grid = dict()
         self.last_propagated_mask = None
         self.last_propagated_time = None
@@ -93,6 +94,7 @@ class Segment(Object):
         self._convex_hull = None
         self._convex_hull_last_pose = np.nan
         
+        self._add_semantic_descriptor(observation.semantic_descriptor)
         self._integrate_points_from_observation(observation)
 
     def update(self, observation: Observation, integrate_points=True):
@@ -177,7 +179,11 @@ class Segment(Object):
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(self.points)
             pcd_sampled = pcd.voxel_down_sample(voxel_size=self.voxel_size)
-            pcd_pruned, _ = pcd_sampled.remove_statistical_outlier(10, 1.0)
+            if self.params.outlier_removal_std is not None:
+                pcd_pruned, _ = pcd_sampled.remove_statistical_outlier(
+                    10, self.params.outlier_removal_std)
+            else:
+                pcd_pruned = pcd_sampled
 
             if pcd_pruned.is_empty():
                 self.points = None
@@ -466,6 +472,8 @@ class Segment(Object):
         return e[2] / e[0]
     
     def _add_semantic_descriptor(self, descriptor: np.ndarray, cnt: int = 1):
+        if descriptor is None:
+            return
         if self.semantic_descriptor is None:
             assert cnt == 1, "Multiple Initialization of Semantic Descriptor"
             self.semantic_descriptor = descriptor / norm(descriptor)
