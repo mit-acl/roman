@@ -146,6 +146,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 theta = 180.0
                 dist = 1e6
                 associations = []
+                num_overlapping_objects = np.inf
                     
             else:
 
@@ -169,6 +170,8 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                                 raise GravityConstraintError
                         if sm_params.force_rm_lc_roll_pitch:
                             T_ij_hat = transform_rm_roll_pitch(T_ij_hat)
+                        associations, num_overlapping_objects = registration.permissive_associations(
+                            submap_i.segments, submap_j.segments, T_ij_hat)
                         T_error = np.linalg.inv(T_ij_hat) @ T_ij
                         theta = Rot.from_matrix(T_error[:3, :3]).magnitude()
                         dist = np.linalg.norm(T_error[:sm_params.dim, 3])
@@ -181,6 +184,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                     theta = 180.0
                     dist = 1e6
                     associations = []
+                    num_overlapping_objects = np.inf
             
             # for each submap pair, report the results
             if not np.isnan(robots_nearby_mat[i, j]):
@@ -190,7 +194,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 clipper_angle_mat[i, j] = np.nan
                 clipper_dist_mat[i, j] = np.nan
 
-            clipper_num_associations[i, j] = len(associations)
+            clipper_num_associations[i, j] = len(associations) * len(associations) / num_overlapping_objects if num_overlapping_objects > 0 else 0.0
             clipper_percent_associations[i, j] = len(associations) / np.mean([len(submap_i), len(submap_j)]) if np.mean([len(submap_i), len(submap_j)]) > 0 else 0.0
             
             T_ij_mat[i, j] = T_ij

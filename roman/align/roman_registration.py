@@ -2,11 +2,14 @@ import numpy as np
 from typing import List
 from dataclasses import dataclass
 from enum import Enum
+from copy import deepcopy
+import shapely
 
 import clipperpy
 
 from roman.align.object_registration import ObjectRegistration
 from roman.object.object import Object
+from roman.map.global_nearest_neighbor import global_nearest_neighbor
 
 class FusionMethod(Enum):
     GEOMETRIC_MEAN = clipperpy.invariants.ROMAN.GEOMETRIC_MEAN
@@ -79,6 +82,55 @@ class ROMANRegistration(ObjectRegistration):
         
         return
     
+    def permissive_associations(self, map1: List[Object], map2: List[Object], T: np.ndarray):
+        map2_transformed = [deepcopy(obj) for obj in map2]
+        [obj.transform(T) for obj in map2_transformed]
+        
+        def semantic_similarity_fun(o1, o2):
+            cosine_sim = np.sum(o1.semantic_descriptor * o2.semantic_descriptor) / \
+                (np.linalg.norm(o1.semantic_descriptor) * np.linalg.norm(o2.semantic_descriptor) + 1e-9)
+            return cosine_sim
+        
+        def distance_similarity_fun(o1, o2):
+            distance = np.linalg.norm(o1.center - o2.center)
+            distance_score = 1 / (1 + distance)
+            return distance_score
+        
+        max_dist = self.iparams.sigma
+        dist_similarity_min = 1 / (1 + max_dist)
+        semantic_similarity_min = self.iparams.cosine_min
+
+        similarity_range = np.array([[semantic_similarity_min, 1.0], 
+                                     [dist_similarity_min, 1.0]]).T
+        similarity_fun = lambda o1, o2: np.array([
+            semantic_similarity_fun(o1, o2),
+            distance_similarity_fun(o1, o2)
+        ])
+        associations = global_nearest_neighbor(map1, map2_transformed, similarity_fun, similarity_range)
+        
+        # find convex hull of map1 and map2
+        map1_convex_hull = shapely.geometry.MultiPoint([shapely.geometry.Point(obj.center.flatten()[:2]) for obj in map1]).convex_hull
+        map2_convex_hull = shapely.geometry.MultiPoint([shapely.geometry.Point(obj.center.flatten()[:2]) for obj in map2_transformed]).convex_hull
+
+        # find intersection of convex hulls
+        intersection = map1_convex_hull.intersection(map2_convex_hull)
+        
+        # inflate intersection by sigma
+        intersection = intersection.buffer(max_dist)
+        
+        # count number of objects in map1 and map2 that are in the intersection of the convex hulls
+        num_objs_in_intersection = []
+        for map_i in [map1, map2_transformed]:
+            num_objs_in_intersection.append(0)
+            for i, obj in enumerate(map_i):
+                point = shapely.geometry.Point(obj.center.flatten()[:2])
+                if intersection.contains(point):
+                    num_objs_in_intersection[-1] += 1
+                    
+        min_num_objs_in_intersection = min(num_objs_in_intersection)
+
+        return np.array(associations), min_num_objs_in_intersection
+
     def _setup_clipper(self):
         invariant = clipperpy.invariants.ROMAN(self.iparams)
         params = clipperpy.Params()
