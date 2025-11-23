@@ -154,13 +154,8 @@ class ROMANMapRunner:
                 if bbox is not None:
                     reprojected_bboxs.append((segment.id, bbox))
 
-        if len(observations) > 0:
-            self.mapper.update(t, pose_odom_camera, observations, frame_descriptor)
-        else:
-            self.mapper.poses_flu_history.append(pose_odom_camera @ self.mapper._T_camera_flu)
-            self.mapper.times_history.append(t)
-            if frame_descriptor is not None:
-                self.mapper.frame_descriptors_history.append(frame_descriptor)
+        # update mapper with new frame
+        self.mapper.update(t, pose_odom_camera, observations, frame_descriptor)
             
         if self.viz_map or self.viz_observations or self.viz_3d:
             img_ret = self.draw(t, img, pose_odom_camera, observations, reprojected_bboxs)

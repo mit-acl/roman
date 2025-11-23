@@ -53,6 +53,9 @@ class Mapper():
         if frame_descriptor is not None:
             self.frame_descriptors_history.append(frame_descriptor)
         
+        if len(observations) == 0: # nothing to update
+            return
+
         # store last pose
         self.last_pose = pose.copy()
         

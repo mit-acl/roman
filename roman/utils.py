@@ -12,7 +12,6 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
 from typing import List
 from scipy.spatial.transform import Rotation as Rot
 from os.path import expandvars, expanduser

@@ -58,13 +58,14 @@ def plot_align_results(results: SubmapAlignResults, dpi=500):
     
     # if no ground truth, can only show number of associations
     if None in results.submap_io.input_gt_pose_yaml:
-        fig, ax = plt.subplots(2 if show_sim else 1, 1, figsize=(8 if show_sim else 4,4), dpi=dpi)
+        fig, ax = plt.subplots(2 if show_sim else 1, 1, figsize=(8 if show_sim else 4, 4), dpi=dpi)
+        ax = np.array(ax).reshape(-1, 1)
         mp = ax[0, 0].imshow(results.clipper_num_associations, cmap='viridis', vmin=0)
         fig.colorbar(mp, fraction=0.04, pad=0.04)
         ax.set_title("Number of Associations")
         
         if show_sim:
-            mp = ax[1, 0].imshow(results.similarity_mat, cmap='viridis', vmin=0)
+            mp = ax[1, 0].imshow(results.similarity_mat, cmap='viridis', vmin=0.0, vmax=1.0)
             fig.colorbar(mp, fraction=0.04, pad=0.04)
             ax[1, 0].set_title("Similarity Score")
         
@@ -105,7 +106,7 @@ def plot_align_results(results: SubmapAlignResults, dpi=500):
     ax[2, 0].set_title("Number of Associations")
     
     if show_sim:
-        mp = ax[2, 1].imshow(results.similarity_mat, cmap='viridis', vmin=0)
+        mp = ax[2, 1].imshow(results.similarity_mat, cmap='viridis', vmin=0.0, vmax=1.0)
         fig.colorbar(mp, fraction=0.04, pad=0.04)
         ax[2, 1].set_title("Similarity Score")
 

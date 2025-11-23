@@ -147,7 +147,6 @@ class Submap:
         
         elif len(desc1.shape) == len(desc2.shape) == 2:
             # maximum piecewise cosine similarity
-            sims = []
             desc1 = desc1.reshape(desc1.shape[0], 1, desc1.shape[1])  # (N1, 1, D)
             desc2 = desc2.reshape(1, desc2.shape[0], desc2.shape[1])  # (1, N2, D)
             norm_prods = np.linalg.norm(desc1, axis=2) * np.linalg.norm(desc2, axis=2)  # (N1, N2)

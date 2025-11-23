@@ -272,7 +272,7 @@ class FastSAMWrapper():
         
         # run fastsam
         masks = self._process_img(img, ignore_mask=ignore_mask, keep_mask=keep_mask)
-                
+        
         if self.semantics == 'dino':
             # Process the image for DINO
             dino_shape = 768
@@ -288,6 +288,7 @@ class FastSAMWrapper():
                 model_output_patches=dino_output_patches,
                 img_shape=img.shape
             )
+            dino_features = self.unapply_rotation(dino_features)
             
         frame_descriptor = None
         if self.frame_descriptor_type is not None:
