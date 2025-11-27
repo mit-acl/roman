@@ -199,6 +199,40 @@ def load_roman_map(map_file: str) -> ROMANMap:
         roman_map = pickle.load(f)
         assert type(roman_map) == ROMANMap
         return roman_map
+    
+def extract_submap_descriptors(submaps: List[Submap], descriptor_times: List[float], descriptors: List[np.ndarray], \
+                               poses: List[np.ndarray], submap_params: SubmapParams):
+    assert descriptors is not None, "ROMAN map must have frame descriptors to compute submap descriptors from them."
+    map_times_np = np.array(descriptor_times)
+    descriptors_np = np.vstack(descriptors)
+        
+    if submap_params.submap_descriptor == 'mean_frame_descriptor':
+        for submap in submaps:
+            frame_mask = (map_times_np >= submap.first_seen) & (map_times_np <= submap.last_seen)
+            submap.descriptor = descriptors_np[frame_mask].mean(axis=0)
+            
+    elif submap_params.submap_descriptor == 'stacked_frame_descriptors':
+        if submap_params.frame_descriptor_dist is None:
+            for submap in submaps:
+                frame_mask = (map_times_np >= submap.first_seen) & (map_times_np <= submap.last_seen)
+                submap.descriptor = descriptors_np[frame_mask]
+        else:
+            dist_thresh = submap_params.frame_descriptor_dist
+            map_pos_np = np.array([pose[:3,3] for pose in poses])
+            
+            for submap in submaps:
+                frame_mask = (map_times_np >= submap.first_seen) & (map_times_np <= submap.last_seen)
+                frame_descriptors = descriptors_np[frame_mask]
+                frame_pos = map_pos_np[frame_mask]
+                
+                stacked_descriptors = []
+                last_pose = None
+                for fd, fp in zip(frame_descriptors, frame_pos):
+                    if (last_pose is None or np.linalg.norm(fp - last_pose) >= dist_thresh):
+                        stacked_descriptors.append(fd)
+                        last_pose = fp
+                    
+                submap.descriptor = np.vstack(stacked_descriptors)
 
 def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams, 
                            gt_flu_pose_data: PoseData=None) -> List[Submap]:
@@ -305,38 +339,13 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
             submap.descriptor = np.mean([seg.semantic_descriptor for seg in submap.segments], axis=0).flatten()
             
     elif submap_params.submap_descriptor is not None:
-        # using frame descriptors
-        assert roman_map.descriptors is not None, "ROMAN map must have frame descriptors to compute submap descriptors from them."
-        map_times_np = np.array(roman_map.times)
-        descriptors_np = np.vstack(roman_map.descriptors)
-            
-        if submap_params.submap_descriptor == 'mean_frame_descriptor':
-            for submap in submaps:
-                frame_mask = (map_times_np >= submap.first_seen) & (map_times_np <= submap.last_seen)
-                submap.descriptor = descriptors_np[frame_mask].mean(axis=0)
-                
-        elif submap_params.submap_descriptor == 'stacked_frame_descriptors':
-            if submap_params.frame_descriptor_dist is None:
-                for submap in submaps:
-                    frame_mask = (map_times_np >= submap.first_seen) & (map_times_np <= submap.last_seen)
-                    submap.descriptor = descriptors_np[frame_mask]
-            else:
-                dist_thresh = submap_params.frame_descriptor_dist
-                map_pos_np = np.array([pose[:3,3] for pose in roman_map.trajectory])
-                
-                for submap in submaps:
-                    frame_mask = (map_times_np >= submap.first_seen) & (map_times_np <= submap.last_seen)
-                    frame_descriptors = descriptors_np[frame_mask]
-                    frame_pos = map_pos_np[frame_mask]
-                    
-                    stacked_descriptors = []
-                    last_pose = None
-                    for fd, fp in zip(frame_descriptors, frame_pos):
-                        if (last_pose is None or np.linalg.norm(fp - last_pose) >= dist_thresh):
-                            stacked_descriptors.append(fd)
-                            last_pose = fp
-                        
-                    submap.descriptor = np.vstack(stacked_descriptors)
+        extract_submap_descriptors(
+            submaps=submaps,
+            descriptor_times=roman_map.times,
+            descriptors=roman_map.descriptors,
+            poses=roman_map.trajectory,
+            submap_params=submap_params
+        )
                             
     return submaps
 
