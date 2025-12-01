@@ -9,11 +9,11 @@ observed from opposite views.
 
 setup(
     name='roman',
-    version='0.1.3',
+    version='0.1.4',
     description=project_description,
-    url='url',
-    author='Mason Peterson, Lucas Jia, and Yulun Tian',
-    author_email='masonbp@mit.edu, yixuany@mit.edu, yut034@ucsd.edu',
+    url='https://acl.mit.edu/roman',
+    author='Mason Peterson, Lucas Jia, Yulun Tian, and Andy Li',
+    author_email='masonbp@mit.edu, yixuany@mit.edu, yut034@ucsd.edu, andyli27@mit.edu',
     license='MIT',
     packages=find_packages(),
     install_requires=[
