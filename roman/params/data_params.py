@@ -38,8 +38,8 @@ def find_transformation(bag_path, param_dict) -> np.array:
     elif param_dict['input_type'] == 'tf':
         bag_path = expandvars_recursive(bag_path)
         # by default looks for a static tf, but if the user wants to reference a tf that is
-        # theoretically static, but is published under /tf, then 'try_non_static_tf' can be set.
-        if param_dict.get('try_non_static_tf', False):
+        # theoretically static, but is published under /tf, then 'include_non_static_tf' can be set.
+        if param_dict.get('include_non_static_tf', False):
             tf_data = PoseData.from_bag_tf(
                 expandvars_recursive(bag_path),
                 expandvars_recursive(param_dict['parent']),

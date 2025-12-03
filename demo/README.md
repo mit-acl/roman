@@ -120,7 +120,8 @@ or
 input_type: "tf"
 parent: <parent frame_id>
 child: <child frame_id>
-inv: <Whether the transformation from /tf_static should be inverted or not>
+inv: <whether the transformation from /tf_static should be inverted or not>
+include_non_static_tf: <whether to also search for tfs that are theoretically static but published under /tf>
 ```
 
 or 
