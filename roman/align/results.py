@@ -62,7 +62,7 @@ def plot_align_results(results: SubmapAlignResults, dpi=500):
         ax = np.array(ax).reshape(-1, 1)
         mp = ax[0, 0].imshow(results.clipper_num_associations, cmap='viridis', vmin=0)
         fig.colorbar(mp, fraction=0.04, pad=0.04)
-        ax.set_title("Number of Associations")
+        ax[0, 0].set_title("Number of Associations")
         
         if show_sim:
             mp = ax[1, 0].imshow(results.similarity_mat, cmap='viridis', vmin=0.0, vmax=1.0)
