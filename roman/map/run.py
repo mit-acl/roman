@@ -112,10 +112,10 @@ class ROMANMapRunner:
         img_output = None
         update_t0 = time.time()
 
-        img_time, observations, pose_odom_camera, img = self.update_fastsam(t)
+        img_time, observations, pose_odom_camera, img, frame_descriptor = self.update_fastsam(t)
         update_t1 = time.time()
         if observations is not None and pose_odom_camera is not None and img is not None:
-            img_output = self.update_segment_track(img_time, observations, pose_odom_camera, img)
+            img_output = self.update_segment_track(img_time, observations, pose_odom_camera, img, frame_descriptor)
         
         update_t2 = time.time()
         self.processing_times.map_times.append(update_t2 - update_t1)
@@ -137,12 +137,12 @@ class ROMANMapRunner:
             else:
                 depth_data = self.depth_data.img(img_t)
         except NoDataNearTimeException:
-            return None, None, None, None
+            return None, None, None, None, None
         
-        observations = self.fastsam.run(img_t, T_odom_camera, img, depth_data=depth_data)
-        return img_t, observations, T_odom_camera, img
+        observations, frame_descriptor = self.fastsam.run(img_t, T_odom_camera, img, depth_data=depth_data)
+        return img_t, observations, T_odom_camera, img, frame_descriptor
 
-    def update_segment_track(self, t, observations, pose_odom_camera, img): 
+    def update_segment_track(self, t, observations, pose_odom_camera, img, frame_descriptor): 
 
         # collect reprojected masks
         reprojected_bboxs = []
@@ -154,12 +154,9 @@ class ROMANMapRunner:
                 if bbox is not None:
                     reprojected_bboxs.append((segment.id, bbox))
 
-        if len(observations) > 0:
-            self.mapper.update(t, pose_odom_camera, observations)
-        else:
-            self.mapper.poses_flu_history.append(pose_odom_camera @ self.mapper._T_camera_flu)
-            self.mapper.times_history.append(t)
-
+        # update mapper with new frame
+        self.mapper.update(t, pose_odom_camera, observations, frame_descriptor)
+            
         if self.viz_map or self.viz_observations or self.viz_3d:
             img_ret = self.draw(t, img, pose_odom_camera, observations, reprojected_bboxs)
 

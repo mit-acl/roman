@@ -74,6 +74,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
     clipper_angle_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     clipper_dist_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     clipper_num_associations = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
+    similarity_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     robots_nearby_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     clipper_percent_associations = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
     submap_yaw_diff_mat = np.zeros((len(submaps[0]), len(submaps[1])))*np.nan
@@ -128,8 +129,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 submap_yaw_diff_mat[i, j] = np.abs(np.rad2deg(relative_yaw_angle))
                 
             if sm_params.submap_descriptor is not None:
-                submap_sim = np.sum(submap_i.descriptor * submap_j.descriptor) / \
-                    (np.linalg.norm(submap_i.descriptor) * np.linalg.norm(submap_j.descriptor))
+                submap_sim = Submap.similarity(submap_i, submap_j)
             else:
                 submap_sim = np.inf # always try to register object maps if no descriptor is used
                 
@@ -184,6 +184,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                 clipper_dist_mat[i, j] = np.nan
 
             clipper_num_associations[i, j] = len(associations)
+            similarity_mat[i, j] = submap_sim
             clipper_percent_associations[i, j] = len(associations) / np.mean([len(submap_i), len(submap_j)]) if np.mean([len(submap_i), len(submap_j)]) > 0 else 0.0
             
             T_ij_mat[i, j] = T_ij
@@ -198,6 +199,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
         clipper_angle_mat=clipper_angle_mat,
         clipper_dist_mat=clipper_dist_mat,
         clipper_num_associations=clipper_num_associations,
+        similarity_mat=similarity_mat if sm_params.submap_descriptor is not None else None,
         submap_yaw_diff_mat=submap_yaw_diff_mat,
         T_ij_mat=T_ij_mat,
         T_ij_hat_mat=T_ij_hat_mat,

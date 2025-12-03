@@ -21,6 +21,7 @@ class SubmapAlignResults:
     clipper_angle_mat: np.array
     clipper_dist_mat: np.array
     clipper_num_associations: np.array
+    similarity_mat: np.array
     submap_yaw_diff_mat: np.array
     associated_objs_mat: np.array
     T_ij_mat: np.array
@@ -52,16 +53,24 @@ def time_to_secs_nsecs(t, as_dict=False):
         return {'seconds': seconds, 'nanoseconds': nanoseconds}
 
 def plot_align_results(results: SubmapAlignResults, dpi=500):
-
+    
+    show_sim = results.similarity_mat is not None
+    
     # if no ground truth, can only show number of associations
     if None in results.submap_io.input_gt_pose_yaml:
-        fig, ax = plt.subplots(1, 1, figsize=(4,4), dpi=dpi)
-        mp = ax.imshow(results.clipper_num_associations, cmap='viridis', vmin=0)
+        fig, ax = plt.subplots(2 if show_sim else 1, 1, figsize=(8 if show_sim else 4, 4), dpi=dpi)
+        ax = np.array(ax).reshape(-1, 1)
+        mp = ax[0, 0].imshow(results.clipper_num_associations, cmap='viridis', vmin=0)
         fig.colorbar(mp, fraction=0.04, pad=0.04)
         ax.set_title("Number of Associations")
+        
+        if show_sim:
+            mp = ax[1, 0].imshow(results.similarity_mat, cmap='viridis', vmin=0.0, vmax=1.0)
+            fig.colorbar(mp, fraction=0.04, pad=0.04)
+            ax[1, 0].set_title("Similarity Score")
+        
         fig.suptitle(f"{results.submap_io.run_name}: {results.submap_io.robot_names[0]}, {results.submap_io.robot_names[1]}")
         return
-
 
     fig, ax = plt.subplots(3, 2, figsize=(8, 12), dpi=dpi)
     fig.subplots_adjust(wspace=.3)
@@ -95,6 +104,11 @@ def plot_align_results(results: SubmapAlignResults, dpi=500):
     mp = ax[2, 0].imshow(results.clipper_num_associations, cmap='viridis', vmin=0)
     fig.colorbar(mp, fraction=0.04, pad=0.04)
     ax[2, 0].set_title("Number of Associations")
+    
+    if show_sim:
+        mp = ax[2, 1].imshow(results.similarity_mat, cmap='viridis', vmin=0.0, vmax=1.0)
+        fig.colorbar(mp, fraction=0.04, pad=0.04)
+        ax[2, 1].set_title("Similarity Score")
 
     for i in range(len(ax)):
         for j in range(len(ax[i])):
@@ -102,7 +116,8 @@ def plot_align_results(results: SubmapAlignResults, dpi=500):
             ax[i,j].set_ylabel("submap index (robot 1)")
             ax[i,j].grid(False)
 
-    fig.delaxes(ax[2, 1])
+    if not show_sim:
+        fig.delaxes(ax[2, 1])
 
 def save_submap_align_results(results: SubmapAlignResults, submaps, roman_maps: List[ROMANMap]):
     plot_align_results(results)

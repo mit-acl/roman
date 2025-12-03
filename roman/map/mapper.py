@@ -41,15 +41,21 @@ class Mapper():
         self.last_pose = None
         self.poses_flu_history = []
         self.times_history = []
+        self.frame_descriptors_history = []
         self._T_camera_flu = np.eye(4)
 
-    def update(self, t: float, pose: np.array, observations: List[Observation]):
+    def update(self, t: float, pose: np.array, observations: List[Observation], frame_descriptor: np.ndarray):
 
         # have T_WC, want T_WB
         # T_WB = T_WC @ T_CB
         self.poses_flu_history.append(pose @ self._T_camera_flu)
         self.times_history.append(t)
+        if frame_descriptor is not None:
+            self.frame_descriptors_history.append(frame_descriptor)
         
+        if len(observations) == 0: # nothing to update
+            return
+
         # store last pose
         self.last_pose = pose.copy()
         
@@ -338,6 +344,7 @@ class Mapper():
             segments=segment_map,
             trajectory=self.poses_flu_history,
             times=self.times_history,
+            descriptors=self.frame_descriptors_history if self.frame_descriptors_history else None,
             poses_are_flu=True
         )
     

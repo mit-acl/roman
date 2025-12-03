@@ -13,3 +13,7 @@ use_object_bottom_middle: True
 cosine_min: 0.5
 cosine_max: 0.7
 semantics_dim: 768
+
+submap_descriptor: 'stacked_frame_descriptors'
+frame_descriptor_dist: 10.0
+submap_descriptor_thresh: 0.8

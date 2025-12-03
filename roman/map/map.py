@@ -1,12 +1,11 @@
 import numpy as np
-from numpy.linalg import norm
 from scipy.spatial.transform import Rotation as Rot
 
 import os
 import pickle
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import List
+from typing import List, Tuple
 import json
 
 from robotdatapy.data.pose_data import PoseData
@@ -22,6 +21,7 @@ class ROMANMap:
     segments: List[Segment]
     trajectory: List[np.ndarray]
     times: np.ndarray
+    descriptors: List[np.ndarray] = None
     poses_are_flu: bool = True
 
     def __post_init__(self):
@@ -36,6 +36,7 @@ class ROMANMap:
             segments=[seg.minimal_data() for seg in self.segments],
             trajectory=self.trajectory,
             times=self.times,
+            descriptors=self.descriptors,
             poses_are_flu=self.poses_are_flu
         )
         
@@ -53,19 +54,9 @@ class ROMANMap:
     def from_pickle(cls, pickle_file: str):
         # extract pickled data
         with open(os.path.expanduser(pickle_file), 'rb') as f:
-            pickle_data = pickle.load(f)
-            
-            if type(pickle_data) == cls:
-                roman_map = pickle_data
-            else:
-                assert len(pickle_data) == 3
-                mapper, poses, times = pickle_data
-                roman_map = cls(
-                    segments=mapper.get_segment_map(),
-                    trajectory=poses,
-                    times=times
-                )
-        return roman_map
+            roman_map = pickle.load(f)
+            assert(type(roman_map) == cls)     
+            return roman_map
         
     @classmethod
     def concatenate(cls, roman_maps: list):
@@ -82,6 +73,8 @@ class ROMANMap:
                 segments=reference.segments + other.segments,
                 trajectory=reference.trajectory + other.trajectory,
                 times=reference.times + other.times,
+                descriptors = reference.descriptors + other.descriptors if \
+                              reference.descriptors is not None and other.descriptors is not None else None,
                 poses_are_flu=reference.poses_are_flu
             )
         
@@ -123,15 +116,44 @@ class Submap:
         return self.pose_flu_gt is not None
     
     @property
+    def first_seen(self):
+        return min([seg.first_seen for seg in self.segments])
+    
+    @property
+    def last_seen(self):
+        return max([seg.last_seen for seg in self.segments])
+    
+    @property
     def segments_as_global_points(self):
         # self.pose_gravity_aligned returns T_odom_center
         # which is transformation from center frame to odom frame
         # so this transforms segments back to the global (odom) frame
-        T_odom_center = self.pose_gravity_aligned_gt if self.pose_flu_gt is not None else self.pose_gravity_aligned
+        T_odom_center = self.pose_gravity_aligned_gt if self.has_gt else self.pose_gravity_aligned
         return transform(T_odom_center, np.vstack([seg.center.T for seg in self.segments])) # (1, 3) -> (N, 3)
 
     def __len__(self):
         return len(self.segments)
+    
+    @classmethod
+    def similarity(cls, submap1, submap2):
+        desc1 = submap1.descriptor
+        desc2 = submap2.descriptor
+        
+        if len(desc1.shape) == len(desc2.shape) == 1:
+            # 1-d cosine similarity
+            norm_prod = np.linalg.norm(desc1) * np.linalg.norm(desc2)
+            if np.isclose(norm_prod, 0.0, atol=1e-9, rtol=0.0): return 0.0
+            return np.dot(desc1, desc2) / norm_prod
+        
+        elif len(desc1.shape) == len(desc2.shape) == 2:
+            # maximum piecewise cosine similarity
+            desc1 = desc1.reshape(desc1.shape[0], 1, desc1.shape[1])  # (N1, 1, D)
+            desc2 = desc2.reshape(1, desc2.shape[0], desc2.shape[1])  # (1, N2, D)
+            norm_prods = np.linalg.norm(desc1, axis=2) * np.linalg.norm(desc2, axis=2)  # (N1, N2)
+            sims = np.sum(desc1 * desc2, axis=2) / norm_prods  # (N1, N2, D) -> (N1, N2)
+            sims[np.isclose(norm_prods, 0.0, atol=1e-9, rtol=0.0)] = 0.0
+            return np.max(sims)
+
 
 @dataclass
 class SubmapParams:
@@ -143,10 +165,10 @@ class SubmapParams:
     distance: float = 10.0
     time_threshold: float = np.inf
     pruning_method: str = 'time'
-    use_avg_time_as_segment_ref_time: bool = True
     object_center_ref: str = 'mean'
     use_minimal_data: bool = True
     submap_descriptor: str = None
+    frame_descriptor_dist: float = None
 
     @classmethod
     def from_submap_align_params(cls, submap_align_params: SubmapAlignParams):
@@ -158,8 +180,8 @@ class SubmapParams:
             distance=submap_align_params.submap_center_dist,
             time_threshold=submap_align_params.submap_center_time,
             pruning_method=submap_align_params.submap_pruning_method,
-            use_avg_time_as_segment_ref_time=submap_align_params.use_avg_time_as_segment_ref_time,
-            submap_descriptor=submap_align_params.submap_descriptor
+            submap_descriptor=submap_align_params.submap_descriptor,
+            frame_descriptor_dist=submap_align_params.frame_descriptor_dist,
         )
 
 def load_roman_map(map_file: str) -> ROMANMap:
@@ -174,19 +196,43 @@ def load_roman_map(map_file: str) -> ROMANMap:
     """
     # extract pickled data
     with open(os.path.expanduser(map_file), 'rb') as f:
-        pickle_data = pickle.load(f)
+        roman_map = pickle.load(f)
+        assert type(roman_map) == ROMANMap
+        return roman_map
+    
+def extract_submap_descriptors(submaps: List[Submap], descriptor_times: List[float], descriptors: List[np.ndarray], \
+                               poses: List[np.ndarray], submap_params: SubmapParams):
+    assert descriptors is not None, "ROMAN map must have frame descriptors to compute submap descriptors from them."
+    map_times_np = np.array(descriptor_times)
+    descriptors_np = np.vstack(descriptors)
         
-        if type(pickle_data) == ROMANMap:
-            roman_map = pickle_data
+    if submap_params.submap_descriptor == 'mean_frame_descriptor':
+        for submap in submaps:
+            frame_mask = (map_times_np >= submap.first_seen) & (map_times_np <= submap.last_seen)
+            submap.descriptor = descriptors_np[frame_mask].mean(axis=0)
+            
+    elif submap_params.submap_descriptor == 'stacked_frame_descriptors':
+        if submap_params.frame_descriptor_dist is None:
+            for submap in submaps:
+                frame_mask = (map_times_np >= submap.first_seen) & (map_times_np <= submap.last_seen)
+                submap.descriptor = descriptors_np[frame_mask]
         else:
-            assert len(pickle_data) == 3
-            mapper, poses, times = pickle_data
-            roman_map = ROMANMap(
-                segments=mapper.get_segment_map(),
-                trajectory=poses,
-                times=times
-            )
-    return roman_map
+            dist_thresh = submap_params.frame_descriptor_dist
+            map_pos_np = np.array([pose[:3,3] for pose in poses])
+            
+            for submap in submaps:
+                frame_mask = (map_times_np >= submap.first_seen) & (map_times_np <= submap.last_seen)
+                frame_descriptors = descriptors_np[frame_mask]
+                frame_pos = map_pos_np[frame_mask]
+                
+                stacked_descriptors = []
+                last_pose = None
+                for fd, fp in zip(frame_descriptors, frame_pos):
+                    if (last_pose is None or np.linalg.norm(fp - last_pose) >= dist_thresh):
+                        stacked_descriptors.append(fd)
+                        last_pose = fp
+                    
+                submap.descriptor = np.vstack(stacked_descriptors)
 
 def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams, 
                            gt_flu_pose_data: PoseData=None) -> List[Submap]:
@@ -211,14 +257,14 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
     if submap_params.force_fill_submaps:
         submaps = []
 
-        segments_sorted_by_time = sorted(roman_map.segments, key=lambda seg: seg.reference_time(use_avg_time=submap_params.use_avg_time_as_segment_ref_time))
+        segments_sorted_by_time = sorted(roman_map.segments, key=lambda seg: seg.reference_time())
 
         for i in range(0, len(segments_sorted_by_time), submap_params.max_size - submap_params.overlap):
 
             sm_segments = segments_sorted_by_time[i:i + submap_params.max_size]
             if len(sm_segments) == 0: continue
 
-            segment_times = [seg.reference_time(use_avg_time=submap_params.use_avg_time_as_segment_ref_time) for seg in sm_segments]
+            segment_times = [seg.reference_time() for seg in sm_segments]
             submap_time = np.average(segment_times)
             submap_roman_map_index = np.argmin(np.abs(roman_map.times - submap_time))
 
@@ -233,10 +279,8 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
                 pose_flu_gt=gt_flu_pose_data.pose(submap_time_roman_map) if gt_flu_pose_data is not None else None
             )
 
-            # sm.pose is the pose of center w.r.t. odom, which is T_odom_center (center is child, odom is parent frame)
-            # T_odom_center is also transformation from center frame to odom frame
-            # so its inverse, T_center_odom, is transformation from odom frame to center frame
-            # which transforms the segments into the center frame (centered w.r.t submap centroid) since they are in the odom frame
+            # sm.pose is the pose of center w.r.t. odom, which is T_odom_center, inverse is T_center_odom
+            # transforms the segments into the center frame (centered w.r.t submap centroid) since they are in the odom frame
             T_center_odom = np.linalg.inv(sm.pose_gravity_aligned)
             for seg in sm.segments:
                 seg.transform(T_center_odom)
@@ -269,7 +313,8 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
             )
 
             for seg in roman_map.segments:
-                if (submap_params.radius is None or (norm(seg.center.flatten() - sm.pose_flu[:3,3]) < submap_params.radius)) \
+                if (submap_params.radius is None or \
+                        (np.linalg.norm(seg.center.flatten() - sm.pose_flu[:3,3]) < submap_params.radius)) \
                         and meets_time_constraints(seg):
                     sm.segments.append(deepcopy(seg))
 
@@ -279,18 +324,29 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
 
             if submap_params.max_size is not None:
                 if submap_params.pruning_method == 'time': # time-based pruning
-                    pruning_key = lambda seg: abs(seg.reference_time(use_avg_time=submap_params.use_avg_time_as_segment_ref_time) - submaps[i].time)
+                    pruning_key = lambda seg: abs(seg.reference_time() - submaps[i].time)
                 else: # distance-based pruning
-                    pruning_key = lambda seg: norm(seg.center.flatten())
+                    pruning_key = lambda seg: np.linalg.norm(seg.center.flatten())
 
                 segments_sorted_by_key = sorted(sm.segments, key=pruning_key)
                 sm.segments = segments_sorted_by_key[:submap_params.max_size]
 
     submaps = [submap for submap in submaps if len(submap.segments) > 0]
+    
     if submap_params.submap_descriptor == 'mean_semantic':
         # compute mean semantic for each submap
         for submap in submaps:
             submap.descriptor = np.mean([seg.semantic_descriptor for seg in submap.segments], axis=0).flatten()
+            
+    elif submap_params.submap_descriptor is not None:
+        extract_submap_descriptors(
+            submaps=submaps,
+            descriptor_times=roman_map.times,
+            descriptors=roman_map.descriptors,
+            poses=roman_map.trajectory,
+            submap_params=submap_params
+        )
+                            
     return submaps
 
 

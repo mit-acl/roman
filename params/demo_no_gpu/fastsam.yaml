@@ -16,3 +16,4 @@ semantics: 'none'
 yolo_imgsz: [256, 256]
 depth_scale: 1000.0
 max_depth: 7.5
+frame_descriptor: 'none'
