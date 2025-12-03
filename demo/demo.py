@@ -59,6 +59,10 @@ if __name__ == '__main__':
     parser.add_argument('--skip-align', action='store_true', help='Skip alignment')
     parser.add_argument('--skip-rpgo', action='store_true', help='Skip robust pose graph optimization')
     parser.add_argument('--skip-indices', type=int, nargs='+', help='Skip specific runs in mapping and alignment')
+    parser.add_argument('--skip-self-lc', action='store_true', help='Skip self loop closures in submap_align')
+    parser.add_argument('--skip-distance', type=float, help='Skip trying to align submaps that ' +
+                        'are farther away than this threshold (meters). By default, all alignment ' +
+                        'is attempted for all submaps.', default=np.inf)
 
     args = parser.parse_args()
 
@@ -135,6 +139,8 @@ if __name__ == '__main__':
             if args.skip_indices and i in args.skip_indices:
                 continue
             for j in range(i, len(data_params.runs)):
+                if args.skip_self_lc and i == j:
+                    continue
                 if args.skip_indices and j in args.skip_indices:
                     continue
                 output_dir = os.path.join(args.output_dir, "align", f"{data_params.runs[i]}_{data_params.runs[j]}")
@@ -149,6 +155,7 @@ if __name__ == '__main__':
                     input_gt_pose_yaml=[gt_files[i], gt_files[j]],
                     robot_names=[data_params.runs[i], data_params.runs[j]],
                     robot_env=data_params.run_env,
+                    skip_distance=args.skip_distance
                 )
                 submap_align_params.single_robot_lc = (i == j)
                 submap_align(sm_params=submap_align_params, sm_io=sm_io)
@@ -246,17 +253,26 @@ if __name__ == '__main__':
         # plot results
         g2o_symbol_to_name = {chr(97 + i): data_params.runs[i] for i in range(len(data_params.runs))}
         g2o_plot_params = G2OPlotParams()
-        fig, ax = plt.subplots(3, 1, figsize=(7,14), gridspec_kw={'height_ratios': [3, 1, 1]})
+        fig, ax = plt.subplots(2, 2, figsize=(10, 10), gridspec_kw={'height_ratios': [5, 1], 'width_ratios': [5, 1]})
         for i in range(3):
-            g2o_plot_params.axes = [(0, 1), (0, 2), (1, 2)][i]
+            g2o_plot_params.axes = [(0, 1), (0, 2), (2, 1)][i]
+            ax_idx = [(0,0), (1,0), (0,1)][i]
             g2o_plot_params.legend = (i == 0)
             plot_g2o(
                 g2o_path=result_g2o_file,
                 g2o_symbol_to_name=g2o_symbol_to_name,
                 g2o_symbol_to_color=DEFAULT_TRAJECTORY_COLORS,
-                ax=ax[i],
+                ax=ax[ax_idx],
                 params=g2o_plot_params
             )
+
+        # set labels and save figure
+        for i in range(2):
+            ax[i,0].set_xlabel('x (m)')
+            ax[0,i].set_ylabel('y (m)')
+        ax[1,0].set_ylabel('z (m)')
+        ax[0,1].set_xlabel('z (m)')
+        ax[1,1].axis('off')
         plt.savefig(os.path.join(args.output_dir, "offline_rpgo", "result.png"))
         print(f"Results saved to {os.path.join(args.output_dir, 'offline_rpgo', 'result.png')}")
         
