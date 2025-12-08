@@ -9,6 +9,7 @@ from typing import Union, List, Tuple, Dict
 import robotdatapy as rdp
 from robotdatapy.camera import CameraParams
 import shapely
+from copy import deepcopy
 
 from roman.align.results import SubmapAlignResults
 from roman.map.map import ROMANMap
@@ -23,13 +24,14 @@ ALIGN_RESULTS_MATRIX_ATTRIBUTES = [
     'submap_yaw_diff_mat',
     'T_ij_mat',
     'T_ij_hat_mat',
+    'timing_list'
 ]
 
 STANDARD_YAW_DIFFS = {
     "all": (0.0, 180.0),
-    "same_direction": (0.0, 60.0),
-    "perpendicular": (60.0, 120.0),
-    "opposite_direction": (120.0, 180.0),
+    "0 deg": (0.0, 60.0),
+    "90 deg": (60.0, 120.0),
+    "180 deg": (120.0, 180.0),
 }
 
 @dataclass
@@ -42,6 +44,17 @@ class EvalParams:
     rm_non_camera_overlap: bool = False
     cam_view_dist_bounds: Tuple[float, float] = (0.0, 20.0)
     T_ij_uses_rdf: bool = False
+    precision_recall_sweep_use_num_assoc: bool = True
+    precision_recall_sweep_held_submap_sim: float = 0.8
+    precision_recall_sweep_held_num_assoc: int = 3
+    precision_recall_sweep_submap_sim: Tuple[float, float] = (0.0, 1.0)
+    precision_recall_sweep_num_assoc: Tuple[int, int] = (0, 20)
+    place_rec_ref_is_single_robot: bool = False
+    place_rec_require_pose_success: bool = False
+    place_rec_rm_no_overlap_queries: bool = True
+    place_rec_sweep_num_assoc: Tuple[int, int] = (0, 20)
+    place_rec_overlap_dist: float = 30.0
+
     
     def __post_init__(self):
         assert not self.include_inter_robot, "Inter-robot evaluation not implemented yet."
@@ -92,12 +105,74 @@ class EvalInput:
             return dir_option1
         return dir_option2
     
+@dataclass
+class PR:
+    precision: float
+    recall: float
+
+    @property
+    def f1(self) -> float:
+        if (
+            self.precision + self.recall == 0 or
+            np.isnan(self.precision) or np.isnan(self.recall)
+        ):
+            return float('nan')
+        return 2 * (self.precision * self.recall) / (self.precision + self.recall)
+
+@dataclass
+class PRSweep:
+
+    precisions: List[float]
+    recalls: List[float]
+
+    @classmethod
+    def from_pr_list(cls, pr_list: List[PR]) -> 'PRSweep':
+        precisions = [pr.precision for pr in pr_list]
+        recalls = [pr.recall for pr in pr_list]
+        return cls(precisions=precisions, recalls=recalls)
+    
+    def normalize(self):
+        precision_list, recall_list = [], []
+        for p, r in zip(self.precisions, self.recalls):
+            if not np.isnan(p) and not np.isnan(r):
+                precision_list.append(p)
+                recall_list.append(r)
+
+        if len(precision_list) == 0:
+            self.precisions = []
+            self.recalls = []
+            return
+        
+        # assume that lists are sorted by an increasingly strict threshold
+        # at the least strict, insert 0 precision, and the first recall
+        precision_list.insert(0, 0.0)
+        recall_list.insert(0, recall_list[0])
+        # at the most strict, insert last precision, and 0 recall
+        precision_list.append(precision_list[-1])
+        recall_list.append(0.0)
+
+        self.precisions = precision_list
+        self.recalls = recall_list
+        return
+
+    def get_auc(self) -> float:
+        self.normalize()
+        if len(self.precisions) < 3:
+            return float('nan')
+        # reverse so that recalls is in ascending order for trapezoidal integration
+        return np.trapz(self.precisions[::-1], self.recalls[::-1])
 
 class SubmapAlignEvaluator():
 
     def __init__(self, params: EvalParams):
+        assert params.place_rec_rm_no_overlap_queries, \
+            "Only place_rec_rm_no_overlap_queries=True is supported."
+        
         self.params = params
         self.results: Dict[str, SubmapAlignResults] = {}
+        self.separate_pairs_results: Dict[str, Dict[Tuple[str, str], SubmapAlignResults]] = {}
+        self.place_rec_sim_matrices: Dict[str, np.ndarray] = {}
+        self.place_rec_submap_dist_matrices: Dict[str, np.ndarray] = {}
         self.robot_camera_params = {robot: None for robot in self.params.robot_names}
 
     def load_results(self, eval_inputs: Union[EvalInput, List[EvalInput]]):
@@ -106,21 +181,26 @@ class SubmapAlignEvaluator():
         for eval_input in eval_inputs:
             result_paths = self._get_results_paths(eval_input)
             combined_results = None
+            self.separate_pairs_results[eval_input.get_name()] = {}
             for path, robots in zip(result_paths, self.params.robot_pairs):
                 new_result = SubmapAlignResults.load(path)
+                self.separate_pairs_results[eval_input.get_name()][robots] = deepcopy(new_result)
                 if self.params.rm_non_camera_overlap:
                     new_result = self._rm_non_camera_overlap(new_result, robots, eval_input)
  
                 for matrix_attribute in ALIGN_RESULTS_MATRIX_ATTRIBUTES:
                     if hasattr(new_result, matrix_attribute):
-                        matrix = getattr(new_result, matrix_attribute).reshape((-1))
-                        setattr(new_result, matrix_attribute, matrix)
+                        matrix = getattr(new_result, matrix_attribute)
+                        if matrix is None:
+                            continue
+                        setattr(new_result, matrix_attribute, np.array(matrix).reshape((-1)))
 
                 if combined_results is None:
                     combined_results = new_result
                 else:
                     for matrix_attribute in ALIGN_RESULTS_MATRIX_ATTRIBUTES:
-                        if hasattr(new_result, matrix_attribute):
+                        if hasattr(new_result, matrix_attribute) and \
+                                getattr(new_result, matrix_attribute) is not None:
                             combined_matrix = getattr(combined_results, matrix_attribute)
                             new_matrix = getattr(new_result, matrix_attribute)
                             combined_matrix = np.concatenate((combined_matrix, new_matrix), axis=0)
@@ -149,7 +229,199 @@ class SubmapAlignEvaluator():
             success_rate = num_correct / num_relevant if num_relevant > 0 else float('nan')
             success_rates[name] = success_rate
         return success_rates
+    
+    def evaluate_submap_precision_recall(
+        self,
+        submap_similarity_thresh: float = 0.5,
+        num_associations_thresh: int = 3,
+        use_submap_similarity: bool = True,
+        use_num_associations: bool = True,
+        names: List[str] = None,
+    ) -> Dict[str, PR]:
+        assert use_submap_similarity or use_num_associations, \
+            "At least one of use_submap_similarity or use_num_associations must be True."
+    
+        precision_recall = {}
 
+        all_results = self._get_named_results(names)
+        
+        for name, results in all_results.items():
+            num_relevant = np.sum((results.robots_nearby_mat <= self.params.evaluation_distance_m))
+            is_positive = np.ones_like(results.robots_nearby_mat, dtype=bool)
+            if use_submap_similarity:
+                if hasattr(results, 'similarity_mat'):
+                    is_positive &= (results.similarity_mat >= submap_similarity_thresh)
+                else:
+                    print(f"Warning: Results for {name} do not have similarity_mat attribute.")
+            if use_num_associations:
+                is_positive &= (results.clipper_num_associations >= num_associations_thresh)
+            
+            correct_registration = (
+                (results.clipper_angle_mat <= self.params.angular_err_thresh_deg) &
+                (results.clipper_dist_mat <= self.params.distance_err_thresh_m)
+            )
+            true_positives = (
+                (results.robots_nearby_mat <= self.params.evaluation_distance_m) &
+                is_positive & correct_registration
+            )
+            not_same_place = (
+                (results.robots_nearby_mat > self.params.evaluation_distance_m) |
+                (np.isnan(results.robots_nearby_mat))
+            )
+            false_positives = (
+                is_positive &
+                (
+                    # either the robots are farther away than thresh and the registration was wrong
+                    (not_same_place & ~correct_registration) | 
+                    # or they did overlap but the alignment was wrong
+                    ~correct_registration
+                )
+            )
+
+            num_false_positives = np.nansum(false_positives)
+            num_true_positives = np.nansum(true_positives)
+            precision = num_true_positives / (num_true_positives + num_false_positives) \
+                if (num_true_positives + num_false_positives) > 0 else float('nan')
+            recall = num_true_positives / num_relevant \
+                if num_relevant > 0 else float('nan')
+            precision_recall[name] = PR(precision=precision, recall=recall)
+        return precision_recall
+    
+    def evaluate_precision_recall_sweep(self) -> Dict[str, PRSweep]:
+        pr_sweep_results = {}
+        if self.params.precision_recall_sweep_use_num_assoc:
+            num_assoc_threshs = np.arange(
+                self.params.precision_recall_sweep_num_assoc[0],
+                self.params.precision_recall_sweep_num_assoc[1], + 1
+            )
+            submap_sim_threshs = np.array([
+                self.params.precision_recall_sweep_held_submap_sim
+                for _ in range(len(num_assoc_threshs))
+            ])
+        else:
+            submap_sim_threshs = np.linspace(
+                self.params.precision_recall_sweep_submap_sim[0],
+                self.params.precision_recall_sweep_submap_sim[1],
+                num=20
+            )
+            num_assoc_threshs = np.array([
+                self.params.precision_recall_sweep_held_num_assoc
+                for _ in range(len(submap_sim_threshs))
+            ])
+
+        for name, _ in self.results.items():
+
+            prs = []
+            for sim_thresh, assoc_thresh in zip(submap_sim_threshs, num_assoc_threshs):
+                prs.append(self.evaluate_submap_precision_recall(
+                    submap_similarity_thresh=sim_thresh,
+                    num_associations_thresh=assoc_thresh,
+                    names=[name]
+                )[name])
+            pr_sweep_results[name] = PRSweep.from_pr_list(prs)
+        return pr_sweep_results
+    
+    def evaluate_place_recognition(
+        self,
+        num_associations_thresh: int = 3,
+        names: List[str] = None,
+    ) -> Dict[str, PR]:
+        all_results = self._get_named_results(names)
+
+        precision_recall = {}
+        for name, results in all_results.items():
+            sim_matrix, dist_matrix = self._get_sim_and_dist_matrix(name)
+            
+            eval_matrix = dist_matrix < self.params.evaluation_distance_m
+
+            place_rec_succcess = None
+            # TODO cache these matrices
+            if self.params.place_rec_require_pose_success:
+                dist_err = self._aggregate_multi_robot_matrix(
+                    self._matrix_from_align_results(name, 'clipper_dist_mat'))
+                ang_err = self._aggregate_multi_robot_matrix(
+                    self._matrix_from_align_results(name, 'clipper_angle_mat'))
+                place_rec_succcess = (
+                    (ang_err <= self.params.angular_err_thresh_deg) &
+                    (dist_err <= self.params.distance_err_thresh_m)
+                )
+
+            overlap_matrix = dist_matrix < self.params.place_rec_overlap_dist
+            if self.params.place_rec_rm_no_overlap_queries:
+                sim_matrix = sim_matrix[np.any(eval_matrix, axis=1),:][:,np.any(eval_matrix, axis=0)]
+                if place_rec_succcess is not None:
+                    place_rec_succcess = place_rec_succcess[
+                        np.any(eval_matrix, axis=1),:][:,np.any(eval_matrix, axis=0)]
+                overlap_matrix = overlap_matrix[np.any(eval_matrix, axis=1),:][:,np.any(eval_matrix, axis=0)]
+                eval_matrix = eval_matrix[np.any(eval_matrix, axis=1),:][:,np.any(eval_matrix, axis=0)]
+            assert overlap_matrix.shape[0] > 0, "No overlapping submaps"
+
+            argmax_sim_i = np.nanargmax(sim_matrix, axis=1)
+            max_sim_i = sim_matrix[np.arange(sim_matrix.shape[0]), argmax_sim_i]
+            recall_at_0 = overlap_matrix[np.arange(overlap_matrix.shape[0]), argmax_sim_i].astype(np.bool_)
+            if place_rec_succcess is not None:
+                recall_at_0 = np.bitwise_and(recall_at_0, 
+                    place_rec_succcess[np.arange(overlap_matrix.shape[0]), argmax_sim_i].astype(np.bool_))
+
+
+            true_positives = np.sum(np.bitwise_and(max_sim_i >= num_associations_thresh, recall_at_0))
+            false_positives = np.sum(np.bitwise_and(max_sim_i >= num_associations_thresh, np.bitwise_not(recall_at_0)))
+            true_negatives = 0.0
+            false_negatives = np.sum(np.bitwise_or(max_sim_i < num_associations_thresh, np.bitwise_not(recall_at_0)))
+
+            precision = true_positives / (true_positives + false_positives) \
+                if (true_positives + false_positives) > 0 else float('nan')
+            recall = true_positives / (true_positives + false_negatives) \
+                if (true_positives + false_negatives) > 0 else float('nan')
+            precision_recall[name] = PR(precision=precision, recall=recall)
+
+        return precision_recall
+    
+    def evaluate_place_recognition_sweep(self) -> Dict[str, PRSweep]:
+        pr_sweep_results = {}
+        num_assoc_threshs = np.arange(
+            self.params.place_rec_sweep_num_assoc[0],
+            self.params.place_rec_sweep_num_assoc[1], + 1
+        )
+
+        for name, _ in self.results.items():
+
+            prs = []
+            for assoc_thresh in num_assoc_threshs:
+                prs.append(self.evaluate_place_recognition(
+                    num_associations_thresh=assoc_thresh,
+                    names=[name]
+                )[name])
+            pr_sweep_results[name] = PRSweep.from_pr_list(prs)
+        return pr_sweep_results
+    
+    def evaluate_timing(self) -> Dict[str, float]:
+        timing_results = {}
+        for name, results in self.results.items():
+            if results.timing_list is None:
+                timing_results[name] = float('nan')
+                continue
+            mean_time = np.nanmean(results.timing_list)
+            timing_results[name] = mean_time
+        return timing_results
+               
+    def plot_precision_recall_sweep(
+        self,
+        pr_sweeps: Dict[str, PRSweep],
+        fig: plt.Figure = None,
+        ax: plt.Axes = None,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        if fig is None:
+            fig = plt.gcf()
+        if ax is None:
+            ax = plt.gca()
+
+        for name, pr_sweep in pr_sweeps.items():
+            ax.plot(pr_sweep.recalls, pr_sweep.precisions, label=name)
+            
+        ax.set_xlabel("Recall")
+        ax.set_ylabel("Precision")
+        ax.set_title("Precision-Recall Curve")
 
     def _get_results_paths(self, eval_input: EvalInput) -> List[str]:
         dir_path = eval_input.get_directory()
@@ -228,8 +500,89 @@ class SubmapAlignEvaluator():
 
         trapezoid_world = rdp.transform.transform(cam_pose, trapezoid_cam)[:,:2]
         return shapely.geometry.Polygon(trapezoid_world)
-    
 
+    def _get_named_results(self, names: List[str] = None) -> Dict[str, SubmapAlignResults]:
+        if names is None:
+            return self.results
+        else:
+            return {name: self.results[name] for name in names if name in self.results}
+
+    def _get_sim_and_dist_matrix(self, name: str) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Construct a single similarity matrix and submap distance matrix. The rows
+            of the matrices correspond to submaps from all robots concatenated together,
+            and the columns correspond to submaps from all robots concatenated together or 
+            a single robot at a time (depending on self.params.place_rec_ref_is_single_robot).
+
+        Args:
+            name (str): Result name for which the matrices should be constructed.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: Similarity matrix (in terms of number 
+                of associations) and submap distance matrix.
+        """
+        if name in self.place_rec_sim_matrices and \
+              name in self.place_rec_submap_dist_matrices:
+            return (self.place_rec_sim_matrices[name],
+                    self.place_rec_submap_dist_matrices[name])
+
+        sim_matrix = self._matrix_from_align_results(eval_name=name, 
+                                                     matrix_name='clipper_num_associations')
+        submap_dist_matrix = self._matrix_from_align_results(eval_name=name,
+                                                            matrix_name='robots_nearby_mat')
+        
+        for i in range(len(self.params.robot_names)):
+            if sim_matrix[i][i] is None:
+                size_i = sim_matrix[i][i-1].shape[0]
+                sim_matrix[i][i] = np.zeros((size_i, size_i)) * np.nan
+                submap_dist_matrix[i][i] = np.zeros((size_i, size_i)) * np.nan
+
+        combined_sim_matrix = self._aggregate_multi_robot_matrix(sim_matrix)
+        combined_submap_dist_matrix = self._aggregate_multi_robot_matrix(submap_dist_matrix)
+        self.place_rec_sim_matrices[name] = combined_sim_matrix
+        self.place_rec_submap_dist_matrices[name] = combined_submap_dist_matrix
+        return combined_sim_matrix, combined_submap_dist_matrix
+    
+    def _matrix_from_align_results(self, eval_name: str, matrix_name: str):
+        matrix = [[None for _ in range(len(self.params.robot_names))] for _ in range(len(self.params.robot_names))]
+        for i, robot_i in enumerate(self.params.robot_names):
+            for j, robot_j in enumerate(self.params.robot_names):
+                if i == j:
+                    try:
+                        matrix[i][j] = np.nan * \
+                            self.separate_pairs_results[eval_name][(robot_i, robot_j)].__getattribute__(matrix_name)
+                    except KeyError as e:
+                        matrix[i][j] = None
+                elif j < i:
+                    matrix[i][j] = matrix[j][i].T
+                else:
+                    matrix[i][j] = \
+                        self.separate_pairs_results[eval_name][(robot_i, robot_j)].__getattribute__(matrix_name)
+        for i in range(len(self.params.robot_names)):
+            if matrix[i][i] is None:
+                size_i = matrix[i][i-1].shape[0]
+                matrix[i][i] = np.zeros((size_i, size_i)) * np.nan
+        return matrix
+    
+    def _aggregate_multi_robot_matrix(self, matrix: List[List[np.array]]):
+        if not self.params.place_rec_ref_is_single_robot:
+            matrix_combined = np.concatenate([
+                np.concatenate(matrix[i], axis=1) for i in range(len(matrix))\
+            ], axis=0)
+            return matrix_combined
+        else:
+            num_robots = len(matrix)
+            flattened_sim_matrix = [x for xs in matrix for x in xs]
+            max_num_submaps = np.max([x.shape[0] for x in flattened_sim_matrix])
+            matrix_combined = np.zeros((max_num_submaps*num_robots**2, max_num_submaps))*np.nan
+
+            for i in range(num_robots):
+                for j in range(num_robots):
+                    idx_i = i*max_num_submaps*num_robots + j*max_num_submaps
+                    matrix_combined[idx_i:idx_i + matrix[i][j].shape[0],
+                                    :matrix[i][j].shape[1]] = matrix[i][j]
+            return matrix_combined
+        
 def main():
     parser = argparse.ArgumentParser(description="Evaluate Submap Alignment Results")
     parser.add_argument("-s", "--eval-all-subdirs", nargs="+", type=str, default=[],
@@ -244,6 +597,8 @@ def main():
                         help="Remove alignments where there is no camera view overlap.")
     parser.add_argument("-d", "--eval-dist", type=float, default=10.0,
                         help="Distance threshold for evaluation (in meters).")
+    parser.add_argument("--plot-precision-recall", type=str, default=None,
+                        help="If set, saves precision-recall curves to the given image file.")
     args = parser.parse_args()
 
     eval_params = EvalParams(
@@ -279,11 +634,33 @@ def main():
             yaw_diff_min_deg=min_deg,
             yaw_diff_max_deg=max_deg
         )
+    precision_recall_sweeps = evaluator.evaluate_precision_recall_sweep()
+    place_rec_pr_sweeps = evaluator.evaluate_place_recognition_sweep()
+    timing_results = evaluator.evaluate_timing()
 
     for yaw_diff_label, rates in success_rates.items():
         print(f"\n=== Alignment Success Rates for Yaw Diff: {yaw_diff_label} ===")
         for name, rate in rates.items():
             print(f"{name}: {rate:.3f}")
+
+    print(f"\n=== Precision-Recall AUC Results ===")
+    for name, pr_sweep in precision_recall_sweeps.items():
+        print(f"{name}: {pr_sweep.get_auc():.3f}")
+
+    print(f"\n=== Place Recognition Precision-Recall AUC Results ===")
+    for name, pr_sweep in place_rec_pr_sweeps.items():
+        print(f"{name}: {pr_sweep.get_auc():.3f}")
+
+    print(f"\n=== Timing Results (ms) ===")
+    for name, time in timing_results.items():
+        print(f"{name}: {time*1e3:.1f}")
+
+    if args.plot_precision_recall is not None:
+        output_file = expandvars_recursive(args.plot_precision_recall)
+        fig, ax = plt.subplots()
+        evaluator.plot_precision_recall_sweep(precision_recall_sweeps, fig, ax)
+        plt.legend()
+        plt.savefig(output_file)
 
 if __name__ == "__main__":
     main()
