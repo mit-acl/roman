@@ -40,7 +40,7 @@ class EvalParams:
     distance_err_thresh_m: float = 1.0
     evaluation_distance_m: float = 10.0
     robot_names: List[str] = None
-    include_inter_robot: bool = False
+    include_intra_robot: bool = False
     rm_non_camera_overlap: bool = False
     cam_view_dist_bounds: Tuple[float, float] = (0.0, 20.0)
     T_ij_uses_rdf: bool = False
@@ -57,13 +57,13 @@ class EvalParams:
 
     
     def __post_init__(self):
-        assert not self.include_inter_robot, "Inter-robot evaluation not implemented yet."
+        assert not self.include_intra_robot, "Intra-robot evaluation not implemented yet."
 
     @property
     def robot_pairs(self) -> List[Tuple[str, str]]:
         pairs = []
         for i in range(len(self.robot_names)):
-            start_idx = i if self.include_inter_robot else i + 1
+            start_idx = i if self.include_intra_robot else i + 1
             for j in range(start_idx, len(self.robot_names)):
                 pairs.append((self.robot_names[i], self.robot_names[j]))
         return pairs
@@ -302,7 +302,7 @@ class SubmapAlignEvaluator():
             submap_sim_threshs = np.linspace(
                 self.params.precision_recall_sweep_submap_sim[0],
                 self.params.precision_recall_sweep_submap_sim[1],
-                num=20
+                num=100
             )
             num_assoc_threshs = np.array([
                 self.params.precision_recall_sweep_held_num_assoc
@@ -381,7 +381,7 @@ class SubmapAlignEvaluator():
         pr_sweep_results = {}
         num_assoc_threshs = np.arange(
             self.params.place_rec_sweep_num_assoc[0],
-            self.params.place_rec_sweep_num_assoc[1], + 1
+            self.params.place_rec_sweep_num_assoc[1] + 1,
         )
 
         for name, _ in self.results.items():
