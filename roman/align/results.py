@@ -17,15 +17,15 @@ from roman.object.segment import Segment
 
 @dataclass
 class SubmapAlignResults:
-    robots_nearby_mat: np.array
-    clipper_angle_mat: np.array
-    clipper_dist_mat: np.array
-    clipper_num_associations: np.array
-    similarity_mat: np.array
-    submap_yaw_diff_mat: np.array
-    associated_objs_mat: np.array
-    T_ij_mat: np.array
-    T_ij_hat_mat: np.array
+    robots_nearby_mat: np.ndarray
+    clipper_angle_mat: np.ndarray
+    clipper_dist_mat: np.ndarray
+    clipper_num_associations: np.ndarray
+    similarity_mat: np.ndarray
+    submap_yaw_diff_mat: np.ndarray
+    associated_objs_mat: np.ndarray
+    T_ij_mat: np.ndarray
+    T_ij_hat_mat: np.ndarray
     timing_list: List[float]
     submap_align_params: SubmapAlignParams
     submap_io: SubmapAlignInputOutput
@@ -37,7 +37,7 @@ class SubmapAlignResults:
         pkl_file.close()
         
     @classmethod
-    def load(self, file_path):
+    def load(self, file_path) -> 'SubmapAlignResults':
         pkl_file = open(file_path, 'rb')
         ret = pickle.load(pkl_file)
         pkl_file.close()
