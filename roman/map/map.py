@@ -64,6 +64,13 @@ class ROMANMap:
         if len(roman_maps) == 1:
             return reference
         elif len(roman_maps) == 2:
+
+            # edge case where one map is empty
+            if len(roman_maps[0].times) == 0:
+                return roman_maps[1]
+            if len(roman_maps[1].times) == 0:
+                return roman_maps[0]
+
             other = deepcopy(roman_maps[1])
             assert reference.poses_are_flu == other.poses_are_flu
             max_seg_id = max([seg.id for seg in reference.segments])
