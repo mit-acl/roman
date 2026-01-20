@@ -38,6 +38,17 @@ from roman.viz import viz_pointcloud_on_img
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARN)
 
+# Patch torch.load to disable weights_only loading for torch>2.4
+torch_version = torch.__version__.split('.')
+if int(torch_version[0]) > 2 or (int(torch_version[0]) == 2 and int(torch_version[1]) > 4):
+    _real_torch_load = torch.load
+
+    def torch_load_no_weights_only(*args, **kwargs):
+        kwargs["weights_only"] = False
+        return _real_torch_load(*args, **kwargs)
+
+    torch.load = torch_load_no_weights_only
+
 class FastSAMWrapper():
 
     def __init__(self, 
