@@ -7,18 +7,21 @@ img_data:
   topic: /${ROBOT}/forward/color/image_raw/compressed
   camera_info_topic: /${ROBOT}/forward/color/camera_info
   compressed: True
+  ignore_ros_time: True
   
 depth_data:
   path: "$BAG_DIR/$ROBOT.bag"
   topic: /${ROBOT}/forward/depth/image_rect_raw
   camera_info_topic: /${ROBOT}/forward/depth/camera_info
   compressed: False
+  ignore_ros_time: True
 
 pose_data:
   type: bag
   path: ${KMD_VIO_PATH}/${ROBOT}.bag
   topic: /${ROBOT}/kimera_vio_ros/odometry
   time_tol: 10.0
+  ignore_ros_time: True
   T_camera_flu:
     input_type: "string"
     string: "T_RDFFLU"
