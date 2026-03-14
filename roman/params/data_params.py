@@ -62,13 +62,14 @@ def find_transformation(bag_path, param_dict) -> np.array:
 
 @dataclass
 class ImgDataParams:
-    
+
     path: str
     topic: str
     camera_info_topic: str
     compressed: bool = True
     compressed_rvl: bool = False
     color_space: str = None
+    ignore_ros_time: bool = False
     
     @classmethod
     def from_dict(cls, params_dict: dict):
@@ -80,6 +81,7 @@ class PointCloudDataParams:
     path: str
     topic: str
     T_camera_rangesense: None
+    ignore_ros_time: bool = False
 
     @classmethod
     def from_dict(cls, params_dict: dict):
@@ -228,7 +230,8 @@ class DataParams:
             path=expandvars_recursive(self.pointcloud_data_params.path),
             topic=expandvars_recursive(self.pointcloud_data_params.topic),
             time_tol=self.dt / 2.0,
-            time_range=self.time_range
+            time_range=self.time_range,
+            ignore_ros_time=self.pointcloud_data_params.ignore_ros_time
         )
 
     def load_img_data(self) -> ImgData:
@@ -281,7 +284,8 @@ class DataParams:
                 time_range=self.time_range,
                 compressed=img_data_params.compressed,
                 compressed_rvl=img_data_params.compressed_rvl,
-                color_space=img_data_params.color_space
+                color_space=img_data_params.color_space,
+                ignore_ros_time=img_data_params.ignore_ros_time
             )
             img_data.extract_params(expandvars_recursive(img_data_params.camera_info_topic))
         return img_data

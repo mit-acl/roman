@@ -9,7 +9,7 @@ observed from opposite views.
 
 setup(
     name='roman',
-    version='0.1.4',
+    version='0.1.5',
     description=project_description,
     url='https://acl.mit.edu/roman',
     author='Mason Peterson, Lucas Jia, Yulun Tian, and Andy Li',
@@ -29,8 +29,8 @@ setup(
         'pyyaml',
         'torch>=2.4.0',
         'torchvision>=0.19.0',
-        'fastsam @ git+https://github.com/CASIA-IVA-Lab/FastSAM.git@4d153e9',
-        'robotdatapy>=1.1.0',
+        'setuptools<70',
+        'robotdatapy>=1.1.8',
         'gdown',
         'transformers'
     ],

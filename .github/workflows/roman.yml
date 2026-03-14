@@ -72,12 +72,12 @@ jobs:
             
       - name: Run demo
         run: |
-          export ROMAN_DEMO_DATA=$HOME/Data
+          export ROMAN_DEMO_DATA=$HOME/data/roman_kimera_multi_aligned
           export ROMAN_WEIGHTS=$PWD/weights
           source /opt/ros/humble/setup.bash
           mkdir demo_output
           python3 demo/demo.py \
-              -p params/demo \
+              -p params/demo_aligned_depth \
               -o demo_output 
 
       - name: Check Mapping Output
