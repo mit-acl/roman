@@ -7,12 +7,14 @@ img_data:
   topic: /${ROBOT}/forward/color/image_raw/compressed
   camera_info_topic: /${ROBOT}/forward/color/camera_info
   compressed: True
+  ignore_ros_time: True
   
 depth_data:
   path: "${ROMAN_DEMO_DATA}/${ROBOT}_camera.bag"
   topic: /${ROBOT}/forward/depth/image_rect_raw
   camera_info_topic: /${ROBOT}/forward/depth/camera_info
   compressed: False
+  ignore_ros_time: True
 
 pose_data:
   type: bag
@@ -22,3 +24,4 @@ pose_data:
   T_camera_flu:
     input_type: "string"
     string: "T_RDFFLU"
+  ignore_ros_time: True
