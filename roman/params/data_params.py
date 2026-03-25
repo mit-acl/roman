@@ -63,6 +63,7 @@ def find_transformation(bag_path, param_dict) -> np.array:
 @dataclass
 class ImgDataParams:
 
+    type: str
     path: str
     topic: str
     camera_info_topic: str
@@ -268,25 +269,28 @@ class DataParams:
         Returns:
             ImgData: Image data object.
         """
-        if self.kitti:
-            img_data = ImgData.from_kitti(self.img_data_params.path, 'rgb' if color else 'depth')
-            img_data.extract_params()
+        if color:
+            img_data_params = self.img_data_params
         else:
-            if color:
-                img_data_params = self.img_data_params
-            else:
-                img_data_params = self.depth_data_params
-            img_file_path = expandvars_recursive(img_data_params.path)
-            img_data = ImgData.from_bag(
-                path=img_file_path,
-                topic=expandvars_recursive(img_data_params.topic),
-                time_tol=self.dt / 2.0,
-                time_range=self.time_range,
-                compressed=img_data_params.compressed,
-                compressed_rvl=img_data_params.compressed_rvl,
-                color_space=img_data_params.color_space,
-                ignore_ros_time=img_data_params.ignore_ros_time
-            )
+            img_data_params = self.depth_data_params
+        img_file_path = expandvars_recursive(img_data_params.path)
+        params_dict = {
+            'type': img_data_params.type,
+            'path': img_file_path,
+            'topic': expandvars_recursive(img_data_params.topic),
+            'time_tol': self.dt / 2.0,
+            'time_range': self.time_range,
+            'compressed': img_data_params.compressed,
+            'compressed_rvl': img_data_params.compressed_rvl,
+            'color_space': img_data_params.color_space,
+            'ignore_ros_time': img_data_params.ignore_ros_time,
+        }
+        if img_data_params.type == 'kitti':
+            params_dict['kitti_type'] = 'rgb' if 'color' else 'depth'
+        img_data = ImgData.from_dict(params_dict)
+        if img_data_params.type == 'kitti':
+            img_data.extract_params()
+        elif img_data_params.type in ['bag', 'bag2']:
             img_data.extract_params(expandvars_recursive(img_data_params.camera_info_topic))
         return img_data
     
