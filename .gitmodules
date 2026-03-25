@@ -5,3 +5,6 @@
 [submodule "dependencies/Kimera-RPGO"]
 	path = dependencies/Kimera-RPGO
 	url = https://github.com/MIT-SPARK/Kimera-RPGO.git
+[submodule "dependencies/roman-trt-models"]
+	path = dependencies/roman-trt-models
+	url = https://github.com/liqyn/roman-trt-models.git

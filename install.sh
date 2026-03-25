@@ -13,6 +13,11 @@ mkdir $ROMAN_DIR/dependencies/Kimera-RPGO/build
 cd $ROMAN_DIR/dependencies/Kimera-RPGO/build
 cmake .. && make
 
+# Install TRT packages
+pip install $ROMAN_DIR/dependencies/roman-trt-models/FastSAM_TensorRT
+pip install $ROMAN_DIR/dependencies/roman-trt-models/YOLOv8_TensorRT
+pip install $ROMAN_DIR/dependencies/roman-trt-models/DINOv2_TensorRT
+
 # pip install
 cd $ROMAN_DIR
 pip install --no-build-isolation git+https://github.com/CASIA-IVA-Lab/FastSAM.git@4d153e9

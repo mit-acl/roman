@@ -79,6 +79,8 @@ class FastSAMParams:
     triangle_ignore_masks: List[Tuple[Tuple[int,int], Tuple[int,int], Tuple[int,int]]] = None
     conf: float = .5
     iou: float = .9
+    use_trt: bool = False
+    trt_fp16: bool = False
 
     def __post_init__(self):
         if self.frame_descriptor.lower() == 'none':

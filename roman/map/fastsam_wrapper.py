@@ -12,21 +12,18 @@
 #########################################
 
 
+import os
 import cv2 as cv
 import numpy as np
 from numpy.typing import ArrayLike
 import open3d as o3d
 import copy
 import torch
-from yolov7_package import Yolov7Detector
 import math
 import time
 from PIL import Image
-from fastsam import FastSAMPrompt
-from fastsam import FastSAM
 import clip
 import logging
-from transformers import AutoImageProcessor, AutoModel
 
 from robotdatapy.camera import CameraParams
 
@@ -49,31 +46,80 @@ if int(torch_version[0]) > 2 or (int(torch_version[0]) == 2 and int(torch_versio
 
     torch.load = torch_load_no_weights_only
 
+
+def _ensure_trt(pt_path, img_size, pt2onnx_fn, onnx2trt_fn, fp16=False):
+    """Auto-convert .pt -> .onnx -> .trt if the TRT engine doesn't exist yet."""
+    stem = os.path.splitext(os.path.basename(pt_path))[0]
+    directory = os.path.dirname(pt_path)
+    suffix = f"_{img_size}_fp16" if fp16 else f"_{img_size}"
+    trt_path = os.path.join(directory, f"{stem}{suffix}.trt")
+    if os.path.exists(trt_path):
+        return trt_path
+    onnx_path = os.path.join(directory, f"{stem}_{img_size}.onnx")
+    if not os.path.exists(onnx_path):
+        logger.info(f"Exporting ONNX: {pt_path} -> {onnx_path}")
+        pt2onnx_fn(pt_path, onnx_path, img_size)
+    logger.info(f"Building TRT engine: {onnx_path} -> {trt_path}")
+    onnx2trt_fn(onnx_path, trt_path, img_size, fp16=fp16)
+    return trt_path
+
+
+def _ensure_dino_trt(model_name, directory, img_size, pt2onnx_fn, onnx2trt_fn,
+                     min_sz=None, opt_sz=None, max_sz=None, fp16=False):
+    """Auto-convert a HuggingFace DINOv2 model to TRT if the engine doesn't exist yet.
+
+    Args:
+        min_sz/opt_sz/max_sz: Optional (batch, h, w) 3-tuples for dynamic TRT profiles.
+            When provided, the engine name includes 'dynamic' instead of a fixed size.
+    """
+    stem = model_name.split('/')[-1]  # 'facebook/dinov2-base' -> 'dinov2-base'
+    dynamic = min_sz is not None and opt_sz is not None and max_sz is not None
+    tag = f"{img_size}_dynamic" if dynamic else str(img_size)
+    suffix = f"_{tag}_fp16" if fp16 else f"_{tag}"
+    trt_path = os.path.join(directory, f"{stem}{suffix}.trt")
+    if os.path.exists(trt_path):
+        return trt_path
+    onnx_path = os.path.join(directory, f"{stem}_{img_size}.onnx")
+    if not os.path.exists(onnx_path):
+        logger.info(f"Exporting ONNX: {model_name} -> {onnx_path}")
+        pt2onnx_fn(model_name, onnx_path, img_size)
+    logger.info(f"Building TRT engine: {onnx_path} -> {trt_path}")
+    onnx2trt_fn(onnx_path, trt_path, img_size,
+                min_sz=min_sz, opt_sz=opt_sz, max_sz=max_sz, fp16=fp16)
+    return trt_path
+
+TRT_TIMING = True
+
 class FastSAMWrapper():
 
-    def __init__(self, 
-        weights, 
-        conf=.5, 
+    def __init__(self,
+        weights,
+        conf=.5,
         iou=.9,
         imgsz=(1024, 1024),
         device='cuda',
         mask_downsample_factor=1,
         rotate_img=None,
-        use_pointcloud=False
+        use_pointcloud=False,
+        use_trt=False,
+        trt_fp16=False,
     ):
         """Wrapper for running FastSAM on images (RGB/depth data)
 
         Args:
-            weights (str): Path to FastSAM weights.
+            weights (str): Path to FastSAM weights (.pt). When use_trt=True, the TRT engine
+                is auto-created alongside the weights if it doesn't exist yet.
             conf (float, optional): FastSAM confidence threshold. Defaults to .5.
             iou (float, optional): FastSAM IOU threshold. Defaults to .9.
             imgsz (tuple, optional): Image size to feed into FastSAM. Defaults to (1024, 1024).
             device (str, optional): 'cuda' or 'cpu. Defaults to 'cuda'.
-            mask_downsample_factor (int, optional): For creating smaller data observations. 
+            mask_downsample_factor (int, optional): For creating smaller data observations.
                 Defaults to 1.
-            rotate_img (_type_, optional): 'CW', 'CCW', or '180' for rotating image before 
+            rotate_img (_type_, optional): 'CW', 'CCW', or '180' for rotating image before
                 feeding into FastSAM. Defaults to None.
             use_pointcloud (bool, optional): True if depth data source is pointcloud
+            use_trt (bool, optional): Use TensorRT-accelerated inference. Defaults to False.
+            trt_fp16 (bool, optional): Use FP16 precision for TRT engines. Defaults to False.
         """
         # parameters
         self.weights = weights
@@ -84,10 +130,27 @@ class FastSAMWrapper():
         self.mask_downsample_factor = mask_downsample_factor
         self.rotate_img = rotate_img
         self.use_pointcloud = use_pointcloud
+        self.use_trt = use_trt
+        self.trt_fp16 = trt_fp16
 
         # member variables
         self.observations = []
-        self.model = FastSAM(weights)
+        if use_trt:
+            from fastsam_trt import FastSAM_TRT
+            from fastsam_trt import pt2onnx as fastsam_pt2onnx, onnx2trt as fastsam_onnx2trt
+            assert imgsz[0] == imgsz[1], f"TRT requires square imgsz, got {imgsz}"
+            trt_path = _ensure_trt(weights, imgsz[0], fastsam_pt2onnx, fastsam_onnx2trt, fp16=trt_fp16)
+            self.model = FastSAM_TRT(
+                model_weights=trt_path,
+                img_size=imgsz[0],
+                conf=conf,
+                iou=iou,
+                timing=TRT_TIMING,
+            )
+            self.model.warmup()
+        else:
+            from fastsam import FastSAMPrompt, FastSAM
+            self.model = FastSAM(weights)
         # setup default filtering
         self.setup_filtering()
 
@@ -105,7 +168,9 @@ class FastSAMWrapper():
             rotate_img=params.rotate_img,
             use_pointcloud=params.use_pointcloud,
             conf=params.conf,
-            iou=params.iou
+            iou=params.iou,
+            use_trt=params.use_trt,
+            trt_fp16=params.trt_fp16,
         )
         fastsam.setup_rgbd_params(
             depth_cam_params=depth_cam_params, 
@@ -166,9 +231,26 @@ class FastSAMWrapper():
         self.keep_labels = keep_labels
         self.keep_labels_option=keep_labels_option
         if len(ignore_labels) > 0 or use_keep_labels:
-            if yolo_det_img_size is None:
-                yolo_det_img_size=self.imgsz
-            self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size, weights=yolo_weights)
+            if self.use_trt:
+                from yolov8_trt import YOLOv8_TRT, COCO_NAMES
+                from yolov8_trt import pt2onnx as yolo_pt2onnx, onnx2trt as yolo_onnx2trt
+                if yolo_det_img_size is None:
+                    yolo_det_img_size = self.imgsz
+                assert yolo_det_img_size[0] == yolo_det_img_size[1], \
+                    f"TRT requires square yolo_imgsz, got {yolo_det_img_size}"
+                trt_path = _ensure_trt(yolo_weights, yolo_det_img_size[0], yolo_pt2onnx, yolo_onnx2trt, fp16=self.trt_fp16)
+                self.yolo_det = YOLOv8_TRT(
+                    model_weights=trt_path,
+                    img_size=yolo_det_img_size[0],
+                    timing=TRT_TIMING,
+                )
+                self.yolo_det.warmup()
+                self.yolo_class_names = COCO_NAMES
+            else:
+                from yolov7_package import Yolov7Detector
+                if yolo_det_img_size is None:
+                    yolo_det_img_size=self.imgsz
+                self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size, weights=yolo_weights)
         
         self.area_bounds = area_bounds
         self.allow_tblr_edges= allow_tblr_edges
@@ -182,10 +264,34 @@ class FastSAMWrapper():
             clip_model = 'ViT-L/14'
             self.semantics_model, self.semantics_preprocess = clip.load(clip_model, device=self.device)
         elif semantics.lower() == 'dino':
-            self.semantics_preprocess = AutoImageProcessor.from_pretrained('facebook/dinov2-base', do_center_crop=False)
-            self.semantics_model = AutoModel.from_pretrained('facebook/dinov2-base')
-            self.semantics_model.eval()
-            self.semantics_model.to(self.device)
+            dino_model_name = 'facebook/dinov2-base'
+            if self.use_trt:
+                from dinov2_trt import DINOv2_TRT
+                from dinov2_trt import pt2onnx as dino_pt2onnx, onnx2trt as dino_onnx2trt
+                self.dino_shape = 768
+                dino_img_size = 256 # square
+                weights_dir = os.path.dirname(self.weights)
+                trt_path = _ensure_dino_trt( # dynamic engine for different image resolutions
+                    dino_model_name, weights_dir, dino_img_size,
+                    dino_pt2onnx, dino_onnx2trt,
+                    min_sz=(1, dino_img_size, dino_img_size),
+                    opt_sz=(1, dino_img_size, 2 * dino_img_size),
+                    max_sz=(1, 3 * dino_img_size, 3 * dino_img_size), # handle vertical images too
+                    fp16=self.trt_fp16,
+                )
+                self.semantics_model = DINOv2_TRT(
+                    model_weights=trt_path,
+                    img_size=dino_img_size,
+                    timing=TRT_TIMING,
+                )
+                self.semantics_model.warmup()
+                self.semantics_preprocess = None
+            else:
+                from transformers import AutoImageProcessor, AutoModel
+                self.semantics_preprocess = AutoImageProcessor.from_pretrained(dino_model_name, do_center_crop=False)
+                self.semantics_model = AutoModel.from_pretrained(dino_model_name)
+                self.semantics_model.eval()
+                self.semantics_model.to(self.device)
         else:
             raise ValueError(f"Invalid semantics option: {semantics}. Choose from 'clip', 'dino', or 'none'.")
         self.semantic_patches_shape = None
@@ -286,15 +392,18 @@ class FastSAMWrapper():
         
         if self.semantics == 'dino':
             # Process the image for DINO
-            dino_shape = 768
-            img_rgb = cv.cvtColor(img, cv.COLOR_BGR2RGB)
-            preprocessed = self.semantics_preprocess(images=img_rgb, return_tensors="pt").to(self.device)
-            dino_output = self.semantics_model(**preprocessed)
-            dino_output_patches = self.get_output_patches(
-                model_output=dino_output.last_hidden_state, 
-                img_shape=img.shape, 
-                feature_dim=dino_shape
-            )
+            if self.use_trt:
+                dino_output_patches = self.semantics_model.embed(img, reshape=True)
+            else:
+                img_rgb = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+                preprocessed = self.semantics_preprocess(images=img_rgb, return_tensors="pt").to(self.device)
+                dino_output = self.semantics_model(**preprocessed)
+                dino_last_hidden = dino_output.last_hidden_state
+                dino_output_patches = self.get_output_patches(
+                    model_output=dino_last_hidden,
+                    img_shape=img.shape,
+                    feature_dim=self.dino_shape
+                )
             dino_features = self.get_per_pixel_features(
                 model_output_patches=dino_output_patches,
                 img_shape=img.shape
@@ -441,15 +550,25 @@ class FastSAMWrapper():
         
         if len(img.shape) == 2: # image is mono
             img = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
-        classes, boxes, scores = self.yolov7_det.detect(img)
+
         ignore_boxes = []
         keep_boxes = []
-        for i, cl in enumerate(classes[0]):
-            if self.yolov7_det.names[cl] in self.ignore_labels:
-                ignore_boxes.append(boxes[0][i])
-
-            if self.yolov7_det.names[cl] in self.keep_labels:
-                keep_boxes.append(boxes[0][i])
+        if self.use_trt:
+            dets = self.yolo_det.detect(img)
+            dets_np = dets.cpu().numpy() if len(dets) > 0 else np.empty((0, 6))
+            for x1, y1, x2, y2, conf, cls_id in dets_np:
+                name = self.yolo_class_names[int(cls_id)]
+                if name in self.ignore_labels:
+                    ignore_boxes.append([x1, y1, x2, y2])
+                if name in self.keep_labels:
+                    keep_boxes.append([x1, y1, x2, y2])
+        else:
+            classes, boxes, scores = self.yolov7_det.detect(img)
+            for i, cl in enumerate(classes[0]):
+                if self.yolov7_det.names[cl] in self.ignore_labels:
+                    ignore_boxes.append(boxes[0][i])
+                if self.yolov7_det.names[cl] in self.keep_labels:
+                    keep_boxes.append(boxes[0][i])
 
         ignore_mask = np.zeros(img.shape[:2]).astype(np.int8)
         for box in ignore_boxes:
@@ -511,24 +630,33 @@ class FastSAMWrapper():
             (fig, ax) (Matplotlib fig, ax): fig and ax with visualization
         """
 
-        # OpenCV uses BGR images, but FastSAM and Matplotlib require an RGB image, so convert.
-        image = cv.cvtColor(image_bgr, cv.COLOR_BGR2RGB)
-
-        # Run FastSAM
-        everything_results = self.model(image, 
-                                        retina_masks=True, 
-                                        device=self.device, 
-                                        imgsz=self.imgsz, 
-                                        conf=self.conf, 
-                                        iou=self.iou)
-        prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
-        segmask = prompt_process.everything_prompt()
-
-        # If there were segmentations detected by FastSAM, transfer them from GPU to CPU and convert to Numpy arrays
-        if (len(segmask) > 0):
-            segmask = segmask.cpu().numpy()
+        if self.use_trt:
+            # TRT model takes BGR directly, returns (N, H, W) masks on GPU
+            try:
+                masks_gpu = self.model.segment(image_bgr)
+                segmask = masks_gpu.cpu().numpy() if masks_gpu is not None and len(masks_gpu) > 0 else None
+            except (AttributeError, RuntimeError):
+                segmask = None
         else:
-            segmask = None
+            from fastsam import FastSAMPrompt
+            # OpenCV uses BGR images, but FastSAM and Matplotlib require an RGB image, so convert.
+            image = cv.cvtColor(image_bgr, cv.COLOR_BGR2RGB)
+
+            # Run FastSAM
+            everything_results = self.model(image,
+                                            retina_masks=True,
+                                            device=self.device,
+                                            imgsz=self.imgsz,
+                                            conf=self.conf,
+                                            iou=self.iou)
+            prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
+            segmask = prompt_process.everything_prompt()
+
+            # If there were segmentations detected by FastSAM, transfer them from GPU to CPU and convert to Numpy arrays
+            if (len(segmask) > 0):
+                segmask = segmask.cpu().numpy()
+            else:
+                segmask = None
 
         if (segmask is not None):
             # FastSAM provides a numMask-channel image in shape C, H, W where each channel in the image is a binary mask
