@@ -3,12 +3,14 @@ runs: ["sparkal1", "sparkal2"]
 run_env: "ROBOT"
 
 img_data:
+  type: bag
   path: "${ROMAN_DEMO_DATA}/${ROBOT}_camera.bag"
   topic: /${ROBOT}/forward/color/image_raw/compressed
   camera_info_topic: /${ROBOT}/forward/color/camera_info
   compressed: True
   
 depth_data:
+  type: bag
   path: "${ROMAN_DEMO_DATA}/${ROBOT}_camera.bag"
   topic: /${ROBOT}/forward/depth/image_rect_raw
   camera_info_topic: /${ROBOT}/forward/depth/camera_info
