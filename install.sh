@@ -13,7 +13,8 @@ mkdir $ROMAN_DIR/dependencies/Kimera-RPGO/build
 cd $ROMAN_DIR/dependencies/Kimera-RPGO/build
 cmake .. && make
 
-# Install TRT packages
+# Install TRT packages (shared tools first, then model-specific packages)
+pip install $ROMAN_DIR/dependencies/roman-trt-models/ONNX_TensorRT_Tools
 pip install $ROMAN_DIR/dependencies/roman-trt-models/FastSAM_TensorRT
 pip install $ROMAN_DIR/dependencies/roman-trt-models/YOLOv8_TensorRT
 pip install $ROMAN_DIR/dependencies/roman-trt-models/DINOv2_TensorRT
