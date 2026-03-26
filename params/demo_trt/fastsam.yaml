@@ -18,5 +18,8 @@ depth_scale: 1000.0
 max_depth: 7.5
 frame_descriptor: 'dino-gem'
 
-use_trt: True # CUDA + tensorRT required
+# CUDA + tensorRT required
+use_trt_fastsam: True
+use_trt_yolo: True
+use_trt_dino: True
 trt_fp16: True

@@ -101,14 +101,16 @@ class FastSAMWrapper():
         mask_downsample_factor=1,
         rotate_img=None,
         use_pointcloud=False,
-        use_trt=False,
+        use_trt_fastsam=False,
+        use_trt_yolo=False,
+        use_trt_dino=False,
         trt_fp16=False,
     ):
         """Wrapper for running FastSAM on images (RGB/depth data)
 
         Args:
-            weights (str): Path to FastSAM weights (.pt). When use_trt=True, the TRT engine
-                is auto-created alongside the weights if it doesn't exist yet.
+            weights (str): Path to FastSAM weights (.pt). When use_trt_fastsam=True, the TRT
+                engine is auto-created alongside the weights if it doesn't exist yet.
             conf (float, optional): FastSAM confidence threshold. Defaults to .5.
             iou (float, optional): FastSAM IOU threshold. Defaults to .9.
             imgsz (tuple, optional): Image size to feed into FastSAM. Defaults to (1024, 1024).
@@ -118,7 +120,9 @@ class FastSAMWrapper():
             rotate_img (_type_, optional): 'CW', 'CCW', or '180' for rotating image before
                 feeding into FastSAM. Defaults to None.
             use_pointcloud (bool, optional): True if depth data source is pointcloud
-            use_trt (bool, optional): Use TensorRT-accelerated inference. Defaults to False.
+            use_trt_fastsam (bool, optional): Use TensorRT for FastSAM. Defaults to False.
+            use_trt_yolo (bool, optional): Use TensorRT for YOLOv8 detection. Defaults to False.
+            use_trt_dino (bool, optional): Use TensorRT for DINOv2 features. Defaults to False.
             trt_fp16 (bool, optional): Use FP16 precision for TRT engines. Defaults to False.
         """
         # parameters
@@ -130,12 +134,14 @@ class FastSAMWrapper():
         self.mask_downsample_factor = mask_downsample_factor
         self.rotate_img = rotate_img
         self.use_pointcloud = use_pointcloud
-        self.use_trt = use_trt
+        self.use_trt_fastsam = use_trt_fastsam
+        self.use_trt_yolo = use_trt_yolo
+        self.use_trt_dino = use_trt_dino
         self.trt_fp16 = trt_fp16
 
         # member variables
         self.observations = []
-        if use_trt:
+        if use_trt_fastsam:
             from fastsam_trt import FastSAM_TRT
             from fastsam_trt import pt2onnx as fastsam_pt2onnx, onnx2trt as fastsam_onnx2trt
             assert imgsz[0] == imgsz[1], f"TRT requires square imgsz, got {imgsz}"
@@ -169,7 +175,9 @@ class FastSAMWrapper():
             use_pointcloud=params.use_pointcloud,
             conf=params.conf,
             iou=params.iou,
-            use_trt=params.use_trt,
+            use_trt_fastsam=params.use_trt_fastsam,
+            use_trt_yolo=params.use_trt_yolo,
+            use_trt_dino=params.use_trt_dino,
             trt_fp16=params.trt_fp16,
         )
         fastsam.setup_rgbd_params(
@@ -231,7 +239,7 @@ class FastSAMWrapper():
         self.keep_labels = keep_labels
         self.keep_labels_option=keep_labels_option
         if len(ignore_labels) > 0 or use_keep_labels:
-            if self.use_trt:
+            if self.use_trt_yolo:
                 from yolov8_trt import YOLOv8_TRT, COCO_NAMES
                 from yolov8_trt import pt2onnx as yolo_pt2onnx, onnx2trt as yolo_onnx2trt
                 if yolo_det_img_size is None:
@@ -265,10 +273,10 @@ class FastSAMWrapper():
             self.semantics_model, self.semantics_preprocess = clip.load(clip_model, device=self.device)
         elif semantics.lower() == 'dino':
             dino_model_name = 'facebook/dinov2-base'
-            if self.use_trt:
+            self.dino_shape = 768
+            if self.use_trt_dino:
                 from dinov2_trt import DINOv2_TRT
                 from dinov2_trt import pt2onnx as dino_pt2onnx, onnx2trt as dino_onnx2trt
-                self.dino_shape = 768
                 dino_img_size = 256 # square
                 weights_dir = os.path.dirname(self.weights)
                 trt_path = _ensure_dino_trt( # dynamic engine for different image resolutions
@@ -392,7 +400,7 @@ class FastSAMWrapper():
         
         if self.semantics == 'dino':
             # Process the image for DINO
-            if self.use_trt:
+            if self.use_trt_dino:
                 dino_output_patches = self.semantics_model.embed(img, reshape=True)
             else:
                 img_rgb = cv.cvtColor(img, cv.COLOR_BGR2RGB)
@@ -553,7 +561,7 @@ class FastSAMWrapper():
 
         ignore_boxes = []
         keep_boxes = []
-        if self.use_trt:
+        if self.use_trt_yolo:
             dets = self.yolo_det.detect(img)
             dets_np = dets.cpu().numpy() if len(dets) > 0 else np.empty((0, 6))
             for x1, y1, x2, y2, conf, cls_id in dets_np:
@@ -630,7 +638,7 @@ class FastSAMWrapper():
             (fig, ax) (Matplotlib fig, ax): fig and ax with visualization
         """
 
-        if self.use_trt:
+        if self.use_trt_fastsam:
             # TRT model takes BGR directly, returns (N, H, W) masks on GPU
             try:
                 masks_gpu = self.model.segment(image_bgr)
