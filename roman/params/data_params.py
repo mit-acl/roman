@@ -58,24 +58,7 @@ def find_transformation(bag_path, param_dict) -> np.array:
     elif param_dict['input_type'] == 'matrix':
         return np.array(param_dict['matrix']).reshape((4, 4))
     else:
-        raise ValueError("Invalid input type.")
-
-@dataclass
-class ImgDataParams:
-
-    type: str
-    path: str
-    topic: str
-    camera_info_topic: str
-    compressed: bool = True
-    compressed_rvl: bool = False
-    color_space: str = None
-    ignore_ros_time: bool = False
-    
-    @classmethod
-    def from_dict(cls, params_dict: dict):
-        return cls(**params_dict)
-    
+        raise ValueError("Invalid input type.")    
 
 @dataclass
 class PointCloudDataParams:
@@ -149,8 +132,8 @@ class PoseDataParams:
 @dataclass
 class DataParams:
     
-    img_data_params: ImgDataParams
-    depth_data_params: ImgDataParams
+    img_data_params: dict
+    depth_data_params: dict
     pointcloud_data_params: PointCloudDataParams
     pose_data_params: PoseDataParams
     use_pointcloud: bool = False
@@ -167,6 +150,15 @@ class DataParams:
             assert 't0' in self.time_params, "t0 must be specified in params"
             assert 'tf' in self.time_params, "tf must be specified in params"
         
+        # set default img data type for backwards compatibility
+        for params in [self.img_data_params, self.depth_data_params]:
+            # continue if depth data params is None
+            if not params:
+                continue
+            params['time_tol'] = self.dt / 2.0
+            if 'type' not in params:
+                params['type'] = 'bag'
+
     @classmethod
     def from_yaml(cls, yaml_path: str, run: str = None):
         with open(yaml_path) as f:
@@ -186,8 +178,8 @@ class DataParams:
         else:
             run_data = data
         return cls(
-            ImgDataParams.from_dict(run_data['img_data']),
-            ImgDataParams.from_dict(run_data['depth_data']) if 'depth_data' in run_data else None,
+            run_data['img_data'],
+            run_data['depth_data'] if 'depth_data' in run_data else None,
             PointCloudDataParams.from_dict(run_data['pointcloud_data']) if 'pointcloud_data' in run_data else None,
             PoseDataParams.from_dict(run_data['pose_data']),
             use_pointcloud=run_data['depth_source'] == 'pointcloud' if 'depth_source' in run_data else \
@@ -273,25 +265,21 @@ class DataParams:
             img_data_params = self.img_data_params
         else:
             img_data_params = self.depth_data_params
-        img_file_path = expandvars_recursive(img_data_params.path)
-        params_dict = {
-            'type': img_data_params.type,
-            'path': img_file_path,
-            'topic': expandvars_recursive(img_data_params.topic),
-            'time_tol': self.dt / 2.0,
-            'time_range': self.time_range,
-            'compressed': img_data_params.compressed,
-            'compressed_rvl': img_data_params.compressed_rvl,
-            'color_space': img_data_params.color_space,
-            'ignore_ros_time': img_data_params.ignore_ros_time,
-        }
-        if img_data_params.type == 'kitti':
-            params_dict['kitti_type'] = 'rgb' if 'color' else 'depth'
-        img_data = ImgData.from_dict(params_dict)
-        if img_data_params.type == 'kitti':
+
+        # TODO: This has to be here right now because other files 
+        # externally change time_params - this should probably have a
+        # function for externally changing time_params instead
+        img_data_params['time_range'] = self.time_range
+
+        # expand env variables
+        for k, v in img_data_params.items():
+            if isinstance(v, str):
+                img_data_params[k] = expandvars_recursive(v)
+
+        img_data = ImgData.from_dict(img_data_params)
+        
+        if img_data_params['type'] == 'kitti':
             img_data.extract_params()
-        elif img_data_params.type in ['bag', 'bag2']:
-            img_data.extract_params(expandvars_recursive(img_data_params.camera_info_topic))
         return img_data
     
     def _extract_time_range(self) -> Tuple[float, float]:
@@ -329,6 +317,9 @@ class DataParams:
     
     @cached_property
     def data_t_range(self) -> float:
-        return ImgData.topic_t_range(expandvars_recursive(self.img_data_params.path), 
-                                     expandvars_recursive(self.img_data_params.topic))
+        if self.img_data_params['type'] in ['bag', 'bag2']:
+            return ImgData.topic_t_range(self.img_data_params['path'], 
+                                     self.img_data_params['topic'])
+        else:
+            raise NotImplementedError("data_t_range not implemented for this img data type")
         
