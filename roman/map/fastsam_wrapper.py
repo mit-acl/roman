@@ -239,11 +239,11 @@ class FastSAMWrapper():
         self.keep_labels = keep_labels
         self.keep_labels_option=keep_labels_option
         if len(ignore_labels) > 0 or use_keep_labels:
+            if yolo_det_img_size is None:
+                yolo_det_img_size = self.imgsz
             if self.use_trt_yolo:
                 from yolov8_trt import YOLOv8_TRT, COCO_NAMES
                 from yolov8_trt import pt2onnx as yolo_pt2onnx, onnx2trt as yolo_onnx2trt
-                if yolo_det_img_size is None:
-                    yolo_det_img_size = self.imgsz
                 assert yolo_det_img_size[0] == yolo_det_img_size[1], \
                     f"TRT requires square yolo_imgsz, got {yolo_det_img_size}"
                 trt_path = _ensure_trt(yolo_weights, yolo_det_img_size[0], yolo_pt2onnx, yolo_onnx2trt, fp16=self.trt_fp16)
@@ -256,8 +256,6 @@ class FastSAMWrapper():
                 self.yolo_class_names = COCO_NAMES
             else:
                 from yolov7_package import Yolov7Detector
-                if yolo_det_img_size is None:
-                    yolo_det_img_size=self.imgsz
                 self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size, weights=yolo_weights)
         
         self.area_bounds = area_bounds
@@ -277,7 +275,7 @@ class FastSAMWrapper():
             if self.use_trt_dino:
                 from dinov2_trt import DINOv2_TRT
                 from dinov2_trt import pt2onnx as dino_pt2onnx, onnx2trt as dino_onnx2trt
-                dino_img_size = 256 # square
+                dino_img_size = 256 # maintain aspect ratio, min side rescaled to 256px
                 weights_dir = os.path.dirname(self.weights)
                 trt_path = _ensure_dino_trt( # dynamic engine for different image resolutions
                     dino_model_name, weights_dir, dino_img_size,
