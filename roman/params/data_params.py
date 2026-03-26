@@ -17,6 +17,7 @@ from typing import List, Tuple
 from functools import cached_property
 
 from robotdatapy.data import ImgData, PoseData, PointCloudData
+from robotdatapy.camera import CameraParams
 from robotdatapy.transform import T_FLURDF, T_RDFFLU
 
 from roman.utils import expandvars_recursive, combinedicts_recursive
@@ -276,10 +277,20 @@ class DataParams:
             if isinstance(v, str):
                 img_data_params[k] = expandvars_recursive(v)
 
+        camera_params_dict = img_data_params.pop('camera_params', None)
         img_data = ImgData.from_dict(img_data_params)
-        
+
         if img_data_params['type'] == 'kitti':
             img_data.extract_params()
+        elif camera_params_dict is not None:
+            cp = camera_params_dict
+            K = np.array([[cp['fx'], 0, cp['cx']],
+                          [0, cp['fy'], cp['cy']],
+                          [0,       0,        1]])
+            D = np.array(cp['D']) if 'D' in cp else np.zeros(4)
+            img_data.camera_params = CameraParams(
+                K=K, D=D,
+                width=cp['width'], height=cp['height'])
         return img_data
     
     def _extract_time_range(self) -> Tuple[float, float]:
