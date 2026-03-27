@@ -3,6 +3,7 @@ runs: ["acl_jackal", "acl_jackal2", "sparkal1", "sparkal2", "hathor", "thoth"]
 run_env: "ROBOT"
 
 img_data:
+  type: bag
   path: "$BAG_DIR/$ROBOT.bag"
   topic: /${ROBOT}/forward/color/image_raw/compressed
   camera_info_topic: /${ROBOT}/forward/color/camera_info
@@ -10,6 +11,7 @@ img_data:
   ignore_ros_time: True
   
 depth_data:
+  type: bag
   path: "$BAG_DIR/$ROBOT.bag"
   topic: /${ROBOT}/forward/depth/image_rect_raw
   camera_info_topic: /${ROBOT}/forward/depth/camera_info
