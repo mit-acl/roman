@@ -8,6 +8,7 @@ img_data:
   topic: /${ROBOT}/forward/color/image_raw/compressed
   camera_info_topic: /${ROBOT}/forward/color/camera_info
   compressed: True
+  ignore_ros_time: True
   
 depth_data:
   type: bag
@@ -15,6 +16,7 @@ depth_data:
   topic: /${ROBOT}/forward/aligned_depth_to_color/image_raw
   camera_info_topic: /${ROBOT}/forward/aligned_depth_to_color/camera_info
   compressed: False
+  ignore_ros_time: True
 
 pose_data:
   type: bag
@@ -24,3 +26,4 @@ pose_data:
   T_camera_flu:
     input_type: "string"
     string: "T_RDFFLU"
+  ignore_ros_time: True
