@@ -41,6 +41,11 @@ jobs:
       #     sudo make install
       #     cd ../..
 
+      - name: Clean dependency build dirs
+        run: |
+          rm -rf dependencies/clipper/build
+          rm -rf dependencies/Kimera-RPGO/build
+
       - name: Run install.sh
         run: |
           pwd
