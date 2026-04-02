@@ -77,6 +77,9 @@ jobs:
             
       - name: Run demo
         run: |
+          mkdir -p gtsam_lib_override
+          ln -sf /usr/local/lib/libgtsam.so.4.2.0 gtsam_lib_override/libgtsam.so.4
+          export LD_LIBRARY_PATH=$PWD/gtsam_lib_override:$LD_LIBRARY_PATH
           export ROMAN_DEMO_DATA=$HOME/data/roman_kimera_multi_aligned
           export ROMAN_WEIGHTS=$PWD/weights
           source /opt/ros/humble/setup.bash
