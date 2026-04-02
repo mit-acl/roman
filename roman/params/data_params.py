@@ -331,6 +331,9 @@ class DataParams:
         if self.img_data_params['type'] in ['bag', 'bag2']:
             return ImgData.topic_t_range(self.img_data_params['path'], 
                                      self.img_data_params['topic'])
+        elif self.img_data_params['type'] in ['dir', 'directory']:
+            pose_data = self.load_pose_data()
+            return (pose_data.t0, pose_data.tf)
         else:
             raise NotImplementedError("data_t_range not implemented for this img data type")
         
