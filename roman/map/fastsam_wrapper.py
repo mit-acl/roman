@@ -335,23 +335,38 @@ class FastSAMWrapper():
                         depth_obj[mask==0] = 0
                     logger.debug(f"img_depth type {depth_data.dtype}, shape={depth_data.shape}")
 
+                    # Open3D won't apply depth_scale argument to 4-byte-per-channel images
+                    # TODO: need to check for anything other than float32 that would fall under this category?
+                    is_float32 = depth_obj.dtype == np.float32
+
+                    if is_float32:
+                        # Scale manually before heuristic test
+                        if self.depth_scale != 1.0:
+                            depth_obj = depth_obj / self.depth_scale
+                        effective_scale = 1.0
+                    else:
+                        # Open3D will handle the scaling in point cloud generation
+                        effective_scale = self.depth_scale
+
                     # Extract point cloud without truncation to heuristically check if enough of the object
                     # is within the max depth
                     pcd_test = o3d.geometry.PointCloud.create_from_depth_image(
                         o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.dtype(depth_obj.dtype).type)),
                         self.depth_cam_intrinsics,
-                        depth_scale=self.depth_scale,
-                        # depth_trunc=self.max_depth,
+                        depth_scale=effective_scale,
                         stride=self.pcd_stride,
                         project_valid_depth_only=True
                     )
                     ptcld_test = np.asarray(pcd_test.points)
                     pre_truncate_len = len(ptcld_test)
-                    ptcld_test = ptcld_test[ptcld_test[:,2] < self.max_depth]
+                    ptcld_test = ptcld_test[(ptcld_test[:,2] < self.max_depth) & (ptcld_test[:,2] > 0.0)]
                     # require some fraction of the points to be within the max depth
                     if len(ptcld_test) < self.within_depth_frac*pre_truncate_len:
                         continue
                     
+                    # Open3D won't apply depth_trunc argument to float32 images, so we manually truncate
+                    if is_float32:
+                        depth_obj[(depth_obj > self.max_depth) | (depth_obj <= 0.0)] = 0.0
                     pcd = o3d.geometry.PointCloud.create_from_depth_image(
                         o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.dtype(depth_obj.dtype).type)),
                         self.depth_cam_intrinsics,
