@@ -48,6 +48,8 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
             # load yaml file
             with open(os.path.expanduser(yaml_file), 'r') as f:
                 gt_pose_args = yaml.safe_load(f)
+            if sm_io.robot_names[i] in gt_pose_args:
+                gt_pose_args = gt_pose_args[sm_io.robot_names[i]]
             if gt_pose_args['type'] == 'bag':
                 gt_pose_data[i] = PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
             elif gt_pose_args['type'] == 'csv':
