@@ -96,11 +96,13 @@ def combine_multi_est_and_gt_pose_data(est: List[PoseData], gt: List[PoseData]) 
     
     return concatentate_pose_data(est), concatentate_pose_data(gt)
 
-def load_gt_pose_data(gt_file):
+def load_gt_pose_data(gt_file, run_name=None):
     if 'csv' in gt_file:
-        return PoseData.from_kmd_gt_csv(gt_file) 
+        return PoseData.from_kmd_gt_csv(gt_file)
     with open(os.path.expanduser(gt_file), 'r') as f:
         gt_pose_args = yaml.safe_load(f)
+    if run_name is not None and run_name in gt_pose_args:
+        gt_pose_args = gt_pose_args[run_name]
     if gt_pose_args['type'] == 'bag':
         return PoseData.from_bag(**{k: v for k, v in gt_pose_args.items() if k != 'type'})
     elif gt_pose_args['type'] == 'csv':
@@ -130,9 +132,10 @@ def gt_csv_est_g2o_to_pose_data(est_g2o_file: str, est_time_file: str,
     
     pose_data_gt = []
     for i in sorted(gt_csv_files.keys()):
-        if run_names is not None and run_env is not None:
-            os.environ[run_env] = run_names[i]
-        pose_data_gt.append(load_gt_pose_data(gt_csv_files[i]))
+        run_name = run_names[i] if run_names is not None else None
+        if run_name is not None and run_env is not None:
+            os.environ[run_env] = run_name
+        pose_data_gt.append(load_gt_pose_data(gt_csv_files[i], run_name=run_name))
     pose_data_est = [g2o_and_time_to_pose_data(est_g2o_file, est_time_file, i)
                      for i in sorted(gt_csv_files.keys())]
     
