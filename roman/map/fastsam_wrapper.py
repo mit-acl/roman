@@ -370,7 +370,7 @@ class FastSAMWrapper():
                     pcd = o3d.geometry.PointCloud.create_from_depth_image(
                         o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.dtype(depth_obj.dtype).type)),
                         self.depth_cam_intrinsics,
-                        depth_scale=self.depth_scale,
+                        depth_scale=effective_scale,
                         depth_trunc=self.max_depth,
                         stride=self.pcd_stride,
                         project_valid_depth_only=True
