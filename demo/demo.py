@@ -30,8 +30,7 @@ from roman.offline_rpgo.evaluate import evaluate
 from roman.offline_rpgo.edit_g2o_edge_information import edit_g2o_edge_information
 from roman.params.offline_rpgo_params import OfflineRPGOParams
 from roman.params.data_params import DataParams
-
-import mapping
+from roman.map import offline_map_runner
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -116,14 +115,14 @@ if __name__ == '__main__':
             
             print(f"\n\n----------\nMapping: {run}\n----------\n\n")
             mapping_viz_params = \
-                mapping.VisualizationParams(
+                offline_map_runner.VisualizationParams(
                     viz_map=args.viz_map,
                     viz_observations=args.viz_observations,
                     viz_3d=args.viz_3d,
                     vid_rate=args.vid_rate,
                     save_img_data=args.save_img_data
                 )
-            mapping.mapping(
+            offline_map_runner.mapping(
                 params_path=args.params,
                 output_path=args.output,
                 run_name=run,
