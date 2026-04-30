@@ -329,8 +329,8 @@ class DataParams:
     @cached_property
     def data_t_range(self) -> float:
         if self.img_data_params['type'] in ['bag', 'bag2']:
-            return ImgData.topic_t_range(self.img_data_params['path'], 
-                                     self.img_data_params['topic'])
+            return ImgData.topic_t_range(expandvars_recursive(self.img_data_params['path']),
+                                     expandvars_recursive(self.img_data_params['topic']))
         else:
             raise NotImplementedError("data_t_range not implemented for this img data type")
         
