@@ -13,6 +13,7 @@ from robotdatapy.data.pose_data import PoseData
 from roman.utils import transform_rm_roll_pitch
 from roman.map.map import ROMANMap, SubmapParams, submaps_from_roman_map
 from roman.params.submap_align_params import SubmapAlignInputOutput, SubmapAlignParams
+from roman.offline_rpgo.g2o_and_time_to_pose_data import load_gt_pose_data
 from roman.object.segment import Segment
 
 @dataclass
@@ -258,12 +259,10 @@ def submaps_from_align_results(results: SubmapAlignResults, gt_paths: Tuple[str,
     gt_pose_data = []
     if gt_files != [None, None]:
         for i, yaml_file in enumerate(gt_files):
-            if results.submap_io.robot_env is not None:
-                os.environ[results.submap_io.robot_env] = results.submap_io.robot_names[i]
-            if 'csv' in yaml_file:
-                gt_pose_data.append(PoseData.from_kmd_gt_csv(yaml_file))
-            else:
-                gt_pose_data.append(PoseData.from_yaml(yaml_file))
+            run_name = results.submap_io.robot_names[i] if results.submap_io.robot_names is not None else None
+            if run_name is not None and results.submap_io.robot_env is not None:
+                os.environ[results.submap_io.robot_env] = run_name
+            gt_pose_data.append(load_gt_pose_data(yaml_file, run_name=run_name))
             gt_pose_data[-1].time_tol = 100.0
     else:
         gt_pose_data = [None, None]
