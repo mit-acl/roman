@@ -16,7 +16,6 @@ import cv2 as cv
 import numpy as np
 from numpy.typing import ArrayLike
 import open3d as o3d
-import copy
 import torch
 from ultralytics import YOLO
 import math
@@ -365,6 +364,9 @@ class FastSAMWrapper():
         if self.frame_descriptor_type is not None:
             frame_descriptor = self.get_frame_descriptor(dino_output_patches)
         
+        if depth_data is not None and not self.use_pointcloud:
+            depth_xyz, depth_valid = self._unproject_depth(depth_data)
+
         for mask in masks:
             
             mask = self.unapply_rotation(mask)
@@ -387,39 +389,19 @@ class FastSAMWrapper():
                     pcd.points = o3d.utility.Vector3dVector(inside_mask_points)
                     
                 else:
-                    depth_obj = copy.deepcopy(depth_data)
                     if self.erosion_element is not None:
-                        eroded_mask = cv.erode(mask, self.erosion_element)
-                        depth_obj[eroded_mask==0] = 0
+                        obj_mask = cv.erode(mask, self.erosion_element)
                     else:
-                        depth_obj[mask==0] = 0
-                    logger.debug(f"img_depth type {depth_data.dtype}, shape={depth_data.shape}")
+                        obj_mask = mask
+                    points = depth_xyz[(obj_mask[::self.pcd_stride, ::self.pcd_stride] != 0) & depth_valid]
+                    in_range = points[:, 2] < self.max_depth
 
-                    # Extract point cloud without truncation to heuristically check if enough of the object
-                    # is within the max depth
-                    pcd_test = o3d.geometry.PointCloud.create_from_depth_image(
-                        o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.dtype(depth_obj.dtype).type)),
-                        self.depth_cam_intrinsics,
-                        depth_scale=self.depth_scale,
-                        # depth_trunc=self.max_depth,
-                        stride=self.pcd_stride,
-                        project_valid_depth_only=True
-                    )
-                    ptcld_test = np.asarray(pcd_test.points)
-                    pre_truncate_len = len(ptcld_test)
-                    ptcld_test = ptcld_test[ptcld_test[:,2] < self.max_depth]
                     # require some fraction of the points to be within the max depth
-                    if len(ptcld_test) < self.within_depth_frac*pre_truncate_len:
+                    if np.count_nonzero(in_range) < self.within_depth_frac*len(points):
                         continue
-                    
-                    pcd = o3d.geometry.PointCloud.create_from_depth_image(
-                        o3d.geometry.Image(np.ascontiguousarray(depth_obj).astype(np.dtype(depth_obj.dtype).type)),
-                        self.depth_cam_intrinsics,
-                        depth_scale=self.depth_scale,
-                        depth_trunc=self.max_depth,
-                        stride=self.pcd_stride,
-                        project_valid_depth_only=True
-                    )
+
+                    pcd = o3d.geometry.PointCloud()
+                    pcd.points = o3d.utility.Vector3dVector(points[in_range])
 
                 # shared for depth & rangesens, once PointCloud object is created
 
@@ -467,14 +449,13 @@ class FastSAMWrapper():
             elif self.semantics == 'dino':
                 assert mask.shape[0] == dino_features.shape[0] and mask.shape[1] == dino_features.shape[1], \
                     "Mask and DINO features must have the same shape."
-                dino_mask = dino_features[mask.astype(bool)] # num-pixels x dino_shape
-                dino_mask = dino_mask.cpu().detach().numpy()
-                mean_dino = np.mean(dino_mask, axis=0) # dino_shape
+                mask_t = torch.from_numpy(mask.astype(bool)).to(dino_features.device)
+                mean_dino = dino_features[mask_t].float().mean(dim=0).cpu().detach().numpy() # dino_shape
                 mean_dino = mean_dino / np.linalg.norm(mean_dino) # normalize
                 self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, semantic_descriptor=mean_dino))
             else:
                 self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
-                
+
         return self.observations, frame_descriptor
     
     def apply_rotation(self, img, unrotate=False):
@@ -553,16 +534,53 @@ class FastSAMWrapper():
 
         return ignore_mask, keep_mask
 
-    def _delete_edge_masks(self, segmask):
-        [numMasks, h, w] = segmask.shape
-        contains_edge = np.zeros(numMasks).astype(np.bool_)
-        for i in range(numMasks):
-            mask = segmask[i,:,:]
-            edge_width = 5
-            # TODO: should be a parameter
-            contains_edge[i] = (np.sum(mask[:,:edge_width]) > 0 and not self.allow_tblr_edges[2]) or (np.sum(mask[:,-edge_width:]) > 0 and not self.allow_tblr_edges[3]) or \
-                            (np.sum(mask[:edge_width,:]) > 0 and not self.allow_tblr_edges[0]) or (np.sum(mask[-edge_width:, :]) > 0 and not self.allow_tblr_edges[1])
-        return np.delete(segmask, contains_edge, axis=0)
+    def _unproject_depth(self, depth):
+        """
+        Unprojects every pcd_stride-th pixel of a depth image, using the same arithmetic as
+        o3d.geometry.PointCloud.create_from_depth_image.
+
+        Returns:
+            xyz ((h, w, 3) np.array): strided points in the camera frame
+            valid ((h, w) np.array): pixels open3d would keep with project_valid_depth_only
+        """
+        s = self.pcd_stride
+        z = (depth[::s, ::s].astype(np.float64) / self.depth_scale).astype(np.float32).astype(np.float64)
+        v, u = np.mgrid[0:depth.shape[0]:s, 0:depth.shape[1]:s]
+        fx, fy = self.depth_cam_intrinsics.get_focal_length()
+        cx, cy = self.depth_cam_intrinsics.get_principal_point()
+        xyz = np.stack([(u - cx) * z / fx, (v - cy) * z / fy, z], axis=-1)
+        valid = (z > 0) & (z < 1000.0) # 1000 is open3d's default depth_trunc
+        return xyz, valid
+
+    def _filter_masks(self, segmask, ignore_mask=None, keep_mask=None):
+        """
+        Drops edge-touching, ignored, non-kept and out-of-area-bounds masks on segmask's device,
+        then returns the kept (n, h, w) masks as a numpy array.
+        """
+        nonzero = segmask != 0
+        keep = torch.ones(segmask.shape[0], dtype=torch.bool, device=segmask.device)
+
+        edge_width = 5 # TODO: should be a parameter
+        edges = [nonzero[:, :edge_width, :], nonzero[:, -edge_width:, :],
+                 nonzero[:, :, :edge_width], nonzero[:, :, -edge_width:]] # top, bottom, left, right
+        for allowed, edge in zip(self.allow_tblr_edges, edges):
+            if not allowed:
+                keep &= ~edge.any(dim=(1, 2))
+
+        if ignore_mask is not None:
+            ignore_t = torch.from_numpy(ignore_mask != 0).to(segmask.device)
+            keep &= ~(nonzero & ignore_t).any(dim=(1, 2))
+
+        if keep_mask is not None and self.keep_labels_option == 'intersect':
+            keep_t = torch.from_numpy(keep_mask != 0).to(segmask.device)
+            intersection = (nonzero & keep_t).sum(dim=(1, 2))
+            keep &= intersection >= self.keep_mask_minimal_intersection * nonzero.sum(dim=(1, 2))
+
+        if self.area_bounds is not None:
+            area = segmask.float().sum(dim=(1, 2))
+            keep &= (area >= self.area_bounds[0]) & (area <= self.area_bounds[1])
+
+        return segmask[keep].cpu().numpy()
 
     def _process_img(self, image_bgr, ignore_mask=None, keep_mask=None):
         """Process FastSAM on image, returns segment masks and center points from results
@@ -587,7 +605,6 @@ class FastSAMWrapper():
         if self.use_trt_fastsam:
             # Same array the PyTorch branch feeds the predictor; (N, H, W) on GPU.
             segmask = self.model.segment(image)
-            segmask = segmask.cpu().numpy() if segmask is not None else None
         else:
             # Run FastSAM
             everything_results = self.model(image, 
@@ -598,56 +615,14 @@ class FastSAMWrapper():
                                             iou=self.iou)
             prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
             segmask = prompt_process.everything_prompt()
-
-            # If there were segmentations detected by FastSAM, transfer them from GPU to CPU and convert to Numpy arrays
-            if (len(segmask) > 0):
-                segmask = segmask.cpu().numpy()
-            else:
+            if len(segmask) == 0:
                 segmask = None
 
-        if (segmask is not None):
-            # FastSAM provides a numMask-channel image in shape C, H, W where each channel in the image is a binary mask
-            # of the detected segment
-            [numMasks, h, w] = segmask.shape
-
-            # filter out edge-touching segments
-            # could do with multi-dimensional summing faster instead of looping over masks
-            if not np.all(self.allow_tblr_edges):
-                segmask = self._delete_edge_masks(segmask)
-                [numMasks, h, w] = segmask.shape
-
-            to_delete = []
-            for maskId in range(numMasks):
-                # Extract the single binary mask for this mask id
-                mask_this_id = segmask[maskId,:,:]
-
-                # filter out ignore mask
-                if ignore_mask is not None and np.any(np.bitwise_and(mask_this_id.astype(np.int8), ignore_mask)):
-                    to_delete.append(maskId)
-                    continue
-
-                # Only keep masks that are within keep_mask
-                # if keep_mask is not None and not np.any(np.bitwise_and(mask_this_id.astype(np.int8), keep_mask)):
-                #     print("Delete maskID: ", maskId)
-                #     to_delete.append(maskId)
-                #     continue
-                # if keep_mask is not None and self.keep_labels_option == 'intersect' and (not np.any(np.bitwise_and(mask_this_id.astype(np.int8), keep_mask))):
-                if keep_mask is not None and self.keep_labels_option == 'intersect' and (np.bitwise_and(mask_this_id.astype(np.int8), keep_mask).sum() < self.keep_mask_minimal_intersection*mask_this_id.astype(np.int8).sum()):
-                    to_delete.append(maskId)
-                    continue
-
-                if self.area_bounds is not None:
-                    area = np.sum(mask_this_id)
-                    if area < self.area_bounds[0] or area > self.area_bounds[1]:
-                        to_delete.append(maskId)
-                        continue
-
-            segmask = np.delete(segmask, to_delete, axis=0)
-
-        else: 
+        if segmask is None:
             return []
 
-        return segmask
+        # (C, H, W) binary masks, filtered on GPU so only kept masks are transferred to CPU
+        return self._filter_masks(segmask, ignore_mask=ignore_mask, keep_mask=keep_mask)
     
     def mask_bounding_box(self, mask):
         # Find the indices of the True values
