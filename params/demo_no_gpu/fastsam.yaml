@@ -1,5 +1,5 @@
 weights_path: "$ROMAN_WEIGHTS/FastSAM-x.pt"
-yolo_weights_path: "$ROMAN_WEIGHTS/yolov7.pt"
+yolo_weights_path: "$ROMAN_WEIGHTS/yolov8m.pt"
 imgsz: [256, 256]
 device: 'cpu'
 mask_downsample_factor: 8

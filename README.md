@@ -95,6 +95,19 @@ However, these will cause the demo to run slower.
 
 The output includes map visualization, loop closure accuracy results, and pose graph optimization results including root mean squared absolute trajectory error. 
 
+### TensorRT
+
+`params/demo_trt` runs the same demo with FastSAM, YOLOv8 and DINOv2 on
+TensorRT instead of PyTorch:
+
+```
+pip install '.[tensorrt]'
+python3 demo/demo.py -p params/demo_trt -o demo_output_trt
+```
+
+The engines are exported and compiled on first use and cached in
+`$ROMAN_WEIGHTS`.
+
 ### Association Visualization
 
 After running the demo, you can create a post-processed visualizations of object matches that have been found (see example [here](https://www.youtube.com/watch?v=y51NDoPpBy8&t=3s)).

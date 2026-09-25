@@ -21,5 +21,9 @@ pip install --retries=3 --default-timeout=1000 .
 # download weights
 mkdir -p $ROMAN_DIR/weights
 cd $ROMAN_DIR/weights
-wget https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7.pt
+wget https://github.com/ultralytics/assets/releases/download/v8.1.0/yolov8m.pt
 gdown 'https://drive.google.com/uc?id=1m1sjY4ihXBU1fZXdQ-Xdj-mDltW-2Rqv'
+
+# Optional: TensorRT inference (params/demo_trt). Needs an NVIDIA GPU.
+#
+#   cd $ROMAN_DIR && pip install '.[tensorrt]'

@@ -18,8 +18,9 @@ from numpy.typing import ArrayLike
 import open3d as o3d
 import copy
 import torch
-from yolov7_package import Yolov7Detector
+from ultralytics import YOLO
 import math
+import os
 import time
 from PIL import Image
 from fastsam import FastSAMPrompt
@@ -59,7 +60,12 @@ class FastSAMWrapper():
         device='cuda',
         mask_downsample_factor=1,
         rotate_img=None,
-        use_pointcloud=False
+        use_pointcloud=False,
+        use_trt_fastsam=False,
+        use_trt_yolo=False,
+        use_trt_dino=False,
+        trt_fp16=False,
+        trt_timing=False,
     ):
         """Wrapper for running FastSAM on images (RGB/depth data)
 
@@ -74,6 +80,14 @@ class FastSAMWrapper():
             rotate_img (_type_, optional): 'CW', 'CCW', or '180' for rotating image before 
                 feeding into FastSAM. Defaults to None.
             use_pointcloud (bool, optional): True if depth data source is pointcloud
+            use_trt_fastsam (bool, optional): Run FastSAM on TensorRT. Defaults to False.
+            use_trt_yolo (bool, optional): Run YOLOv8 detection on TensorRT instead of
+                YOLOv7 on PyTorch. Defaults to False.
+            use_trt_dino (bool, optional): Run DINOv2 on TensorRT. Defaults to False.
+            trt_fp16 (bool, optional): Allow FP16 kernels in the TRT engines.
+                Defaults to False.
+            trt_timing (bool, optional): Print a per-call stage breakdown for every
+                TRT model. Defaults to False.
         """
         # parameters
         self.weights = weights
@@ -84,10 +98,22 @@ class FastSAMWrapper():
         self.mask_downsample_factor = mask_downsample_factor
         self.rotate_img = rotate_img
         self.use_pointcloud = use_pointcloud
+        self.use_trt_fastsam = use_trt_fastsam
+        self.use_trt_yolo = use_trt_yolo
+        self.use_trt_dino = use_trt_dino
+        self.trt_fp16 = trt_fp16
+        self.trt_timing = trt_timing
 
         # member variables
         self.observations = []
-        self.model = FastSAM(weights)
+        if use_trt_fastsam:
+            from roman.tensorrt import FastSAMTRT
+
+            self.model = FastSAMTRT(weights, imgsz=imgsz, conf=conf, iou=iou,
+                                    fp16=trt_fp16, timing=trt_timing)
+            self.model.warmup()
+        else:
+            self.model = FastSAM(weights)
         # setup default filtering
         self.setup_filtering()
 
@@ -105,7 +131,12 @@ class FastSAMWrapper():
             rotate_img=params.rotate_img,
             use_pointcloud=params.use_pointcloud,
             conf=params.conf,
-            iou=params.iou
+            iou=params.iou,
+            use_trt_fastsam=params.use_trt_fastsam,
+            use_trt_yolo=params.use_trt_yolo,
+            use_trt_dino=params.use_trt_dino,
+            trt_fp16=params.trt_fp16,
+            trt_timing=params.trt_timing,
         )
         fastsam.setup_rgbd_params(
             depth_cam_params=depth_cam_params, 
@@ -124,6 +155,7 @@ class FastSAMWrapper():
             keep_labels_option=params.keep_labels_option,
             yolo_weights=expandvars_recursive(params.yolo_weights_path),
             yolo_det_img_size=params.yolo_imgsz,
+            yolo_conf=params.yolo_conf,
             allow_tblr_edges=[True, True, True, True],
             area_bounds=[img_area / (params.min_mask_len_div**2), img_area / (params.max_mask_len_div**2)],
             semantics=params.semantics,
@@ -140,6 +172,7 @@ class FastSAMWrapper():
         keep_labels_option='intersect',          
         yolo_weights=None,
         yolo_det_img_size=None,
+        yolo_conf=0.25,
         area_bounds=np.array([0, np.inf]),
         allow_tblr_edges = [True, True, True, True],
         keep_mask_minimal_intersection=0.3,
@@ -156,6 +189,7 @@ class FastSAMWrapper():
             keep_labels (list, optional): List of yolo labels to keep masks. Defaults to [].
             keep_labels_option (str, optional): 'intersect' or 'contain'. Defaults to 'intersect'.
             yolo_det_img_size (List[int], optional): Two-item list denoting yolo image size. Defaults to None.
+            yolo_conf (float, optional): YOLO detection confidence threshold. Defaults to 0.25.
             area_bounds (np.array, shape=(2,), optional): Two element array indicating min and max number of pixels. Defaults to np.array([0, np.inf]).
             allow_tblr_edges (list, optional): Allow masks touching top, bottom, left, and right edge. Defaults to [True, True, True, True].
             keep_mask_minimal_intersection (float, optional): Minimal intersection of mask within keep mask to be kept. Defaults to 0.3.
@@ -168,7 +202,17 @@ class FastSAMWrapper():
         if len(ignore_labels) > 0 or use_keep_labels:
             if yolo_det_img_size is None:
                 yolo_det_img_size=self.imgsz
-            self.yolov7_det = Yolov7Detector(traced=False, img_size=yolo_det_img_size, weights=yolo_weights)
+            if self.use_trt_yolo:
+                from roman.tensorrt import YOLOv8TRT
+
+                self.yolo_det = YOLOv8TRT(yolo_weights, imgsz=yolo_det_img_size,
+                                          conf=yolo_conf, fp16=self.trt_fp16,
+                                          timing=self.trt_timing)
+                self.yolo_det.warmup()
+            else:
+                self.yolo_det = YOLO(yolo_weights)
+                self.yolo_imgsz = yolo_det_img_size
+                self.yolo_conf = yolo_conf
         
         self.area_bounds = area_bounds
         self.allow_tblr_edges= allow_tblr_edges
@@ -182,10 +226,24 @@ class FastSAMWrapper():
             clip_model = 'ViT-L/14'
             self.semantics_model, self.semantics_preprocess = clip.load(clip_model, device=self.device)
         elif semantics.lower() == 'dino':
-            self.semantics_preprocess = AutoImageProcessor.from_pretrained('facebook/dinov2-base', do_center_crop=False)
-            self.semantics_model = AutoModel.from_pretrained('facebook/dinov2-base')
-            self.semantics_model.eval()
-            self.semantics_model.to(self.device)
+            dino_model_name = 'facebook/dinov2-base'
+            self.dino_shape = 768
+            if self.use_trt_dino:
+                from roman.tensorrt import DINOv2TRT
+
+                self.semantics_model = DINOv2TRT(
+                    dino_model_name,
+                    os.path.dirname(os.path.abspath(self.weights)),
+                    fp16=self.trt_fp16,
+                    timing=self.trt_timing,
+                )
+                self.semantics_model.warmup()
+                self.semantics_preprocess = None
+            else:
+                self.semantics_preprocess = AutoImageProcessor.from_pretrained(dino_model_name, do_center_crop=False)
+                self.semantics_model = AutoModel.from_pretrained(dino_model_name)
+                self.semantics_model.eval()
+                self.semantics_model.to(self.device)
         else:
             raise ValueError(f"Invalid semantics option: {semantics}. Choose from 'clip', 'dino', or 'none'.")
         self.semantic_patches_shape = None
@@ -286,15 +344,17 @@ class FastSAMWrapper():
         
         if self.semantics == 'dino':
             # Process the image for DINO
-            dino_shape = 768
-            img_rgb = cv.cvtColor(img, cv.COLOR_BGR2RGB)
-            preprocessed = self.semantics_preprocess(images=img_rgb, return_tensors="pt").to(self.device)
-            dino_output = self.semantics_model(**preprocessed)
-            dino_output_patches = self.get_output_patches(
-                model_output=dino_output.last_hidden_state, 
-                img_shape=img.shape, 
-                feature_dim=dino_shape
-            )
+            if self.use_trt_dino:
+                dino_output_patches = self.semantics_model.embed(img, reshape=True)
+            else:
+                img_rgb = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+                preprocessed = self.semantics_preprocess(images=img_rgb, return_tensors="pt").to(self.device)
+                dino_output = self.semantics_model(**preprocessed)
+                dino_output_patches = self.get_output_patches(
+                    model_output=dino_output.last_hidden_state,
+                    img_shape=img.shape,
+                    feature_dim=self.dino_shape
+                )
             dino_features = self.get_per_pixel_features(
                 model_output_patches=dino_output_patches,
                 img_shape=img.shape
@@ -441,15 +501,25 @@ class FastSAMWrapper():
         
         if len(img.shape) == 2: # image is mono
             img = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
-        classes, boxes, scores = self.yolov7_det.detect(img)
         ignore_boxes = []
         keep_boxes = []
-        for i, cl in enumerate(classes[0]):
-            if self.yolov7_det.names[cl] in self.ignore_labels:
-                ignore_boxes.append(boxes[0][i])
-
-            if self.yolov7_det.names[cl] in self.keep_labels:
-                keep_boxes.append(boxes[0][i])
+        if self.use_trt_yolo:
+            for x1, y1, x2, y2, conf, cls_id in self.yolo_det.detect(img).cpu().numpy():
+                name = self.yolo_det.names[int(cls_id)]
+                if name in self.ignore_labels:
+                    ignore_boxes.append([x1, y1, x2, y2])
+                if name in self.keep_labels:
+                    keep_boxes.append([x1, y1, x2, y2])
+        else:
+            result = self.yolo_det(img, imgsz=self.yolo_imgsz, conf=self.yolo_conf,
+                                   verbose=False)[0]
+            for box, cls_id in zip(result.boxes.xyxy.cpu().numpy(),
+                                   result.boxes.cls.cpu().numpy()):
+                name = result.names[int(cls_id)]
+                if name in self.ignore_labels:
+                    ignore_boxes.append(box)
+                if name in self.keep_labels:
+                    keep_boxes.append(box)
 
         ignore_mask = np.zeros(img.shape[:2]).astype(np.int8)
         for box in ignore_boxes:
@@ -514,21 +584,26 @@ class FastSAMWrapper():
         # OpenCV uses BGR images, but FastSAM and Matplotlib require an RGB image, so convert.
         image = cv.cvtColor(image_bgr, cv.COLOR_BGR2RGB)
 
-        # Run FastSAM
-        everything_results = self.model(image, 
-                                        retina_masks=True, 
-                                        device=self.device, 
-                                        imgsz=self.imgsz, 
-                                        conf=self.conf, 
-                                        iou=self.iou)
-        prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
-        segmask = prompt_process.everything_prompt()
-
-        # If there were segmentations detected by FastSAM, transfer them from GPU to CPU and convert to Numpy arrays
-        if (len(segmask) > 0):
-            segmask = segmask.cpu().numpy()
+        if self.use_trt_fastsam:
+            # Same array the PyTorch branch feeds the predictor; (N, H, W) on GPU.
+            segmask = self.model.segment(image)
+            segmask = segmask.cpu().numpy() if segmask is not None else None
         else:
-            segmask = None
+            # Run FastSAM
+            everything_results = self.model(image, 
+                                            retina_masks=True, 
+                                            device=self.device, 
+                                            imgsz=self.imgsz, 
+                                            conf=self.conf, 
+                                            iou=self.iou)
+            prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
+            segmask = prompt_process.everything_prompt()
+
+            # If there were segmentations detected by FastSAM, transfer them from GPU to CPU and convert to Numpy arrays
+            if (len(segmask) > 0):
+                segmask = segmask.cpu().numpy()
+            else:
+                segmask = None
 
         if (segmask is not None):
             # FastSAM provides a numMask-channel image in shape C, H, W where each channel in the image is a binary mask

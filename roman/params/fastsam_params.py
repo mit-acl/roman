@@ -42,6 +42,7 @@ class FastSAMParams:
         semantics (str): which semantics to use for observations ('clip', 'dino', or 'none')
         frame_descriptor (str): type of frame descriptor to use ('dino-gem', 'dino-gap','dino-gmp', or 'none')
         yolo_imgsz (Tuple[int, int]): size of the YOLO image
+        yolo_conf (float): YOLO detection confidence threshold
         depth_scale (float): depth scale factor for processing depth images
         max_depth (float): maximum depth before rejecting observation points
         triangle_ignore_masks (List[Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int]]]): 
@@ -55,7 +56,7 @@ class FastSAMParams:
     """
     
     weights_path: str = "$ROMAN_WEIGHTS/FastSAM-x.pt"
-    yolo_weights_path: str = "$ROMAN_WEIGHTS/yolov7.pt"
+    yolo_weights_path: str = "$ROMAN_WEIGHTS/yolov8m.pt"
     imgsz: Tuple[int, int] = (256, 256)
     device: str = 'cuda'
     use_pointcloud: bool = False
@@ -74,11 +75,17 @@ class FastSAMParams:
     semantics: str = 'dino'
     frame_descriptor: str = 'dino-gem'
     yolo_imgsz: Tuple[int, int] = (256, 256)
+    yolo_conf: float = .25
     depth_scale: float = 1e3
     max_depth: float = 7.5
     triangle_ignore_masks: List[Tuple[Tuple[int,int], Tuple[int,int], Tuple[int,int]]] = None
     conf: float = .5
     iou: float = .9
+    use_trt_fastsam: bool = False
+    use_trt_yolo: bool = False
+    use_trt_dino: bool = False
+    trt_fp16: bool = False
+    trt_timing: bool = False
 
     def __post_init__(self):
         if self.frame_descriptor.lower() == 'none':
