@@ -81,10 +81,12 @@ class FastSAMParams:
     triangle_ignore_masks: List[Tuple[Tuple[int,int], Tuple[int,int], Tuple[int,int]]] = None
     conf: float = .5
     iou: float = .9
+    fastsam_fp16: bool = False
+    yolo_fp16: bool = False
+    dino_fp16: bool = False
     use_trt_fastsam: bool = False
     use_trt_yolo: bool = False
     use_trt_dino: bool = False
-    trt_fp16: bool = False
     trt_timing: bool = False
 
     def __post_init__(self):

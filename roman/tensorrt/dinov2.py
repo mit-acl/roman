@@ -2,7 +2,6 @@
 
 import numpy as np
 import torch
-from PIL import Image
 from transformers import AutoImageProcessor, AutoModel
 
 from roman.tensorrt.engine import TRTEngine, ensure_engine, export_onnx
@@ -13,27 +12,29 @@ IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
 def preprocess(img_bgr, imgsz):
-    """Resize and ImageNet-normalize a BGR image into a (1, 3, H, W) float32 array.
+    """Resize and ImageNet-normalize a BGR image into a (1, 3, H, W) float32 CUDA tensor.
 
     Args:
         img_bgr: (H, W, 3) uint8 BGR image.
         imgsz: int to scale the short side to, or an (h, w) tuple for an exact
             resize.
     """
-    img_rgb = img_bgr[:, :, ::-1]
     if isinstance(imgsz, int):
-        h, w = img_rgb.shape[:2]
+        h, w = img_bgr.shape[:2]
         scale = imgsz / min(h, w)
         new_h, new_w = round(h * scale), round(w * scale)
     else:
         new_h, new_w = imgsz
-    resized = np.asarray(
-        Image.fromarray(np.ascontiguousarray(img_rgb)).resize(
-            (new_w, new_h), Image.BICUBIC
-        )
-    )
-    inp = (resized.astype(np.float32) / 255.0 - IMAGENET_MEAN) / IMAGENET_STD
-    return np.ascontiguousarray(np.transpose(inp, (2, 0, 1))[None], dtype=np.float32)
+    img = torch.from_numpy(np.ascontiguousarray(img_bgr)).cuda()
+    resized = img.flip(-1).permute(2, 0, 1)[None].float()
+    # PIL resizes horizontally then vertically, rounding to uint8 after each pass
+    for size in [(resized.shape[2], new_w), (new_h, new_w)]:
+        resized = torch.nn.functional.interpolate(
+            resized, size=size, mode="bicubic", align_corners=False, antialias=True
+        ).round_().clamp_(0, 255)
+    mean = torch.as_tensor(IMAGENET_MEAN, device="cuda").view(1, 3, 1, 1)
+    std = torch.as_tensor(IMAGENET_STD, device="cuda").view(1, 3, 1, 1)
+    return (resized / 255.0 - mean) / std
 
 
 def reshape_patches(last_hidden_state, input_hw):

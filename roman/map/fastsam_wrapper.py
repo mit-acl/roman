@@ -60,10 +60,12 @@ class FastSAMWrapper():
         mask_downsample_factor=1,
         rotate_img=None,
         use_pointcloud=False,
+        fastsam_fp16=False,
+        yolo_fp16=False,
+        dino_fp16=False,
         use_trt_fastsam=False,
         use_trt_yolo=False,
         use_trt_dino=False,
-        trt_fp16=False,
         trt_timing=False,
     ):
         """Wrapper for running FastSAM on images (RGB/depth data)
@@ -79,12 +81,13 @@ class FastSAMWrapper():
             rotate_img (_type_, optional): 'CW', 'CCW', or '180' for rotating image before 
                 feeding into FastSAM. Defaults to None.
             use_pointcloud (bool, optional): True if depth data source is pointcloud
+            fastsam_fp16 (bool, optional): Run FastSAM in FP16. Defaults to False.
+            yolo_fp16 (bool, optional): Run YOLO in FP16. Defaults to False.
+            dino_fp16 (bool, optional): Run DINOv2 in FP16. Defaults to False.
             use_trt_fastsam (bool, optional): Run FastSAM on TensorRT. Defaults to False.
             use_trt_yolo (bool, optional): Run YOLOv8 detection on TensorRT instead of
                 YOLOv7 on PyTorch. Defaults to False.
             use_trt_dino (bool, optional): Run DINOv2 on TensorRT. Defaults to False.
-            trt_fp16 (bool, optional): Allow FP16 kernels in the TRT engines.
-                Defaults to False.
             trt_timing (bool, optional): Print a per-call stage breakdown for every
                 TRT model. Defaults to False.
         """
@@ -97,10 +100,12 @@ class FastSAMWrapper():
         self.mask_downsample_factor = mask_downsample_factor
         self.rotate_img = rotate_img
         self.use_pointcloud = use_pointcloud
+        self.fastsam_fp16 = fastsam_fp16
+        self.yolo_fp16 = yolo_fp16
+        self.dino_fp16 = dino_fp16
         self.use_trt_fastsam = use_trt_fastsam
         self.use_trt_yolo = use_trt_yolo
         self.use_trt_dino = use_trt_dino
-        self.trt_fp16 = trt_fp16
         self.trt_timing = trt_timing
 
         # member variables
@@ -109,7 +114,7 @@ class FastSAMWrapper():
             from roman.tensorrt import FastSAMTRT
 
             self.model = FastSAMTRT(weights, imgsz=imgsz, conf=conf, iou=iou,
-                                    fp16=trt_fp16, timing=trt_timing)
+                                    fp16=fastsam_fp16, timing=trt_timing)
             self.model.warmup()
         else:
             self.model = FastSAM(weights)
@@ -131,10 +136,12 @@ class FastSAMWrapper():
             use_pointcloud=params.use_pointcloud,
             conf=params.conf,
             iou=params.iou,
+            fastsam_fp16=params.fastsam_fp16,
+            yolo_fp16=params.yolo_fp16,
+            dino_fp16=params.dino_fp16,
             use_trt_fastsam=params.use_trt_fastsam,
             use_trt_yolo=params.use_trt_yolo,
             use_trt_dino=params.use_trt_dino,
-            trt_fp16=params.trt_fp16,
             trt_timing=params.trt_timing,
         )
         fastsam.setup_rgbd_params(
@@ -205,7 +212,7 @@ class FastSAMWrapper():
                 from roman.tensorrt import YOLOv8TRT
 
                 self.yolo_det = YOLOv8TRT(yolo_weights, imgsz=yolo_det_img_size,
-                                          conf=yolo_conf, fp16=self.trt_fp16,
+                                          conf=yolo_conf, fp16=self.yolo_fp16,
                                           timing=self.trt_timing)
                 self.yolo_det.warmup()
             else:
@@ -233,7 +240,7 @@ class FastSAMWrapper():
                 self.semantics_model = DINOv2TRT(
                     dino_model_name,
                     os.path.dirname(os.path.abspath(self.weights)),
-                    fp16=self.trt_fp16,
+                    fp16=self.dino_fp16,
                     timing=self.trt_timing,
                 )
                 self.semantics_model.warmup()
@@ -308,6 +315,7 @@ class FastSAMWrapper():
             self.erosion_element = None
         self.plane_filter_params = plane_filter_params
 
+    @torch.no_grad()
     def run(self, t, pose, img, depth_data=None):
         """
         Takes and image and returns filtered FastSAM masks as Observations.
@@ -348,18 +356,19 @@ class FastSAMWrapper():
             else:
                 img_rgb = cv.cvtColor(img, cv.COLOR_BGR2RGB)
                 preprocessed = self.semantics_preprocess(images=img_rgb, return_tensors="pt").to(self.device)
-                dino_output = self.semantics_model(**preprocessed)
+                # like ultralytics' half, fp16 only applies on cuda (it is far slower on cpu)
+                with torch.autocast('cuda', dtype=torch.float16, enabled=self.dino_fp16 and self.device == 'cuda'):
+                    dino_output = self.semantics_model(**preprocessed)
                 dino_output_patches = self.get_output_patches(
-                    model_output=dino_output.last_hidden_state,
+                    model_output=dino_output.last_hidden_state.float(),
                     img_shape=img.shape,
                     feature_dim=self.dino_shape
                 )
-            dino_features = self.get_per_pixel_features(
+            mask_descriptors = self.get_mask_features(
                 model_output_patches=dino_output_patches,
-                img_shape=img.shape
+                masks=masks
             )
-            dino_features = self.unapply_rotation(dino_features)
-            
+
         frame_descriptor = None
         if self.frame_descriptor_type is not None:
             frame_descriptor = self.get_frame_descriptor(dino_output_patches)
@@ -367,8 +376,8 @@ class FastSAMWrapper():
         if depth_data is not None and not self.use_pointcloud:
             depth_xyz, depth_valid = self._unproject_depth(depth_data)
 
-        for mask in masks:
-            
+        for mask_idx, mask in enumerate(masks):
+
             mask = self.unapply_rotation(mask)
 
             # Extract point cloud of object from RGBD
@@ -447,12 +456,8 @@ class FastSAMWrapper():
                     clip_embedding = clip_embedding.squeeze().cpu().detach().numpy()
                     self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, semantic_descriptor=clip_embedding))
             elif self.semantics == 'dino':
-                assert mask.shape[0] == dino_features.shape[0] and mask.shape[1] == dino_features.shape[1], \
-                    "Mask and DINO features must have the same shape."
-                mask_t = torch.from_numpy(mask.astype(bool)).to(dino_features.device)
-                mean_dino = dino_features[mask_t].float().mean(dim=0).cpu().detach().numpy() # dino_shape
-                mean_dino = mean_dino / np.linalg.norm(mean_dino) # normalize
-                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld, semantic_descriptor=mean_dino))
+                self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld,
+                                                     semantic_descriptor=mask_descriptors[mask_idx]))
             else:
                 self.observations.append(Observation(t, pose, mask, mask_downsampled, ptcld))
 
@@ -493,7 +498,7 @@ class FastSAMWrapper():
                     keep_boxes.append([x1, y1, x2, y2])
         else:
             result = self.yolo_det(img, imgsz=self.yolo_imgsz, conf=self.yolo_conf,
-                                   verbose=False)[0]
+                                   half=self.yolo_fp16, verbose=False)[0]
             for box, cls_id in zip(result.boxes.xyxy.cpu().numpy(),
                                    result.boxes.cls.cpu().numpy()):
                 name = result.names[int(cls_id)]
@@ -612,7 +617,8 @@ class FastSAMWrapper():
                                             device=self.device, 
                                             imgsz=self.imgsz, 
                                             conf=self.conf, 
-                                            iou=self.iou)
+                                            iou=self.iou,
+                                            half=self.fastsam_fp16)
             prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
             segmask = prompt_process.everything_prompt()
             if len(segmask) == 0:
@@ -674,28 +680,31 @@ class FastSAMWrapper():
 
         return model_output_patches # 1 x h x w x feature_dim
 
-    def get_per_pixel_features(self, model_output_patches: ArrayLike, img_shape: ArrayLike) -> ArrayLike:
+    def get_mask_features(self, model_output_patches: ArrayLike, masks: np.ndarray) -> np.ndarray:
         """
-        Extract (Dino) per-pixel features
+        Normalized mean of the bilinearly upsampled (Dino) features within each mask. Since upsampling
+        is linear (F_up = Ry F Rx^T per channel), the sum over mask M equals <Ry^T M Rx, F> 
+        (cyclic trace), so the full-resolution feature map is never materialized.
 
         Args:
-            model_output_patches (ArrayLike): Reshaped (Dino) output patches
-            img_shape (ArrayLike): Original image shape
+            model_output_patches (ArrayLike): Reshaped (Dino) output patches, 1 x h x w x feature_dim
+            masks (np.ndarray): N x H x W masks in the same frame as the patches
 
         Returns:
-            ArrayLike: Reshaped (Dino) output
+            np.ndarray: N x feature_dim unit-norm descriptors
         """
-        # interpolate the feature map to match the size of the original image
-        per_pixel_features = torch.nn.functional.interpolate(
-            model_output_patches.permute(0, 3, 1, 2), # permute to be batch, channels, height, width
-            size=(img_shape[0], img_shape[1]),
-            mode='bilinear',
-        ) # 1 x dino_shape x h x w
+        if len(masks) == 0:
+            return np.zeros((0, model_output_patches.shape[-1]), dtype=np.float32)
+        _, h, w, feature_dim = model_output_patches.shape
+        device = model_output_patches.device
+        # rows of the 1D bilinear upsampling matrices, matching F.interpolate(mode='bilinear')
+        Ry = torch.nn.functional.interpolate(torch.eye(h, device=device)[None], size=masks.shape[1], mode='linear')[0].T
+        Rx = torch.nn.functional.interpolate(torch.eye(w, device=device)[None], size=masks.shape[2], mode='linear')[0].T
 
-        # reshape
-        per_pixel_features = per_pixel_features[0].permute(1, 2, 0) # h x w x feature_dim
-
-        return per_pixel_features # h x w x feature_dim
+        masks_t = torch.from_numpy(np.ascontiguousarray(masks) != 0).to(device).float()
+        patch_weights = Ry.T @ masks_t @ Rx # N x h x w
+        feature_sums = patch_weights.reshape(len(masks), -1) @ model_output_patches.reshape(-1, feature_dim).float()
+        return torch.nn.functional.normalize(feature_sums, dim=1).cpu().detach().numpy()
         
     def get_frame_descriptor(self, dino_features: torch.Tensor) -> np.ndarray:   
         with torch.no_grad(): # prevent memory leak

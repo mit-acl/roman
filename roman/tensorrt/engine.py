@@ -206,11 +206,17 @@ class TRTEngine:
             self.context.set_tensor_address(name, tensor.data_ptr())
 
     def _infer(self, inp):
-        """Run the engine on a (b, 3, h, w) float32 array -> list of GPU tensors."""
+        """Run the engine on a (b, 3, h, w) float32 array or CUDA tensor -> list of GPU tensors."""
         self._setup_buffers(tuple(inp.shape))
-        self.input_host.copy_(torch.from_numpy(inp))
-        with torch.cuda.stream(self.stream):
-            self.input_dev.copy_(self.input_host, non_blocking=True)
+        if isinstance(inp, torch.Tensor):
+            # inp may still be being written on the current stream
+            self.stream.wait_stream(torch.cuda.current_stream())
+            with torch.cuda.stream(self.stream):
+                self.input_dev.copy_(inp, non_blocking=True)
+        else:
+            self.input_host.copy_(torch.from_numpy(inp))
+            with torch.cuda.stream(self.stream):
+                self.input_dev.copy_(self.input_host, non_blocking=True)
         self.context.execute_async_v3(stream_handle=self.stream.cuda_stream)
         self.stream.synchronize()
         return [self.output_tensors[n] for n in self.output_names]
