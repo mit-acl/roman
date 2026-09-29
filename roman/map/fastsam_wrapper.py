@@ -389,13 +389,13 @@ class FastSAMWrapper():
                     inside_mask = mask[pcl_proj[:, 1], pcl_proj[:, 0]] == 1
                     inside_mask_points = pcl[inside_mask]
                     pre_truncate_len = len(inside_mask_points)
-                    ptcld_test = inside_mask_points[inside_mask_points[:, 2] < self.max_depth]
+                    ptcld_in_range = inside_mask_points[inside_mask_points[:, 2] < self.max_depth]
 
-                    if len(ptcld_test) < self.within_depth_frac*pre_truncate_len:
+                    if len(ptcld_in_range) < self.within_depth_frac*pre_truncate_len:
                         continue
 
                     pcd = o3d.geometry.PointCloud()
-                    pcd.points = o3d.utility.Vector3dVector(inside_mask_points)
+                    pcd.points = o3d.utility.Vector3dVector(ptcld_in_range)
                     
                 else:
                     if self.erosion_element is not None:
@@ -557,13 +557,13 @@ class FastSAMWrapper():
         valid = (z > 0) & (z < 1000.0) # 1000 is open3d's default depth_trunc
         return xyz, valid
 
-    def _filter_masks(self, segmask, ignore_mask=None, keep_mask=None):
+    def _filter_masks(self, masks, ignore_mask=None, keep_mask=None):
         """
-        Drops edge-touching, ignored, non-kept and out-of-area-bounds masks on segmask's device,
+        Drops edge-touching, ignored, non-kept and out-of-area-bounds masks on masks' device,
         then returns the kept (n, h, w) masks as a numpy array.
         """
-        nonzero = segmask != 0
-        keep = torch.ones(segmask.shape[0], dtype=torch.bool, device=segmask.device)
+        nonzero = masks != 0
+        keep = torch.ones(masks.shape[0], dtype=torch.bool, device=masks.device)
 
         edge_width = 5 # TODO: should be a parameter
         edges = [nonzero[:, :edge_width, :], nonzero[:, -edge_width:, :],
@@ -573,19 +573,19 @@ class FastSAMWrapper():
                 keep &= ~edge.any(dim=(1, 2))
 
         if ignore_mask is not None:
-            ignore_t = torch.from_numpy(ignore_mask != 0).to(segmask.device)
+            ignore_t = torch.from_numpy(ignore_mask != 0).to(masks.device)
             keep &= ~(nonzero & ignore_t).any(dim=(1, 2))
 
         if keep_mask is not None and self.keep_labels_option == 'intersect':
-            keep_t = torch.from_numpy(keep_mask != 0).to(segmask.device)
+            keep_t = torch.from_numpy(keep_mask != 0).to(masks.device)
             intersection = (nonzero & keep_t).sum(dim=(1, 2))
             keep &= intersection >= self.keep_mask_minimal_intersection * nonzero.sum(dim=(1, 2))
 
         if self.area_bounds is not None:
-            area = segmask.float().sum(dim=(1, 2))
+            area = masks.float().sum(dim=(1, 2))
             keep &= (area >= self.area_bounds[0]) & (area <= self.area_bounds[1])
 
-        return segmask[keep].cpu().numpy()
+        return masks[keep].cpu().numpy()
 
     def _process_img(self, image_bgr, ignore_mask=None, keep_mask=None):
         """Process FastSAM on image, returns segment masks and center points from results
@@ -598,7 +598,7 @@ class FastSAMWrapper():
             ignore_edges (bool, optional): Filters out edge-touching segments. Defaults to False.
 
         Returns:
-            segmask ((n,h,w) np.array): n segmented masks (binary mask over image)
+            masks ((n,h,w) np.array): n segmented masks (binary mask over image)
             blob_means ((n, 2) list): pixel means of segmasks
             blob_covs ((n, (2, 2) np.array) list): list of covariances (ellipses describing segmasks)
             (fig, ax) (Matplotlib fig, ax): fig and ax with visualization
@@ -609,7 +609,7 @@ class FastSAMWrapper():
 
         if self.use_trt_fastsam:
             # Same array the PyTorch branch feeds the predictor; (N, H, W) on GPU.
-            segmask = self.model.segment(image)
+            masks = self.model.segment(image)
         else:
             # Run FastSAM
             everything_results = self.model(image, 
@@ -620,15 +620,15 @@ class FastSAMWrapper():
                                             iou=self.iou,
                                             half=self.fastsam_fp16)
             prompt_process = FastSAMPrompt(image, everything_results, device=self.device)
-            segmask = prompt_process.everything_prompt()
-            if len(segmask) == 0:
-                segmask = None
+            masks = prompt_process.everything_prompt()
+            if len(masks) == 0:
+                masks = None
 
-        if segmask is None:
+        if masks is None:
             return []
 
         # (C, H, W) binary masks, filtered on GPU so only kept masks are transferred to CPU
-        return self._filter_masks(segmask, ignore_mask=ignore_mask, keep_mask=keep_mask)
+        return self._filter_masks(masks, ignore_mask=ignore_mask, keep_mask=keep_mask)
     
     def mask_bounding_box(self, mask):
         # Find the indices of the True values
