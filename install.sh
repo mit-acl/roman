@@ -15,6 +15,7 @@ cmake .. && make
 
 # pip install
 cd $ROMAN_DIR
+pip install "setuptools<70" wheel
 pip install --no-build-isolation git+https://github.com/CASIA-IVA-Lab/FastSAM.git@4d153e9
 pip install --retries=3 --default-timeout=1000 .
 
