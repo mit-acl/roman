@@ -80,12 +80,11 @@ jobs:
           mkdir -p gtsam_lib_override
           ln -sf /usr/local/lib/libgtsam.so.4.2.0 gtsam_lib_override/libgtsam.so.4
           export LD_LIBRARY_PATH=$PWD/gtsam_lib_override:$LD_LIBRARY_PATH
-          export ROMAN_DEMO_DATA=$HOME/data/roman_kimera_multi_aligned
+          export ROMAN_DEMO_DATA=$HOME/data/roman_kimera_multi
           export ROMAN_WEIGHTS=$PWD/weights
-          source /opt/ros/humble/setup.bash
           mkdir demo_output
           python3 demo/demo.py \
-              -p params/demo_aligned_depth \
+              -p params/demo \
               -o demo_output 
 
       - name: Check Mapping Output
