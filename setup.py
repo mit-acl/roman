@@ -29,7 +29,7 @@ setup(
         'pyyaml',
         'torch>=2.4.0',
         'torchvision>=0.19.0',
-        'setuptools<70',
+        'setuptools<70', # CLIP (via FastSAM) imports pkg_resources.packaging at runtime, removed in setuptools 70
         'robotdatapy>=1.1.8',
         'gdown',
         'transformers'
