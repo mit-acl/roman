@@ -4,7 +4,7 @@ fusion_method: 'geometric_mean'
 submap_radius: 15.0
 submap_center_dist: 10.0
 submap_center_time: 50.0 
-submap_max_size: 40
+submap_max_size: 50
 single_robot_lc: False
 single_robot_lc_time_thresh: 50.0
 force_rm_lc_roll_pitch: False
@@ -16,4 +16,4 @@ semantics_dim: 768
 
 submap_descriptor: 'stacked_frame_descriptors'
 frame_descriptor_dist: 10.0
-submap_descriptor_thresh: 0.8
+submap_descriptor_thresh: 0.7
