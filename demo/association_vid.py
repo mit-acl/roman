@@ -157,7 +157,8 @@ if __name__ == '__main__':
     print(f"Loading pose data...")
     pose_data = []
     for i in range(2):
-        os.environ[data_params[i].run_env] = args.runs[i]
+        if data_params[i].run_env is not None:
+            os.environ[data_params[i].run_env] = args.runs[i]
         # for now, use the sparser trajectory from roman map for faster load time
         if args.original_pose_data:
             pose_data.append(data_params[i].load_pose_data())
@@ -171,7 +172,8 @@ if __name__ == '__main__':
     print(f"Loading image data...")
     img_data = []
     for i in range(2):
-        os.environ[data_params[i].run_env] = args.runs[i]
+        if data_params[i].run_env is not None:
+            os.environ[data_params[i].run_env] = args.runs[i]
         img_data.append(data_params[i].load_img_data())
 
     fc = cv.VideoWriter_fourcc(*"mp4v")
@@ -221,7 +223,16 @@ if __name__ == '__main__':
                             [0., f, o3d_h/2],
                             [0., 0., 1.]])
 
-        
+        edge_mat = o3d.visualization.rendering.MaterialRecord()
+        edge_mat.shader = "unlitLine"
+        edge_mat.line_width = 5.0
+        pt_mat = o3d.visualization.rendering.MaterialRecord()
+        pt_mat.point_size = 5.0
+        for i, obj in enumerate(pcd_lists[0] + pcd_lists[1]):
+            scene.add_geometry(f"pcd-{i}", obj, pt_mat)
+        for i, edg in enumerate(edges):
+            scene.add_geometry(f"edge-{i}", edg, edge_mat)
+
     print("Creating video...")
     for t in tqdm.tqdm(np.arange(0.0, min_time_range, 1/vid_params.fps)):
         
@@ -296,19 +307,7 @@ if __name__ == '__main__':
             camera_pose = camera_pose @ behind_camera
             renderer.setup_camera(o3d_K, np.linalg.inv(camera_pose), o3d_w, o3d_h)
 
-            edge_mat = o3d.visualization.rendering.MaterialRecord()
-            edge_mat.shader = "unlitLine"
-            edge_mat.line_width = 5.0
-            pt_mat = o3d.visualization.rendering.MaterialRecord()
-            pt_mat.point_size = 5.0
-
-            for i, obj in enumerate(pcd_lists[0] + pcd_lists[1]):
-                scene.add_geometry(f"pcd-{i}", obj, pt_mat)
-            for i, edg in enumerate(edges):
-                scene.add_geometry(f"edge-{i}", edg, edge_mat)
-            o3d_img = renderer.render_to_image()
-            o3d_img = cv.cvtColor(np.asarray(o3d_img), cv.COLOR_RGB2BGR)
-            scene.clear_geometry()
+            o3d_img = cv.cvtColor(np.asarray(renderer.render_to_image()), cv.COLOR_RGB2BGR)
 
             viz_img[:, :o3d_w] = o3d_img
             
