@@ -17,3 +17,14 @@ yolo_imgsz: [256, 256]
 depth_scale: 1000.0
 max_depth: 7.5
 frame_descriptor: 'dino-gem'
+
+# fp16 with CUDA
+fastsam_fp16: True
+yolo_fp16: True
+dino_fp16: True
+
+# needs CUDA + TensorRT; engines are built on first use and cached in $ROMAN_WEIGHTS
+use_trt_fastsam: True
+use_trt_yolo: True
+use_trt_dino: True
+trt_timing: True

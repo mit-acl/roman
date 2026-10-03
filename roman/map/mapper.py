@@ -248,6 +248,22 @@ class Mapper():
             #     print(r)
         return segments
     
+    @staticmethod
+    def bbox_iou(bbox1, bbox2):
+        """
+        IOU of two (upper_left, lower_right) pixel boxes; same as IOU of masks
+        """
+        if bbox1 is None or bbox2 is None:
+            return 0.0
+        (ul1, lr1), (ul2, lr2) = bbox1, bbox2
+        area1 = int(lr1[0] - ul1[0]) * int(lr1[1] - ul1[1])
+        area2 = int(lr2[0] - ul2[0]) * int(lr2[1] - ul2[1])
+        iw = max(0, min(lr1[0], lr2[0]) - max(ul1[0], ul2[0]))
+        ih = max(0, min(lr1[1], lr2[1]) - max(ul1[1], ul2[1]))
+        intersection = int(iw) * int(ih)
+        union = area1 + area2 - intersection
+        return intersection / union if union > 0 else 0.0
+
     def merge(self):
         """
         Merge segments with high overlap
@@ -279,7 +295,7 @@ class Mapper():
                         continue
 
                     # if segments are very far away, don't worry about doing extra checking
-                    if np.mean(seg1.points) - np.mean(seg2.points) > \
+                    if np.linalg.norm(np.mean(seg1.points, axis=0) - np.mean(seg2.points, axis=0)) > \
                         .5 * (np.max(seg1.extent) + np.max(seg2.extent)):
                         continue 
 
@@ -287,11 +303,8 @@ class Mapper():
 
                     # 2D IOU check
                     if self.params.min_2d_iou is not None:
-                        mask1 = seg1.reconstruct_mask(self.last_pose)
-                        mask2 = seg2.reconstruct_mask(self.last_pose)
-                        intersection2d = np.logical_and(mask1, mask2).sum()
-                        union2d = np.logical_or(mask1, mask2).sum()
-                        iou2d = intersection2d / union2d if union2d > 0 else 0.0
+                        iou2d = self.bbox_iou(seg1.reprojected_bbox(self.last_pose),
+                                              seg2.reprojected_bbox(self.last_pose))
                         
                         merge_flag |= (iou2d >= self.params.min_2d_iou)
                         

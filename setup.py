@@ -23,7 +23,6 @@ setup(
         'gtsam',
         'scikit-image',
         'open3d>=0.18.0',
-        'yolov7-package',
         'shapely',
         'opencv-python>=4.6.0',
         'pyyaml',
@@ -34,5 +33,9 @@ setup(
         'gdown',
         'transformers'
     ],
+    extras_require={
+        # roman.tensorrt: export to ONNX and compile TensorRT engines.
+        'tensorrt': ['tensorrt', 'onnx', 'onnxsim'],
+    },
 )
 

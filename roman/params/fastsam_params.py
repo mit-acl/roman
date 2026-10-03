@@ -40,8 +40,10 @@ class FastSAMParams:
         plane_filter_params (tuple): parameters for plane filtering
         rotate_img (str): how to rotate the image ('CW', 'CCW', '180')
         semantics (str): which semantics to use for observations ('clip', 'dino', or 'none')
+        dino_model (str): HuggingFace DINOv2 model id, e.g. 'facebook/dinov2-large' (set submap_align semantics_dim to match)
         frame_descriptor (str): type of frame descriptor to use ('dino-gem', 'dino-gap','dino-gmp', or 'none')
         yolo_imgsz (Tuple[int, int]): size of the YOLO image
+        yolo_conf (float): YOLO detection confidence threshold
         depth_scale (float): depth scale factor for processing depth images
         max_depth (float): maximum depth before rejecting observation points
         triangle_ignore_masks (List[Tuple[Tuple[int, int], Tuple[int, int], Tuple[int, int]]]): 
@@ -55,7 +57,7 @@ class FastSAMParams:
     """
     
     weights_path: str = "$ROMAN_WEIGHTS/FastSAM-x.pt"
-    yolo_weights_path: str = "$ROMAN_WEIGHTS/yolov7.pt"
+    yolo_weights_path: str = "$ROMAN_WEIGHTS/yolov8m.pt"
     imgsz: Tuple[int, int] = (256, 256)
     device: str = 'cuda'
     use_pointcloud: bool = False
@@ -72,13 +74,22 @@ class FastSAMParams:
     plane_filter_params: tuple = tuple([3.0, 1.0, 0.2])
     rotate_img: str = None
     semantics: str = 'dino'
+    dino_model: str = 'facebook/dinov2-base'
     frame_descriptor: str = 'dino-gem'
     yolo_imgsz: Tuple[int, int] = (256, 256)
+    yolo_conf: float = .25
     depth_scale: float = 1e3
     max_depth: float = 7.5
     triangle_ignore_masks: List[Tuple[Tuple[int,int], Tuple[int,int], Tuple[int,int]]] = None
     conf: float = .5
     iou: float = .9
+    fastsam_fp16: bool = False
+    yolo_fp16: bool = False
+    dino_fp16: bool = False
+    use_trt_fastsam: bool = False
+    use_trt_yolo: bool = False
+    use_trt_dino: bool = False
+    trt_timing: bool = True
 
     def __post_init__(self):
         if self.frame_descriptor.lower() == 'none':
