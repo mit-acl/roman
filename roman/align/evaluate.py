@@ -249,7 +249,7 @@ class SubmapAlignEvaluator():
             num_relevant = np.sum((results.robots_nearby_mat <= self.params.evaluation_distance_m))
             is_positive = np.ones_like(results.robots_nearby_mat, dtype=bool)
             if use_submap_similarity:
-                if hasattr(results, 'similarity_mat'):
+                if getattr(results, 'similarity_mat', None) is not None:
                     is_positive &= (results.similarity_mat >= submap_similarity_thresh)
                 else:
                     print(f"Warning: Results for {name} do not have similarity_mat attribute.")

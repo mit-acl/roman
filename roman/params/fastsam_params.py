@@ -40,6 +40,7 @@ class FastSAMParams:
         plane_filter_params (tuple): parameters for plane filtering
         rotate_img (str): how to rotate the image ('CW', 'CCW', '180')
         semantics (str): which semantics to use for observations ('clip', 'dino', or 'none')
+        dino_model (str): HuggingFace DINOv2 model id, e.g. 'facebook/dinov2-large' (set submap_align semantics_dim to match)
         frame_descriptor (str): type of frame descriptor to use ('dino-gem', 'dino-gap','dino-gmp', or 'none')
         yolo_imgsz (Tuple[int, int]): size of the YOLO image
         yolo_conf (float): YOLO detection confidence threshold
@@ -73,6 +74,7 @@ class FastSAMParams:
     plane_filter_params: tuple = tuple([3.0, 1.0, 0.2])
     rotate_img: str = None
     semantics: str = 'dino'
+    dino_model: str = 'facebook/dinov2-base'
     frame_descriptor: str = 'dino-gem'
     yolo_imgsz: Tuple[int, int] = (256, 256)
     yolo_conf: float = .25
@@ -87,7 +89,7 @@ class FastSAMParams:
     use_trt_fastsam: bool = False
     use_trt_yolo: bool = False
     use_trt_dino: bool = False
-    trt_timing: bool = False
+    trt_timing: bool = True
 
     def __post_init__(self):
         if self.frame_descriptor.lower() == 'none':

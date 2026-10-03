@@ -26,7 +26,7 @@ from fastsam import FastSAMPrompt
 from fastsam import FastSAM
 import clip
 import logging
-from transformers import AutoImageProcessor, AutoModel
+from transformers import AutoConfig, AutoImageProcessor, AutoModel
 
 from robotdatapy.camera import CameraParams
 
@@ -66,7 +66,8 @@ class FastSAMWrapper():
         use_trt_fastsam=False,
         use_trt_yolo=False,
         use_trt_dino=False,
-        trt_timing=False,
+        trt_timing=True,
+        dino_model='facebook/dinov2-base',
     ):
         """Wrapper for running FastSAM on images (RGB/depth data)
 
@@ -89,7 +90,8 @@ class FastSAMWrapper():
                 YOLOv7 on PyTorch. Defaults to False.
             use_trt_dino (bool, optional): Run DINOv2 on TensorRT. Defaults to False.
             trt_timing (bool, optional): Print a per-call stage breakdown for every
-                TRT model. Defaults to False.
+                TRT model. Defaults to True.
+            dino_model (str, optional): HuggingFace DINOv2 model id. Defaults to 'facebook/dinov2-base'.
         """
         # parameters
         self.weights = weights
@@ -107,6 +109,7 @@ class FastSAMWrapper():
         self.use_trt_yolo = use_trt_yolo
         self.use_trt_dino = use_trt_dino
         self.trt_timing = trt_timing
+        self.dino_model = dino_model
 
         # member variables
         self.observations = []
@@ -143,6 +146,7 @@ class FastSAMWrapper():
             use_trt_yolo=params.use_trt_yolo,
             use_trt_dino=params.use_trt_dino,
             trt_timing=params.trt_timing,
+            dino_model=params.dino_model,
         )
         fastsam.setup_rgbd_params(
             depth_cam_params=depth_cam_params, 
@@ -232,8 +236,8 @@ class FastSAMWrapper():
             clip_model = 'ViT-L/14'
             self.semantics_model, self.semantics_preprocess = clip.load(clip_model, device=self.device)
         elif semantics.lower() == 'dino':
-            dino_model_name = 'facebook/dinov2-base'
-            self.dino_shape = 768
+            dino_model_name = self.dino_model
+            self.dino_shape = AutoConfig.from_pretrained(dino_model_name).hidden_size
             if self.use_trt_dino:
                 from roman.tensorrt import DINOv2TRT
 
