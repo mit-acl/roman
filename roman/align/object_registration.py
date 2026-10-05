@@ -85,16 +85,17 @@ class ObjectRegistration():
 
         return solutions
 
-    def T_align(self, map1: List[Object], map2: List[Object], correspondences: np.array = None):
+    def T_align(self, map1: List[Object], map2: List[Object], correspondences: np.array = None, yaw_only: bool = False):
         """
         Computes the transformation that aligns map2 to map1.
 
         Args:
             map1 (List[Object]): Object list in frame 1
             map2 (List[Object]): Object list in frame 2
-            correspondences (np.array, shape=(n,2), optional): If correspondences have already 
-                been found, set to None. Otherwise, performs register before aligning. Aligns using 
+            correspondences (np.array, shape=(n,2), optional): If correspondences have already
+                been found, set to None. Otherwise, performs register before aligning. Aligns using
                 Arun's method. Defaults to None.
+            yaw_only (bool, optional): Fit only yaw + translation (gravity-aligned 3D maps). Defaults to False.
 
         Returns:
             np.array: Transformation matrix that aligns map2 to map1
@@ -118,12 +119,16 @@ class ObjectRegistration():
         pts2_mean_reduced = pts2 - mean2
         assert pts1_mean_reduced.shape == pts2_mean_reduced.shape
         H = pts1_mean_reduced.T @ (pts2_mean_reduced * weights)
-        U, s, Vh = np.linalg.svd(H)
-        R = U @ Vh
-        if np.allclose(np.linalg.det(R), -1.0):
-            Vh_prime = Vh.copy()
-            Vh_prime[-1,:] *= -1.0
-            R = U @ Vh_prime
+        if yaw_only and self.dim == 3:
+            yaw = np.arctan2(H[1, 0] - H[0, 1], H[0, 0] + H[1, 1])
+            R = np.array([[np.cos(yaw), -np.sin(yaw), 0.], [np.sin(yaw), np.cos(yaw), 0.], [0., 0., 1.]])
+        else:
+            U, s, Vh = np.linalg.svd(H)
+            R = U @ Vh
+            if np.allclose(np.linalg.det(R), -1.0):
+                Vh_prime = Vh.copy()
+                Vh_prime[-1,:] *= -1.0
+                R = U @ Vh_prime
         t = mean1.reshape((-1,1)) - R @ mean2.reshape((-1,1))
         T = np.concatenate([np.concatenate([R, t], axis=1), np.hstack([np.zeros((1, R.shape[0])), [[1]]])], axis=0)
         return T
