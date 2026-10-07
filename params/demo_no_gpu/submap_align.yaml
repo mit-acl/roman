@@ -7,6 +7,6 @@ submap_center_time: 50.0
 submap_max_size: 50
 single_robot_lc: False
 single_robot_lc_time_thresh: 50.0
-force_rm_lc_roll_pitch: False
+force_rm_lc_roll_pitch: True
 force_rm_upside_down: True
 use_object_bottom_middle: True
