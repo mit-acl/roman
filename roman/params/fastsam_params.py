@@ -79,7 +79,7 @@ class FastSAMParams:
     yolo_imgsz: Tuple[int, int] = (256, 256)
     yolo_conf: float = .25
     depth_scale: float = 1e3
-    max_depth: float = 10.0
+    max_depth: float = 7.5
     triangle_ignore_masks: List[Tuple[Tuple[int,int], Tuple[int,int], Tuple[int,int]]] = None
     conf: float = .5
     iou: float = .9

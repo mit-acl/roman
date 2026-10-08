@@ -64,7 +64,7 @@ class MapperParams():
     min_sightings: int = 2
     max_t_no_sightings: int = 0.4
     mask_downsample_factor: int = 8
-    min_max_extent: float = 0.15
+    min_max_extent: float = 0.25
     clustering_epsilon: float = 0.25
     plane_prune_params: Tuple[float] = (3.0, 3.0, 0.5)
     segment_graveyard_time: float = 15.0

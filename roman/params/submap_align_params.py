@@ -69,7 +69,7 @@ class SubmapAlignParams:
     epsilon_shape: float = 0.0
     ransac_iter: int = int(1e6)
     cosine_min: float = 0.5
-    cosine_max: float = 0.9
+    cosine_max: float = 0.7
     semantics_dim: int = 768
     gravity_unc_ang_rad: float = 0.0872665
     

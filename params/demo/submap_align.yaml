@@ -10,6 +10,7 @@ single_robot_lc_time_thresh: 50.0
 force_rm_lc_roll_pitch: True
 force_rm_upside_down: True
 use_object_bottom_middle: True
+epsilon: 0.7
 cosine_min: 0.5
 cosine_max: 0.9
 semantics_dim: 768

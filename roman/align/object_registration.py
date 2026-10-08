@@ -95,7 +95,7 @@ class ObjectRegistration():
             correspondences (np.array, shape=(n,2), optional): If correspondences have already
                 been found, set to None. Otherwise, performs register before aligning. Aligns using
                 Arun's method. Defaults to None.
-            yaw_only (bool, optional): Fit only yaw + translation (gravity-aligned 3D maps). Defaults to False.
+            xyz_yaw_only (bool, optional): Fit only yaw + translation (gravity-aligned 3D maps). Defaults to False.
 
         Returns:
             np.array: Transformation matrix that aligns map2 to map1
