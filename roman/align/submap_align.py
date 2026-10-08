@@ -169,7 +169,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                             if np.abs(xyzrpy[3]) > np.deg2rad(90.) or np.abs(xyzrpy[4]) > np.deg2rad(90.):
                                 raise GravityConstraintError
                         if sm_params.force_rm_lc_roll_pitch:
-                            T_ij_hat = transform_rm_roll_pitch(T_ij_hat)
+                            T_ij_hat = registration.T_align(submap_i.segments, submap_j.segments, associations, xyz_yaw_only=True)
                         T_error = np.linalg.inv(T_ij_hat) @ T_ij
                         theta = Rot.from_matrix(T_error[:3, :3]).magnitude()
                         dist = np.linalg.norm(T_error[:sm_params.dim, 3])
