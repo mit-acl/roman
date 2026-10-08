@@ -11,6 +11,8 @@
 ###########################################################
 
 import numpy as np
+import open3d as o3d
+from scipy.spatial.transform import Rotation
 from typing import List, Tuple, Union
 from functools import cached_property
 
@@ -20,7 +22,7 @@ from roman.object.similiarity_metrics import ChamferDistance
 from roman.object.segment import Segment
 from roman.map.observation import Observation
 from roman.map.global_nearest_neighbor import global_nearest_neighbor
-from roman.map.map import ROMANMap
+from roman.map.map import ROMANMap, AggregatedPointCloud
 from roman.params.mapper_params import MapperParams
 
 import logging
@@ -43,6 +45,9 @@ class Mapper():
         self.times_history = []
         self.frame_descriptors_history = []
         self._T_camera_flu = np.eye(4)
+        self._last_pcd_pose = None
+        self._pcd_window = []
+        self.aggregated_point_clouds = []
 
     def update(self, t: float, pose: np.array, observations: List[Observation], frame_descriptor: np.ndarray):
 
@@ -140,6 +145,66 @@ class Mapper():
         self.merge()
             
         return
+
+    def update_point_cloud(self, t: float, pose: np.ndarray, point_cloud: np.ndarray):
+        """Add a motion-gated scan to an overlapping aggregation window.
+
+        ``point_cloud`` is an (N, 3) XYZ array in the sensor frame, in meters,
+        and ``pose`` is T_odom_sensor at time ``t``. The maximum depth is a
+        Euclidean range limit, independent of the sensor's axis convention.
+        Completed windows are downsampled in odom and store the earliest and
+        latest accepted scan times as t0 and tf. The window retains
+        floor(num_scans * overlap) scans; an
+        incomplete window remains buffered and is not exported by get_roman_map.
+        This method does not update the segment mapper's trajectory or last pose.
+        """
+        if not self.params.store_aggregated_pcds:
+            return
+
+        pose = np.asarray(pose, dtype=float)
+        point_cloud = np.asarray(point_cloud, dtype=float)
+        if pose.shape != (4, 4) or not np.all(np.isfinite(pose)):
+            raise ValueError("pose must be a finite 4x4 T_odom_sensor matrix")
+        if point_cloud.ndim != 2 or point_cloud.shape[1] != 3:
+            raise ValueError("point_cloud must have shape (N, 3)")
+        if not np.isfinite(t):
+            raise ValueError("point-cloud timestamp must be finite")
+
+        # Compare against the last accepted scan, including across windows.
+        if self._last_pcd_pose is not None:
+            distance = np.linalg.norm(pose[:3, 3] - self._last_pcd_pose[:3, 3])
+            relative_rotation = self._last_pcd_pose[:3, :3].T @ pose[:3, :3]
+            angle = np.rad2deg(Rotation.from_matrix(relative_rotation).magnitude())
+            if (distance < self.params.pcd_dist_thresh_m and
+                    angle < self.params.pcd_ang_thresh_deg):
+                return
+
+        points = point_cloud[np.all(np.isfinite(point_cloud), axis=1)]
+        ranges = np.linalg.norm(points, axis=1)
+        points = points[(ranges > 0.0) & (ranges <= self.params.pcd_max_depth)]
+        if len(points) == 0:
+            return
+
+        points_odom = points @ pose[:3, :3].T + pose[:3, 3]
+        self._pcd_window.append((t, points_odom))
+        self._last_pcd_pose = pose.copy()
+        if len(self._pcd_window) < self.params.pcd_window_num_scans:
+            return
+
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(
+            np.concatenate([points for _, points in self._pcd_window], axis=0)
+        )
+        pcd = pcd.voxel_down_sample(self.params.pcd_voxel_size_m)
+        self.aggregated_point_clouds.append(AggregatedPointCloud(
+            t0=float(min(time for time, _ in self._pcd_window)),
+            tf=float(max(time for time, _ in self._pcd_window)),
+            point_cloud=np.asarray(pcd.points).copy(),
+            frame='odom'
+        ))
+
+        num_retained = int(self.params.pcd_window_num_scans * self.params.pcd_window_overlap)
+        del self._pcd_window[:self.params.pcd_window_num_scans - num_retained]
     
     @cached_property
     def similarity_function(self):
@@ -358,7 +423,9 @@ class Mapper():
             trajectory=self.poses_flu_history,
             times=self.times_history,
             descriptors=self.frame_descriptors_history if self.frame_descriptors_history else None,
-            poses_are_flu=True
+            poses_are_flu=True,
+            point_clouds=list(self.aggregated_point_clouds)
+                if self.params.store_aggregated_pcds else None
         )
     
     def set_T_camera_flu(self, T_camera_flu: np.array):
@@ -371,41 +438,3 @@ class Mapper():
     @property
     def T_camera_flu(self):
         return self._T_camera_flu
-    
-
-    # def mask_similarity(self, segment: Segment, observation: Observation, projected: bool = False):
-    #     """
-    #     Compute the similarity between the mask of a segment and an observation
-    #     """
-    #     if not projected or segment in self.segment_nursery:
-    #         segment_propagated_mask = segment.last_observation.mask_downsampled
-    #         # segment_propagated_mask = segment.propagated_last_mask(observation.time, observation.pose, downsample_factor=self.mask_downsample_factor)
-    #         if segment_propagated_mask is None:
-    #             iou = 0.0
-    #         else:
-    #             iou = Mapper.compute_iou(segment_propagated_mask, observation.mask_downsampled)
-
-    #     # compute the similarity using the projected mask rather than last mask
-    #     else:
-    #         segment_mask = segment.reconstruct_mask(observation.pose, 
-    #                         downsample_factor=self.params.mask_downsample_factor)
-    #         iou = Mapper.compute_iou(segment_mask, observation.mask_downsampled)
-    #     return iou
-    
-    # @staticmethod
-    # def compute_iou(mask1, mask2):
-    #     """Compute the intersection over union (IoU) of two masks.
-
-    #     Args:
-    #         mask1 (_type_): _description_
-    #         mask2 (_type_): _description_
-    #     """
-
-    #     assert mask1.shape == mask2.shape
-    #     logger.debug(f"Compute IoU for shape {mask1.shape}")
-    #     intersection = np.logical_and(mask1, mask2).sum()
-    #     union = np.logical_or(mask1, mask2).sum()
-    #     if np.isclose(union, 0):
-    #         return 0.0
-    #     return float(intersection) / float(union)
-            

@@ -5,7 +5,7 @@ import os
 import pickle
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List
 import json
 
 from robotdatapy.data.pose_data import PoseData
@@ -23,6 +23,7 @@ class ROMANMap:
     times: np.ndarray
     descriptors: List[np.ndarray] = None
     poses_are_flu: bool = True
+    point_clouds: List['AggregatedPointCloud'] = None
 
     def __post_init__(self):
         assert len(self.trajectory) == len(self.times), \
@@ -66,14 +67,14 @@ class ROMANMap:
         elif len(roman_maps) == 2:
 
             # edge case where one map is empty
-            if len(roman_maps[0].times) == 0:
+            if len(roman_maps[0].times) == 0 and not roman_maps[0].point_clouds:
                 return roman_maps[1]
-            if len(roman_maps[1].times) == 0:
+            if len(roman_maps[1].times) == 0 and not roman_maps[1].point_clouds:
                 return roman_maps[0]
 
             other = deepcopy(roman_maps[1])
             assert reference.poses_are_flu == other.poses_are_flu
-            max_seg_id = max([seg.id for seg in reference.segments])
+            max_seg_id = max([seg.id for seg in reference.segments], default=0)
             for segment in other.segments:
                 segment.id += max_seg_id
             return cls(
@@ -82,7 +83,12 @@ class ROMANMap:
                 times=reference.times + other.times,
                 descriptors = reference.descriptors + other.descriptors if \
                               reference.descriptors is not None and other.descriptors is not None else None,
-                poses_are_flu=reference.poses_are_flu
+                poses_are_flu=reference.poses_are_flu,
+                point_clouds=(
+                    (reference.point_clouds or []) + (other.point_clouds or [])
+                    if reference.point_clouds is not None or other.point_clouds is not None
+                    else None
+                )
             )
         
         else:
@@ -161,6 +167,13 @@ class Submap:
             sims[np.isclose(norm_prods, 0.0, atol=1e-9, rtol=0.0)] = 0.0
             return np.max(sims)
 
+@dataclass
+class AggregatedPointCloud:
+    """Voxel-downsampled window in ``frame`` spanning scan times [t0, tf]."""
+    t0: float
+    tf: float
+    point_cloud: np.ndarray
+    frame: str = 'odom'
 
 @dataclass
 class SubmapParams:
@@ -420,70 +433,3 @@ def load_segment_slam_submap(json_file: str, segment_frame_is_odom=True, robot_n
             segment_frame='odom'
         ))
     return submaps
-
-
-# def load_segment_slam_submaps(json_files: List[str], 
-#         sm_params: SubmapAlignParams=SubmapAlignParams(), show_maps=False):
-#     submaps = []
-#     submap_centers = []
-#     for json_file in json_files:
-#         with open(json_file, 'r') as f:
-#             smcs = []
-#             sms = []
-#             objs = {}
-            
-#             data = json.load(f)
-#             for seg in data['segments']:
-#                 centroid = np.array([seg['centroid_odom']['x'], seg['centroid_odom']['y'], seg['centroid_odom']['z']])[:sm_params.dim]
-#                 new_obj = SegmentMinimalData(
-#                     id=seg['segment_index'],
-#                     center=centroid,
-#                     volume=seg['shape_attributes']['volume'],
-#                     linearity=seg['shape_attributes']['linearity'],
-#                     planarity=seg['shape_attributes']['planarity'],
-#                     scattering=seg['shape_attributes']['scattering'],
-#                     extent=None,
-#                     semantic_descriptor=None
-#                 )
-#                 objs[seg['segment_index']] = new_obj
-                
-#             for submap in data['submaps']:
-#                 center = np.eye(4)
-#                 center[:3,3] = np.array([submap['T_odom_submap']['tx'], submap['T_odom_submap']['ty'], submap['T_odom_submap']['tz']])
-#                 center[:3,:3] = Rot.from_quat([submap['T_odom_submap']['qx'], submap['T_odom_submap']['qy'], submap['T_odom_submap']['qz'], submap['T_odom_submap']['qw']]).as_matrix()
-#                 sm = [deepcopy(objs[idx]) for idx in submap['segment_indices']]
-
-#                 # Transform objects to be centered at the submap center
-#                 T_submap_world = np.eye(4) # transformation to move submap from world frame to centered submap frame
-#                 T_submap_world[:sm_params.dim, 3] = -center[:sm_params.dim, 3]
-#                 for obj in sm:
-#                     obj.transform(T_submap_world)
-
-#                 smcs.append(center)
-#                 sms.append(sm)
-                
-#             submap_centers.append(smcs)
-#             submaps.append(sms)
-#     if show_maps:
-#         for i in range(2):
-#             for submap in submaps[i]:
-#                 fig, ax = plt.subplots()
-#                 for obj in submap:
-#                     obj.plot2d(ax, color='blue')
-                
-#                 bounds = object_list_bounds(submap)
-#                 if len(bounds) == 3:
-#                     xlim, ylim, _ = bounds
-#                 else:
-#                     xlim, ylim = bounds
-
-#                 # ax.plot([position[0] for position in submap_centers[i]], [position[1] for position in submap_centers[i]], 'o', color='black')
-#                 ax.set_aspect('equal')
-                
-#                 ax.set_xlim(xlim)
-#                 ax.set_ylim(ylim)
-
-#             plt.show()
-#         exit(0)
-#     return submap_centers, submaps
-        
