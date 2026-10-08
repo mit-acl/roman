@@ -58,6 +58,8 @@ git clone git@github.com:mit-acl/roman.git roman
 ./roman/install.sh
 ```
 
+To install ROMAN with TensorRT support, follow the instructions [here](#tensorrt).
+
 ## Demo
 
 A short demo is available to run ROMAN on small subset of the [Kimera Multi Data](https://github.com/MIT-SPARK/Kimera-Multi-Data).
@@ -95,18 +97,6 @@ However, these will cause the demo to run slower.
 
 The output includes map visualization, loop closure accuracy results, and pose graph optimization results including root mean squared absolute trajectory error. 
 
-### TensorRT
-
-`params/demo_trt` runs the same demo with FastSAM, YOLOv8 and DINOv2 on
-TensorRT instead of PyTorch:
-
-```
-pip install '.[tensorrt]'
-python3 demo/demo.py -p params/demo_trt -o demo_output_trt
-```
-
-The engines are exported and compiled on first use and cached in
-`$ROMAN_WEIGHTS`.
 
 ### Association Visualization
 
@@ -134,6 +124,19 @@ One thing you may notice is that the cars that are parked along the sidewalk in 
 
 ROMAN requires RGB images, depth data (either as RGB-aligned depth images or point clouds), odometry information, and transforms between data sources. ROMAN should be runnable on any data with this information, using [robotdatapy](https://github.com/mbpeterson70/robotdatapy) to interface [pose data](https://github.com/mbpeterson70/robotdatapy/blob/main/robotdatapy/data/pose_data.py), [image data](https://github.com/mbpeterson70/robotdatapy/blob/main/robotdatapy/data/img_data.py), and possibly [point cloud data](https://github.com/mbpeterson70/robotdatapy/blob/main/robotdatapy/data/pointcloud_data.py). Currently supported data types include ROS1/2 bags, zip files of images, and csv files for poses, with additional data sources in development. 
 Click [here](./demo/README.md/#custom-data) for more information on running on custom data.
+
+## TensorRT
+
+`params/demo_trt` runs the same demo with FastSAM, YOLOv8 and DINOv2 on
+TensorRT instead of PyTorch:
+
+```
+pip install '.[tensorrt]'
+python3 demo/demo.py -p params/demo_trt -o demo_output_trt
+```
+
+The engines are exported and compiled on first use and cached in
+`$ROMAN_WEIGHTS`.
 
 ## Acknowledgements
 

@@ -85,7 +85,7 @@ class ObjectRegistration():
 
         return solutions
 
-    def T_align(self, map1: List[Object], map2: List[Object], correspondences: np.array = None, yaw_only: bool = False):
+    def T_align(self, map1: List[Object], map2: List[Object], correspondences: np.array = None, xyz_yaw_only: bool = False):
         """
         Computes the transformation that aligns map2 to map1.
 
@@ -119,7 +119,7 @@ class ObjectRegistration():
         pts2_mean_reduced = pts2 - mean2
         assert pts1_mean_reduced.shape == pts2_mean_reduced.shape
         H = pts1_mean_reduced.T @ (pts2_mean_reduced * weights)
-        if yaw_only and self.dim == 3:
+        if xyz_yaw_only and self.dim == 3:
             yaw = np.arctan2(H[1, 0] - H[0, 1], H[0, 0] + H[1, 1])
             R = np.array([[np.cos(yaw), -np.sin(yaw), 0.], [np.sin(yaw), np.cos(yaw), 0.], [0., 0., 1.]])
         else:

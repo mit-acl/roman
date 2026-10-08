@@ -25,8 +25,8 @@ class OfflineRPGOParams:
     odom_r_std: float = np.deg2rad(0.5)
     
     # loop closure covariance params
-    lc_t_std: float = 4.0
-    lc_r_std: float = np.deg2rad(10.0)
+    lc_t_std: float = 1.0
+    lc_r_std: float = np.deg2rad(2.0)
     
     # sparse or dense
     sparsified: bool = True
