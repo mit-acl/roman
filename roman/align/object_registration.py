@@ -2,6 +2,10 @@ import numpy as np
 from typing import List
 import matplotlib.pyplot as plt
 import clipperpy
+import logging
+from scipy.spatial import cKDTree
+
+logger = logging.getLogger(__name__)
 
 from roman.object.object import Object
 
@@ -18,6 +22,9 @@ class ObjectRegistration():
 
     def __init__(self, dim=3):
         self.dim = dim
+        self.icp_max_correspondence_distance = 0.2
+        self.icp_max_iterations = 50
+        self.icp_min_fitness = 0.3
 
     def register(self, map1: List[Object], map2: List[Object]):
         if len(map1) == 0 or len(map2) == 0:
@@ -111,6 +118,10 @@ class ObjectRegistration():
         pts1 = np.array([map1[corr[0]].center.reshape(-1)[:self.dim] for corr in correspondences])
         pts2 = np.array([map2[corr[1]].center.reshape(-1)[:self.dim] for corr in correspondences])
 
+        return self._fit_transform(pts1, pts2, xyz_yaw_only)
+
+    def _fit_transform(self, pts1, pts2, xyz_yaw_only=False):
+        """Least-squares rigid transform from corresponding pts2 to pts1."""
         weights = np.ones((pts1.shape[0],1))
         weights = weights.reshape((-1,1))
         mean1 = (np.sum(pts1 * weights, axis=0) / np.sum(weights)).reshape(-1)
@@ -132,7 +143,70 @@ class ObjectRegistration():
         t = mean1.reshape((-1,1)) - R @ mean2.reshape((-1,1))
         T = np.concatenate([np.concatenate([R, t], axis=1), np.hstack([np.zeros((1, R.shape[0])), [[1]]])], axis=0)
         return T
-    
+
+    def refine_with_icp(self, initial_transform: np.ndarray, point_cloud1: np.ndarray,
+                        point_cloud2: np.ndarray, xyz_yaw_only: bool = False) -> np.ndarray:
+        """Refine T_1_2 with point-to-point ICP (cloud2 is source, cloud1 is target).
+
+        Nearest-neighbor pairs within icp_max_correspondence_distance are fitted
+        iteratively using the same rigid/yaw-only estimator as object alignment.
+        Keep the initial guess if there are fewer than three inliers, insufficient
+        source-cloud fitness, a degenerate fit, or the inlier RMSE gets worse.
+        """
+        if self.dim != 3:
+            raise ValueError("Submap point-cloud ICP requires dim=3")
+        if point_cloud1 is None or point_cloud2 is None:
+            logger.debug("Skipping ICP: submap point cloud is missing")
+            return initial_transform
+
+        clouds = []
+        for cloud in (point_cloud1, point_cloud2):
+            points = np.asarray(cloud, dtype=float)
+            if points.ndim != 2 or points.shape[1] != 3:
+                raise ValueError("ICP point clouds must have shape (N, 3)")
+            clouds.append(points[np.all(np.isfinite(points), axis=1)])
+        target, source = clouds
+        if min(len(target), len(source)) < 3:
+            logger.debug("Skipping ICP: too few finite points")
+            return initial_transform
+
+        tree = cKDTree(target)
+
+        def correspondences(T):
+            transformed = source @ T[:3, :3].T + T[:3, 3]
+            distances, indices = tree.query(transformed)
+            mask = distances <= self.icp_max_correspondence_distance
+            count = np.count_nonzero(mask)
+            rmse = np.sqrt(np.mean(distances[mask] ** 2)) if count else np.inf
+            return transformed[mask], target[indices[mask]], count, rmse
+
+        T = initial_transform.copy()
+        _, _, initial_count, initial_rmse = correspondences(T)
+        for _ in range(self.icp_max_iterations):
+            source_inliers, target_inliers, count, _ = correspondences(T)
+            # A line or single point cannot determine a full rigid rotation.
+            required_rank = 1 if xyz_yaw_only else 2
+            axes = slice(0, 2) if xyz_yaw_only else slice(0, 3)
+            if (count < 3 or 
+                any(np.linalg.matrix_rank(points[:, axes] -
+                points[:, axes].mean(axis=0)) < required_rank
+                for points in (source_inliers, target_inliers))
+            ):
+                logger.debug("Skipping ICP: insufficient or degenerate correspondences")
+                return initial_transform
+            correction = self._fit_transform(target_inliers, source_inliers, xyz_yaw_only)
+            T = correction @ T
+            if np.allclose(correction, np.eye(4), atol=1e-6, rtol=0):
+                break
+
+        _, _, count, rmse = correspondences(T)
+        fitness = count / len(source)
+        if (not np.all(np.isfinite(T)) or count < 3 or fitness < self.icp_min_fitness or
+                count < initial_count or rmse > initial_rmse + 1e-12):
+            logger.debug("Keeping object alignment: ICP quality check failed")
+            return initial_transform
+        return T
+
     def view_registration(self, map1: List[Object], map2: List[Object], correspondences: np.array, T: np.array, ax=None, **kwargs):
         """
         Visualize the registration between map1 and map2

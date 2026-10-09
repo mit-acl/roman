@@ -72,10 +72,25 @@ class SubmapAlignParams:
     cosine_max: float = 0.7
     semantics_dim: int = 768
     gravity_unc_ang_rad: float = 0.0872665
+    icp_on_submap_pcds: bool = False
+    icp_max_correspondence_distance: float = 0.2  # meters
+    icp_max_iterations: int = 50
+    icp_min_fitness: float = 0.3                 # minimum fraction of source points with matches
     
     def __post_init__(self):
         if type(self.submap_descriptor) == str and self.submap_descriptor.lower() == 'none':
             self.submap_descriptor = None
+        if self.icp_on_submap_pcds:
+            if self.dim != 3:
+                raise ValueError("Submap point-cloud ICP requires dim=3")
+            if (not np.isfinite(self.icp_max_correspondence_distance) or
+                    self.icp_max_correspondence_distance <= 0):
+                raise ValueError("icp_max_correspondence_distance must be finite and positive")
+            if (isinstance(self.icp_max_iterations, bool) or
+                    not isinstance(self.icp_max_iterations, int) or self.icp_max_iterations < 1):
+                raise ValueError("icp_max_iterations must be a positive integer")
+            if not 0 <= self.icp_min_fitness <= 1:
+                raise ValueError("icp_min_fitness must be in [0, 1]")
 
     @classmethod
     def from_yaml(cls, yaml_file):
@@ -147,6 +162,9 @@ class SubmapAlignParams:
             registration = RansacReg(dim=self.dim, max_iteration=self.ransac_iter)
         else:
             assert False, "Invalid method"
+        registration.icp_max_correspondence_distance = self.icp_max_correspondence_distance
+        registration.icp_max_iterations = self.icp_max_iterations
+        registration.icp_min_fitness = self.icp_min_fitness
         return registration
         
     
