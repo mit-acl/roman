@@ -126,6 +126,8 @@ def rotation_rm_roll_pitch(R):
     return Rot.from_euler('z', Rot.from_matrix(R).as_euler('ZYX')[0]).as_matrix()
 
 def transform_rm_roll_pitch(T):
+    """Return a copy with roll and pitch removed, preserving yaw and translation."""
+    T = T.copy()
     T[:3,:3] = Rot.from_euler('z', Rot.from_matrix(T[:3,:3]).as_euler('ZYX')[0]).as_matrix()
     return T
 
