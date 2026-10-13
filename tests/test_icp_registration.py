@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+from scipy.spatial import cKDTree
 from scipy.spatial.transform import Rotation
 
 from roman.align.object_registration import ObjectRegistration, InsufficientAssociationsException
@@ -92,6 +93,28 @@ class ICPRegistrationTests(unittest.TestCase):
             initial, np.vstack((self.target, bad)), np.vstack((self.source, bad)))
         np.testing.assert_allclose(actual, self.T, atol=1e-10)
 
+    def test_source_subsampling_still_converges(self):
+        self.registration.icp_max_source_points = 50
+        initial = ObjectRegistration().T_align(self.map1, self.map2, self.associations)
+        source = self.source.copy()
+        actual = self.registration.refine_with_icp(initial, self.target, source)
+        np.testing.assert_allclose(actual, self.T, atol=1e-10)
+        np.testing.assert_equal(source, self.source)
+
+    def test_reused_target_tree_matches_fresh_tree(self):
+        initial = ObjectRegistration().T_align(self.map1, self.map2, self.associations)
+        fresh = self.registration.refine_with_icp(initial, self.target, self.source)
+        reused = self.registration.refine_with_icp(initial, self.target, self.source,
+                                                   target_tree=cKDTree(self.target))
+        np.testing.assert_equal(reused, fresh)
+
+    def test_stops_once_corrections_are_small(self):
+        initial = ObjectRegistration().T_align(self.map1, self.map2, self.associations)
+        with patch.object(self.registration, '_fit_transform',
+                          wraps=self.registration._fit_transform) as fit:
+            self.registration.refine_with_icp(initial, self.target, self.source)
+        self.assertLess(fit.call_count, 5)
+
     def test_insufficient_object_associations_do_not_run_icp(self):
         with patch.object(self.registration, 'refine_with_icp', side_effect=AssertionError):
             with self.assertRaises(InsufficientAssociationsException):
@@ -99,17 +122,27 @@ class ICPRegistrationTests(unittest.TestCase):
 
     def test_parameter_wiring_and_validation(self):
         params = SubmapAlignParams(icp_on_submap_pcds=True, icp_max_iterations=12,
-                                   icp_max_correspondence_distance=0.4, icp_min_fitness=0.6)
+                                   icp_max_correspondence_distance=0.4, icp_min_fitness=0.6,
+                                   icp_voxel_size=0.15, icp_max_source_points=500,
+                                   icp_convergence_translation=2e-3, icp_convergence_rotation_deg=0.05)
         registration = params.get_object_registration()
         self.assertEqual(registration.icp_max_iterations, 12)
         self.assertEqual(registration.icp_max_correspondence_distance, 0.4)
         self.assertEqual(registration.icp_min_fitness, 0.6)
+        self.assertEqual(registration.icp_max_source_points, 500)
+        self.assertEqual(registration.icp_convergence_translation, 2e-3)
+        self.assertEqual(registration.icp_convergence_rotation_deg, 0.05)
         self.assertTrue(SubmapParams.from_submap_align_params(params).include_point_cloud)
+        self.assertEqual(SubmapParams.from_submap_align_params(params).point_cloud_voxel_size, 0.15)
         self.assertFalse(SubmapParams.from_submap_align_params(SubmapAlignParams()).include_point_cloud)
         for invalid in ({'dim': 2}, {'icp_max_iterations': 0}, {'icp_max_iterations': 1.5},
                         {'icp_max_correspondence_distance': 0},
                         {'icp_max_correspondence_distance': np.inf},
-                        {'icp_min_fitness': -0.1}, {'icp_min_fitness': np.nan}):
+                        {'icp_min_fitness': -0.1}, {'icp_min_fitness': np.nan},
+                        {'icp_voxel_size': 0}, {'icp_voxel_size': np.inf},
+                        {'icp_max_source_points': 2}, {'icp_max_source_points': 1.5},
+                        {'icp_convergence_translation': 0},
+                        {'icp_convergence_rotation_deg': np.nan}):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 SubmapAlignParams(icp_on_submap_pcds=True, **invalid)
 

@@ -23,8 +23,11 @@ class ObjectRegistration():
     def __init__(self, dim=3):
         self.dim = dim
         self.icp_max_correspondence_distance = 0.2
-        self.icp_max_iterations = 50
+        self.icp_max_iterations = 30
         self.icp_min_fitness = 0.3
+        self.icp_max_source_points = 10000
+        self.icp_convergence_translation = 1e-3
+        self.icp_convergence_rotation_deg = 0.01
 
     def register(self, map1: List[Object], map2: List[Object]):
         if len(map1) == 0 or len(map2) == 0:
@@ -145,13 +148,20 @@ class ObjectRegistration():
         return T
 
     def refine_with_icp(self, initial_transform: np.ndarray, point_cloud1: np.ndarray,
-                        point_cloud2: np.ndarray, xyz_yaw_only: bool = False) -> np.ndarray:
+                        point_cloud2: np.ndarray, xyz_yaw_only: bool = False,
+                        target_tree: cKDTree = None) -> np.ndarray:
         """Refine T_1_2 with point-to-point ICP (cloud2 is source, cloud1 is target).
 
         Nearest-neighbor pairs within icp_max_correspondence_distance are fitted
         iteratively using the same rigid/yaw-only estimator as object alignment.
+        The source cloud is randomly subsampled to icp_max_source_points (the dense
+        target sets precision). Iteration stops once a correction moves less than
+        icp_convergence_translation (m) and icp_convergence_rotation_deg.
         Keep the initial guess if there are fewer than three inliers, insufficient
         source-cloud fitness, a degenerate fit, or the inlier RMSE gets worse.
+
+        target_tree, if given, is a cKDTree built on point_cloud1's finite points;
+        pass one to reuse it across calls that share a target cloud.
         """
         if self.dim != 3:
             raise ValueError("Submap point-cloud ICP requires dim=3")
@@ -170,11 +180,18 @@ class ObjectRegistration():
             logger.debug("Skipping ICP: too few finite points")
             return initial_transform
 
-        tree = cKDTree(target)
+        if self.icp_max_source_points is not None and len(source) > self.icp_max_source_points:
+            # fixed seed so results are repeatable
+            keep = np.random.default_rng(0).choice(len(source), self.icp_max_source_points, replace=False)
+            source = source[keep]
+
+        tree = target_tree if target_tree is not None else cKDTree(target)
+        target = tree.data
 
         def correspondences(T):
             transformed = source @ T[:3, :3].T + T[:3, 3]
-            distances, indices = tree.query(transformed)
+            distances, indices = tree.query(transformed, workers=-1,
+                                            distance_upper_bound=self.icp_max_correspondence_distance)
             mask = distances <= self.icp_max_correspondence_distance
             count = np.count_nonzero(mask)
             rmse = np.sqrt(np.mean(distances[mask] ** 2)) if count else np.inf
@@ -196,7 +213,10 @@ class ObjectRegistration():
                 return initial_transform
             correction = self._fit_transform(target_inliers, source_inliers, xyz_yaw_only)
             T = correction @ T
-            if np.allclose(correction, np.eye(4), atol=1e-6, rtol=0):
+            step_translation = np.linalg.norm(correction[:3, 3])
+            step_rotation = np.rad2deg(np.arccos(np.clip((np.trace(correction[:3, :3]) - 1) / 2, -1, 1)))
+            if (step_translation < self.icp_convergence_translation and
+                    step_rotation < self.icp_convergence_rotation_deg):
                 break
 
         _, _, count, rmse = correspondences(T)

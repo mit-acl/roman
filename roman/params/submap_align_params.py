@@ -74,8 +74,12 @@ class SubmapAlignParams:
     gravity_unc_ang_rad: float = 0.0872665
     icp_on_submap_pcds: bool = False
     icp_max_correspondence_distance: float = 0.2  # meters
-    icp_max_iterations: int = 50
+    icp_max_iterations: int = 30
     icp_min_fitness: float = 0.3                 # minimum fraction of source points with matches
+    icp_voxel_size: float = 0.05                 # meters, voxel downsampling of submap clouds used for ICP
+    icp_max_source_points: int = 10000           # random source subsample per ICP call (None = use all)
+    icp_convergence_translation: float = 1e-3    # meters, stop when a correction moves less than this...
+    icp_convergence_rotation_deg: float = 0.01   # ...and rotates less than this
     
     def __post_init__(self):
         if type(self.submap_descriptor) == str and self.submap_descriptor.lower() == 'none':
@@ -91,6 +95,16 @@ class SubmapAlignParams:
                 raise ValueError("icp_max_iterations must be a positive integer")
             if not 0 <= self.icp_min_fitness <= 1:
                 raise ValueError("icp_min_fitness must be in [0, 1]")
+            if not np.isfinite(self.icp_voxel_size) or self.icp_voxel_size <= 0:
+                raise ValueError("icp_voxel_size must be finite and positive")
+            if self.icp_max_source_points is not None and (
+                    isinstance(self.icp_max_source_points, bool) or
+                    not isinstance(self.icp_max_source_points, int) or self.icp_max_source_points < 3):
+                raise ValueError("icp_max_source_points must be None or an integer >= 3")
+            for name in ("icp_convergence_translation", "icp_convergence_rotation_deg"):
+                value = getattr(self, name)
+                if not np.isfinite(value) or value <= 0:
+                    raise ValueError(f"{name} must be finite and positive")
 
     @classmethod
     def from_yaml(cls, yaml_file):
@@ -165,6 +179,9 @@ class SubmapAlignParams:
         registration.icp_max_correspondence_distance = self.icp_max_correspondence_distance
         registration.icp_max_iterations = self.icp_max_iterations
         registration.icp_min_fitness = self.icp_min_fitness
+        registration.icp_max_source_points = self.icp_max_source_points
+        registration.icp_convergence_translation = self.icp_convergence_translation
+        registration.icp_convergence_rotation_deg = self.icp_convergence_rotation_deg
         return registration
         
     

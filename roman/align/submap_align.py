@@ -2,6 +2,7 @@ import argparse
 import numpy as np
 from numpy.linalg import inv, norm
 from scipy.spatial.transform import Rotation as Rot
+from scipy.spatial import cKDTree
 import pickle
 import matplotlib.pyplot as plt
 import os
@@ -86,6 +87,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
 
     # Registration method
     registration = sm_params.get_object_registration()
+    icp_target_trees = {} # submaps[0] index -> KD-tree of its point cloud, reused across pairs
 
     total_time_t0 = time.time()
 
@@ -172,9 +174,16 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                             T_ij_hat = registration.T_align(
                                 submap_i.segments, submap_j.segments, associations, xyz_yaw_only=True)
                         if sm_params.icp_on_submap_pcds:
+                            target_tree = None
+                            if submap_i.point_cloud is not None:
+                                if i not in icp_target_trees:
+                                    pts = submap_i.point_cloud
+                                    pts = pts[np.all(np.isfinite(pts), axis=1)]
+                                    icp_target_trees[i] = cKDTree(pts) if len(pts) >= 3 else None
+                                target_tree = icp_target_trees[i]
                             T_ij_hat = registration.refine_with_icp(
                                 T_ij_hat, submap_i.point_cloud, submap_j.point_cloud,
-                                xyz_yaw_only=sm_params.force_rm_lc_roll_pitch)
+                                xyz_yaw_only=sm_params.force_rm_lc_roll_pitch, target_tree=target_tree)
                         T_error = np.linalg.inv(T_ij_hat) @ T_ij
                         theta = Rot.from_matrix(T_error[:3, :3]).magnitude()
                         dist = np.linalg.norm(T_error[:sm_params.dim, 3])

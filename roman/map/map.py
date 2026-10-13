@@ -207,6 +207,7 @@ class SubmapParams:
             submap_descriptor=submap_align_params.submap_descriptor,
             frame_descriptor_dist=submap_align_params.frame_descriptor_dist,
             include_point_cloud=submap_align_params.icp_on_submap_pcds,
+            point_cloud_voxel_size=submap_align_params.icp_voxel_size,
         )
 
 def load_roman_map(map_file: str) -> ROMANMap:

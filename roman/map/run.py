@@ -138,7 +138,16 @@ class ROMANMapRunner:
                 depth_data = self.depth_data.img(img_t)
         except NoDataNearTimeException:
             return None, None, None, None, None
-        
+
+        # feed the full scan (camera frame) to the mapper's aggregated point clouds
+        if self.mapper_params.store_aggregated_pcds:
+            if self.data_params.use_pointcloud:
+                scan = depth_data[0]
+            else:
+                depth_xyz, depth_valid = self.fastsam._unproject_depth(depth_data)
+                scan = depth_xyz[depth_valid]
+            self.mapper.update_point_cloud(img_t, T_odom_camera, scan)
+
         observations, frame_descriptor = self.fastsam.run(img_t, T_odom_camera, img, depth_data=depth_data)
         return img_t, observations, T_odom_camera, img, frame_descriptor
 
