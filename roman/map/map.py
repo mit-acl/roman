@@ -260,6 +260,25 @@ def extract_submap_descriptors(submaps: List[Submap], descriptor_times: List[flo
                     
                 submap.descriptor = np.vstack(stacked_descriptors)
 
+def aggregate_submap_point_cloud(submap: Submap, point_clouds, voxel_size: float):
+    """Merge overlapping odom-frame aggregates into a gravity-aligned submap cloud."""
+    if not np.isfinite(voxel_size) or voxel_size <= 0:
+        raise ValueError("point_cloud_voxel_size must be finite and positive")
+    clouds = [cloud for cloud in point_clouds
+              if cloud.t0 <= submap.last_seen and cloud.tf >= submap.first_seen]
+    for cloud in clouds:
+        if cloud.frame != 'odom':
+            raise ValueError(f"Expected aggregate frame 'odom', got {cloud.frame!r}")
+    if not clouds:
+        submap.point_cloud = np.empty((0, 3))
+        return
+    points_odom = np.concatenate([cloud.point_cloud for cloud in clouds], axis=0)
+    points = transform(np.linalg.inv(submap.pose_gravity_aligned), points_odom, axis=0)
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points)
+    submap.point_cloud = np.asarray(pcd.voxel_down_sample(voxel_size).points).copy()
+
+
 def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams, 
                            gt_flu_pose_data: PoseData=None) -> List[Submap]:
     """
@@ -370,26 +389,9 @@ def submaps_from_roman_map(roman_map: ROMANMap, submap_params: SubmapParams,
     submaps = [submap for submap in submaps if len(submap.segments) > 0]
 
     if submap_params.include_point_cloud and point_clouds is not None:
-        voxel_size = submap_params.point_cloud_voxel_size
-        if not np.isfinite(voxel_size) or voxel_size <= 0:
-            raise ValueError("point_cloud_voxel_size must be finite and positive")
         for sm in submaps:
-            t0, tf = sm.first_seen, sm.last_seen
-            overlapping_clouds = [cloud for cloud in point_clouds
-                                  if cloud.t0 <= tf and cloud.tf >= t0]
-            for cloud in overlapping_clouds:
-                if cloud.frame != 'odom':
-                    raise ValueError(f"Expected aggregate frame 'odom', got {cloud.frame!r}")
-            if overlapping_clouds:
-                points_odom = np.concatenate([cloud.point_cloud for cloud in overlapping_clouds], axis=0)
-                T_center_odom = np.linalg.inv(sm.pose_gravity_aligned)
-                points = transform(T_center_odom, points_odom, axis=0)
-                pcd = o3d.geometry.PointCloud()
-                pcd.points = o3d.utility.Vector3dVector(points)
-                sm.point_cloud = np.asarray(pcd.voxel_down_sample(voxel_size).points).copy()
-            else:
-                sm.point_cloud = np.empty((0, 3))
-    
+            aggregate_submap_point_cloud(sm, point_clouds, submap_params.point_cloud_voxel_size)
+
     if submap_params.submap_descriptor == 'mean_semantic':
         # compute mean semantic for each submap
         for submap in submaps:

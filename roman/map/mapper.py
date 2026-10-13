@@ -24,6 +24,7 @@ from roman.map.observation import Observation
 from roman.map.global_nearest_neighbor import global_nearest_neighbor
 from roman.map.map import ROMANMap, AggregatedPointCloud
 from roman.params.mapper_params import MapperParams
+from roman.utils import DepthProjectionMetadata, unproject_depth
 
 import logging
 logger = logging.getLogger(__name__)
@@ -146,11 +147,15 @@ class Mapper():
             
         return
 
-    def update_point_cloud(self, t: float, pose: np.ndarray, point_cloud: np.ndarray):
+    def update_point_cloud(self, t: float, pose: np.ndarray, point_cloud: np.ndarray,
+                           is_depth_img: bool = False,
+                           depth_projection_metadata: DepthProjectionMetadata = None):
         """Add a motion-gated scan to an overlapping aggregation window.
 
         ``point_cloud`` is an (N, 3) XYZ array in the sensor frame, in meters,
-        and ``pose`` is T_odom_sensor at time ``t``. The maximum depth is a
+        or a raw depth image when ``is_depth_img=True`` (requires
+        ``depth_projection_metadata``). Motion gating precedes unprojection.
+        ``pose`` is T_odom_sensor at time ``t``. The maximum depth is a
         Euclidean range limit, independent of the sensor's axis convention.
         Completed windows are downsampled in odom and store the earliest and
         latest accepted scan times as t0 and tf. The window retains
@@ -162,11 +167,8 @@ class Mapper():
             return
 
         pose = np.asarray(pose, dtype=float)
-        point_cloud = np.asarray(point_cloud, dtype=float)
         if pose.shape != (4, 4) or not np.all(np.isfinite(pose)):
             raise ValueError("pose must be a finite 4x4 T_odom_sensor matrix")
-        if point_cloud.ndim != 2 or point_cloud.shape[1] != 3:
-            raise ValueError("point_cloud must have shape (N, 3)")
         if not np.isfinite(t):
             raise ValueError("point-cloud timestamp must be finite")
 
@@ -178,6 +180,18 @@ class Mapper():
             if (distance < self.params.pcd_dist_thresh_m and
                     angle < self.params.pcd_ang_thresh_deg):
                 return
+
+        if is_depth_img:
+            if depth_projection_metadata is None:
+                raise ValueError("depth_projection_metadata is required for depth images")
+            metadata = depth_projection_metadata
+            xyz, valid = unproject_depth(point_cloud, metadata.pcd_stride,
+                                         metadata.depth_scale, metadata.depth_intrinsics)
+            point_cloud = xyz[valid]
+        else:
+            point_cloud = np.asarray(point_cloud, dtype=float)
+            if point_cloud.ndim != 2 or point_cloud.shape[1] != 3:
+                raise ValueError("point_cloud must have shape (N, 3)")
 
         points = point_cloud[np.all(np.isfinite(point_cloud), axis=1)]
         ranges = np.linalg.norm(points, axis=1)

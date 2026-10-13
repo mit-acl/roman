@@ -12,11 +12,52 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
-from typing import List
+from dataclasses import dataclass
+from typing import List, Any
 from scipy.spatial.transform import Rotation as Rot
 from os.path import expandvars, expanduser
 
 from roman.object.object import Object
+
+@dataclass(frozen=True)
+class DepthProjectionMetadata:
+    """Depth scale is raw depth units per meter; intrinsics use full image pixels."""
+    pcd_stride: int
+    depth_scale: float
+    depth_intrinsics: Any # Open3D PinholeCameraIntrinsic
+
+    def __post_init__(self):
+        if isinstance(self.pcd_stride, bool) or not isinstance(self.pcd_stride, int) or self.pcd_stride < 1:
+            raise ValueError("pcd_stride must be a positive integer")
+        if not np.isfinite(self.depth_scale) or self.depth_scale <= 0:
+            raise ValueError("depth_scale must be finite and positive")
+        fx, fy = self.depth_intrinsics.get_focal_length()
+        cx, cy = self.depth_intrinsics.get_principal_point()
+        if not np.all(np.isfinite([fx, fy, cx, cy])) or fx <= 0 or fy <= 0:
+            raise ValueError("depth_intrinsics must have finite positive focal lengths")
+
+
+def unproject_depth(depth, pcd_stride, depth_scale, depth_intrinsics):
+    """Return strided camera-frame XYZ (H, W, 3) and a valid-depth mask.
+
+    Matches Open3D depth unprojection, including float32 depth rounding and its
+    default 1000-meter truncation. Intrinsics refer to the full-resolution image.
+    """
+    metadata = DepthProjectionMetadata(pcd_stride, depth_scale, depth_intrinsics)
+    depth = np.asarray(depth)
+    if depth.ndim != 2:
+        raise ValueError("depth image must have shape (H, W)")
+    s = metadata.pcd_stride
+    z = (depth[::s, ::s].astype(np.float64) / depth_scale).astype(np.float32).astype(np.float64)
+    v, u = np.mgrid[0:depth.shape[0]:s, 0:depth.shape[1]:s]
+    fx, fy = depth_intrinsics.get_focal_length()
+    cx, cy = depth_intrinsics.get_principal_point()
+    # Invalid depths are excluded by the mask; avoid warnings for inf * 0.
+    with np.errstate(invalid='ignore'):
+        xyz = np.stack([(u - cx) * z / fx, (v - cy) * z / fy, z], axis=-1)
+    valid = np.isfinite(z) & (z > 0) & (z < 1000.0)
+    return xyz, valid
+
 
 def plot_correspondences(map1: List[Object], map2: List[Object], correspondences: np.array, ax=None,
                          map1_kwargs={'color':'maroon'}, map2_kwargs={'color':'blue'}, correspondence_kwargs={'color':'lawngreen'}):
