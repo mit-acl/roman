@@ -3,11 +3,12 @@ from typing import List
 import matplotlib.pyplot as plt
 import clipperpy
 import logging
-from scipy.spatial import cKDTree
+import open3d as o3d
 
 logger = logging.getLogger(__name__)
 
 from roman.object.object import Object
+from roman.utils import transform_rm_roll_pitch
 
 class InsufficientAssociationsException(Exception):
     
@@ -22,12 +23,13 @@ class ObjectRegistration():
 
     def __init__(self, dim=3):
         self.dim = dim
-        self.icp_max_correspondence_distance = 0.2
+        self.icp_correspondence_distances = [1.0, 0.5, 0.25, 0.1]
         self.icp_max_iterations = 30
-        self.icp_min_fitness = 0.3
+        self.icp_min_fitness = 0.2
         self.icp_max_source_points = 10000
-        self.icp_convergence_translation = 1e-3
-        self.icp_convergence_rotation_deg = 0.01
+        self.icp_normal_radius = 0.4
+        self.icp_max_translation = 1.5
+        self.icp_max_rotation_deg = 10.0
 
     def register(self, map1: List[Object], map2: List[Object]):
         if len(map1) == 0 or len(map2) == 0:
@@ -147,83 +149,85 @@ class ObjectRegistration():
         T = np.concatenate([np.concatenate([R, t], axis=1), np.hstack([np.zeros((1, R.shape[0])), [[1]]])], axis=0)
         return T
 
+    def prepare_icp_cloud(self, points: np.ndarray):
+        """Open3D cloud (finite points, normals estimated) to use as an ICP target.
+
+        Normals are what point-to-plane ICP needs from the target; computing them is the
+        expensive part, so build this once per submap and pass it to refine_with_icp as
+        target_pcd for every pair that uses that submap as the target. Returns None if the
+        cloud is missing or has fewer than 3 finite points.
+        """
+        if points is None:
+            return None
+        points = np.asarray(points, dtype=float)
+        if points.ndim != 2 or points.shape[1] != 3:
+            raise ValueError("ICP point clouds must have shape (N, 3)")
+        points = points[np.all(np.isfinite(points), axis=1)]
+        if len(points) < 3:
+            return None
+        pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
+        pcd.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(
+            radius=self.icp_normal_radius, max_nn=30))
+        return pcd
+
     def refine_with_icp(self, initial_transform: np.ndarray, point_cloud1: np.ndarray,
                         point_cloud2: np.ndarray, xyz_yaw_only: bool = False,
-                        target_tree: cKDTree = None) -> np.ndarray:
-        """Refine T_1_2 with point-to-point ICP (cloud2 is source, cloud1 is target).
+                        target_pcd=None) -> np.ndarray:
+        """Refine T_1_2 with point-to-plane ICP (cloud2 is source, cloud1 is target).
 
-        Nearest-neighbor pairs within icp_max_correspondence_distance are fitted
-        iteratively using the same rigid/yaw-only estimator as object alignment.
-        The source cloud is randomly subsampled to icp_max_source_points (the dense
-        target sets precision). Iteration stops once a correction moves less than
-        icp_convergence_translation (m) and icp_convergence_rotation_deg.
-        Keep the initial guess if there are fewer than three inliers, insufficient
-        source-cloud fitness, a degenerate fit, or the inlier RMSE gets worse.
+        Open3D point-to-plane ICP with a Tukey robust loss, run coarse to fine over
+        icp_correspondence_distances (each stage starts from the previous result; the
+        larger early distances let it pull in from ROMAN's typical 0.2-1 m errors). With
+        xyz_yaw_only, roll and pitch are removed after every stage (submap frames are
+        gravity aligned). The source is randomly subsampled to icp_max_source_points.
 
-        target_tree, if given, is a cKDTree built on point_cloud1's finite points;
-        pass one to reuse it across calls that share a target cloud.
+        The initial guess is kept unless the result is finite, its fitness at the finest
+        distance (share of source points with a target within it) is at least
+        icp_min_fitness and not lower than the initial guess's, and it moves the initial
+        guess by at most icp_max_translation (m) and icp_max_rotation_deg (point-to-plane
+        ICP can slide or diverge on scenes that constrain it poorly, e.g. mostly ground).
+
+        target_pcd, if given, is prepare_icp_cloud(point_cloud1); pass one to reuse the
+        target normals across calls that share a target cloud.
         """
         if self.dim != 3:
             raise ValueError("Submap point-cloud ICP requires dim=3")
-        if point_cloud1 is None or point_cloud2 is None:
-            logger.debug("Skipping ICP: submap point cloud is missing")
+        target = target_pcd if target_pcd is not None else self.prepare_icp_cloud(point_cloud1)
+        if target is None or point_cloud2 is None:
+            logger.debug("Skipping ICP: submap point cloud is missing or too small")
             return initial_transform
-
-        clouds = []
-        for cloud in (point_cloud1, point_cloud2):
-            points = np.asarray(cloud, dtype=float)
-            if points.ndim != 2 or points.shape[1] != 3:
-                raise ValueError("ICP point clouds must have shape (N, 3)")
-            clouds.append(points[np.all(np.isfinite(points), axis=1)])
-        target, source = clouds
-        if min(len(target), len(source)) < 3:
-            logger.debug("Skipping ICP: too few finite points")
+        source = np.asarray(point_cloud2, dtype=float)
+        if source.ndim != 2 or source.shape[1] != 3:
+            raise ValueError("ICP point clouds must have shape (N, 3)")
+        source = source[np.all(np.isfinite(source), axis=1)]
+        if len(source) < 3:
+            logger.debug("Skipping ICP: too few finite source points")
             return initial_transform
-
         if self.icp_max_source_points is not None and len(source) > self.icp_max_source_points:
             # fixed seed so results are repeatable
             keep = np.random.default_rng(0).choice(len(source), self.icp_max_source_points, replace=False)
             source = source[keep]
+        source = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(source))
 
-        tree = target_tree if target_tree is not None else cKDTree(target)
-        target = tree.data
+        finest = min(self.icp_correspondence_distances)
+        reg = o3d.pipelines.registration
+        initial_fitness = reg.evaluate_registration(source, target, finest, initial_transform).fitness
+        criteria = reg.ICPConvergenceCriteria(max_iteration=self.icp_max_iterations)
+        T = np.array(initial_transform, dtype=float)
+        for distance in sorted(self.icp_correspondence_distances, reverse=True):
+            estimation = reg.TransformationEstimationPointToPlane(reg.TukeyLoss(k=distance))
+            T = reg.registration_icp(source, target, distance, T, estimation, criteria).transformation
+            if xyz_yaw_only:
+                T = transform_rm_roll_pitch(T)
+        fitness = reg.evaluate_registration(source, target, finest, T).fitness
 
-        def correspondences(T):
-            transformed = source @ T[:3, :3].T + T[:3, 3]
-            distances, indices = tree.query(transformed, workers=-1,
-                                            distance_upper_bound=self.icp_max_correspondence_distance)
-            mask = distances <= self.icp_max_correspondence_distance
-            count = np.count_nonzero(mask)
-            rmse = np.sqrt(np.mean(distances[mask] ** 2)) if count else np.inf
-            return transformed[mask], target[indices[mask]], count, rmse
-
-        T = initial_transform.copy()
-        _, _, initial_count, initial_rmse = correspondences(T)
-        for _ in range(self.icp_max_iterations):
-            source_inliers, target_inliers, count, _ = correspondences(T)
-            # A line or single point cannot determine a full rigid rotation.
-            required_rank = 1 if xyz_yaw_only else 2
-            axes = slice(0, 2) if xyz_yaw_only else slice(0, 3)
-            if (count < 3 or 
-                any(np.linalg.matrix_rank(points[:, axes] -
-                points[:, axes].mean(axis=0)) < required_rank
-                for points in (source_inliers, target_inliers))
-            ):
-                logger.debug("Skipping ICP: insufficient or degenerate correspondences")
-                return initial_transform
-            correction = self._fit_transform(target_inliers, source_inliers, xyz_yaw_only)
-            T = correction @ T
-            step_translation = np.linalg.norm(correction[:3, 3])
-            step_rotation = np.rad2deg(np.arccos(np.clip((np.trace(correction[:3, :3]) - 1) / 2, -1, 1)))
-            if (step_translation < self.icp_convergence_translation and
-                    step_rotation < self.icp_convergence_rotation_deg):
-                break
-
-        _, _, count, rmse = correspondences(T)
-        fitness = count / len(source)
-        if (not np.all(np.isfinite(T)) or count < 3 or fitness < self.icp_min_fitness or
-                count < initial_count or rmse > initial_rmse + 1e-12):
-            logger.debug("Keeping object alignment: ICP quality check failed")
+        correction = T @ np.linalg.inv(initial_transform)
+        moved = np.linalg.norm(correction[:3, 3])
+        turned = np.rad2deg(np.arccos(np.clip((np.trace(correction[:3, :3]) - 1) / 2, -1, 1)))
+        if (not np.all(np.isfinite(T)) or fitness < self.icp_min_fitness or fitness < initial_fitness or
+                moved > self.icp_max_translation or turned > self.icp_max_rotation_deg):
+            logger.debug(f"Keeping object alignment: ICP check failed (fitness {initial_fitness:.2f} -> "
+                         f"{fitness:.2f}, moved {moved:.2f} m, {turned:.1f} deg)")
             return initial_transform
         return T
 
