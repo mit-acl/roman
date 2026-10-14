@@ -50,6 +50,14 @@ class MapperParams():
             segment point clouds. If points are further than this many standard deviations from the mean
             distance to neighbors, they are considered outliers and removed. If <= 0 or inf, no outlier 
             removal is performed.
+        store_aggregated_pcds (bool): enable motion-gated point-cloud aggregation.
+        pcd_dist_thresh_m (float): translation from the last accepted scan needed to accept a scan.
+        pcd_ang_thresh_deg (float): rotation from the last accepted scan needed to accept a scan.
+            Either the translation or rotation threshold is sufficient.
+        pcd_window_num_scans (int): number of accepted scans per aggregate.
+        pcd_window_overlap (float): fraction of scans retained, rounded down; must be in [0, 1).
+        pcd_max_depth (float): maximum Euclidean range in the input sensor frame, in meters.
+        pcd_voxel_size_m (float): voxel size for downsampling completed windows in odom.
 
     Returns:
         MapperParams: params object
@@ -72,10 +80,33 @@ class MapperParams():
     iou_voxel_size: float = 0.2
     segment_voxel_size: float = 0.05
     segment_outlier_removal_std: float = 1.0
+
+    store_aggregated_pcds: bool = False
+    pcd_dist_thresh_m: float = 0.2
+    pcd_ang_thresh_deg: float = 20.0
+    pcd_window_num_scans: int = 20
+    pcd_window_overlap: float = 0.5
+    pcd_max_depth: float = 5.0
+    pcd_voxel_size_m: float = 0.05
     
     def __post_init__(self):
         if self.semantic_association_method.lower() == 'none':
             self.semantic_association_method = None
+        if self.store_aggregated_pcds:
+            if (isinstance(self.pcd_window_num_scans, bool) or
+                    not isinstance(self.pcd_window_num_scans, int) or
+                    self.pcd_window_num_scans < 1):
+                raise ValueError("pcd_window_num_scans must be a positive integer")
+            if not 0.0 <= self.pcd_window_overlap < 1.0:
+                raise ValueError("pcd_window_overlap must be in [0, 1)")
+            for name in ('pcd_dist_thresh_m', 'pcd_ang_thresh_deg'):
+                value = getattr(self, name)
+                if not np.isfinite(value) or value < 0.0:
+                    raise ValueError(f"{name} must be finite and nonnegative")
+            if not np.isfinite(self.pcd_voxel_size_m) or self.pcd_voxel_size_m <= 0.0:
+                raise ValueError("pcd_voxel_size_m must be finite and positive")
+            if np.isnan(self.pcd_max_depth) or self.pcd_max_depth <= 0.0:
+                raise ValueError("pcd_max_depth must be positive (or infinity)")
 
     @classmethod
     def from_yaml(cls, yaml_path: str, run: str = None):
