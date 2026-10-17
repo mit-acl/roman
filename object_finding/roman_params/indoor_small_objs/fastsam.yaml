@@ -1,0 +1,20 @@
+# From MIT-SPARK/Awesome-DCIST-T4 dcist_launch_system/config/indoor/fastsam.yaml (weights paths use $ROMAN_WEIGHTS, as in params/demo)
+weights_path: "$ROMAN_WEIGHTS/FastSAM-x.pt"
+yolo_weights_path: "$ROMAN_WEIGHTS/yolov8m.pt"
+imgsz: [256, 256]
+device: cuda
+mask_downsample_factor: 8
+min_mask_len_div: 30
+max_mask_len_div: 3
+ignore_people: false
+erosion_size: 3
+voxel_size: 0.05
+ignore_labels: [person]
+use_keep_labels: false
+keep_labels: []
+plane_filter_params: [3.0, 1.0, 0.2]
+semantics: dino
+yolo_imgsz: [256, 256]
+depth_scale: 1.0
+max_depth: 10.0
+frame_descriptor: dino-gem

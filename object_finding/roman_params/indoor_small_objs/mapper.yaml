@@ -1,0 +1,2 @@
+# Defaults except min_max_extent (small_objs map)
+min_max_extent: 0.1

@@ -1,0 +1,34 @@
+# Recording: 10-09-2026_indoor_roman_objects (robot gauss, ZED at 640x360, DLIO odometry)
+runs: ["indoor"]
+dt: 0.13333333  # unused by run_roman_on_times.py, which processes the exact frames a reference map used
+
+img_data:
+  type: bag
+  path: /mnt/acl-aerovault/projects/mad_summer_2026_mason/10-09-2026_indoor_roman_objects/bag
+  topic: /gauss/gauss_zed/rgb/image_rect_color
+  camera_info_topic: /gauss/gauss_zed/rgb/camera_info
+  compressed: False
+  color_space: bgr8  # the ZED publishes bgra8; FastSAM and DINOv2 need 3 channels
+
+depth_data:
+  type: bag
+  path: /mnt/acl-aerovault/projects/mad_summer_2026_mason/10-09-2026_indoor_roman_objects/bag
+  topic: /gauss/gauss_zed/depth/depth_registered  # 32FC1 meters, aligned to the RGB image
+  camera_info_topic: /gauss/gauss_zed/depth/camera_info
+  compressed: False
+
+pose_data:
+  type: bag
+  path: /mnt/acl-aerovault/projects/mad_summer_2026_mason/10-09-2026_indoor_roman_objects/bag
+  topic: /gauss/dlio/odom_node/odom  # gauss/odom -> gauss/base_link
+  time_tol: 0.1
+  T_odombase_camera:  # camera pose in base_link, from /tf_static
+    input_type: tf
+    parent: gauss/base_link
+    child: gauss_zed_left_camera_optical_frame
+    inv: False
+  T_camera_flu:  # base_link (FLU) pose in the camera frame
+    input_type: tf
+    parent: gauss_zed_left_camera_optical_frame
+    child: gauss/base_link
+    inv: False

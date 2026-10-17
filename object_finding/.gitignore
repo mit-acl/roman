@@ -1,0 +1,10 @@
+# Generated outputs. Maps and recordings stay on acl-aerovault; only label CSVs are kept here.
+rerun/*
+!rerun/small_objs_dinov2_reg_labels.csv
+crops/
+context/
+*.html
+*.pkl
+*.npz
+*.log
+*.bak

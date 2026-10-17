@@ -38,10 +38,10 @@ def preprocess(img_bgr, imgsz):
 
 
 def reshape_patches(last_hidden_state, input_hw):
-    """Drop the CLS token and fold the patch tokens into a (1, h, w, D) grid."""
+    """Drop the CLS (and any register) tokens and fold the patch tokens into a (1, h, w, D) grid."""
     h = input_hw[0] // PATCH_SIZE
     w = input_hw[1] // PATCH_SIZE
-    return last_hidden_state[:, 1:, :].reshape(1, h, w, -1)
+    return last_hidden_state[:, -h * w:, :].reshape(1, h, w, -1)
 
 
 def default_imgsz(model_name):

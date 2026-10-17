@@ -237,7 +237,10 @@ class FastSAMWrapper():
             self.semantics_model, self.semantics_preprocess = clip.load(clip_model, device=self.device)
         elif semantics.lower() == 'dino':
             dino_model_name = self.dino_model
-            self.dino_shape = AutoConfig.from_pretrained(dino_model_name).hidden_size
+            dino_config = AutoConfig.from_pretrained(dino_model_name)
+            self.dino_shape = dino_config.hidden_size
+            # tokens before the patch tokens: CLS, plus register tokens for e.g. dinov2-with-registers
+            self.dino_num_prefix_tokens = 1 + getattr(dino_config, 'num_register_tokens', 0)
             if self.use_trt_dino:
                 from roman.tensorrt import DINOv2TRT
 
@@ -671,7 +674,7 @@ class FastSAMWrapper():
         Returns:
             ArrayLike: Reshaped (Dino) output
         """
-        model_output_flat_patches = model_output[:,1:, :]
+        model_output_flat_patches = model_output[:, self.dino_num_prefix_tokens:, :]
         if self.semantic_patches_shape is None:
             ratio = img_shape[1] / img_shape[0] # width / height
             num_patches = model_output_flat_patches.shape[1]
