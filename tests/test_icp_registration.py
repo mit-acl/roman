@@ -109,6 +109,16 @@ class ICPRegistrationTests(unittest.TestCase):
         actual = self.registration.refine_with_icp(initial, self.target, self.source)
         np.testing.assert_equal(actual, initial)
 
+    def test_large_rotation_correction_keeps_object_guess(self):
+        initial = self.T.copy()
+        initial[:3, :3] = Rotation.from_euler('z', 5, degrees=True).as_matrix() @ initial[:3, :3]
+        self.registration.icp_max_rotation_deg = 10.0
+        relaxed = self.registration.refine_with_icp(initial, self.target, self.source)
+        np.testing.assert_allclose(relaxed, self.T, atol=2e-3)
+        self.registration.icp_max_rotation_deg = 2.0
+        actual = self.registration.refine_with_icp(initial, self.target, self.source)
+        np.testing.assert_equal(actual, initial)
+
     def test_nonfinite_points_are_filtered(self):
         bad = np.array([[np.nan, 0, 0], [np.inf, 0, 0]])
         initial = self.registration.T_align(self.map1, self.map2, self.associations)

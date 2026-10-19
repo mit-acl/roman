@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import clipperpy
 import logging
 import open3d as o3d
+from scipy.spatial.transform import Rotation
 
 logger = logging.getLogger(__name__)
 
@@ -238,12 +239,15 @@ class ObjectRegistration():
             T = reg.registration_icp(source, target, distance, T, estimation, criteria).transformation
             if xyz_yaw_only:
                 T = transform_rm_roll_pitch(T)
+        if not np.all(np.isfinite(T)):
+            logger.debug("Keeping object alignment: ICP result is not finite")
+            return initial_transform
         fitness = reg.evaluate_registration(source, target, finest, T).fitness
 
         correction = T @ np.linalg.inv(initial_transform)
         moved = np.linalg.norm(correction[:3, 3])
-        turned = np.rad2deg(np.arccos(np.clip((np.trace(correction[:3, :3]) - 1) / 2, -1, 1)))
-        if (not np.all(np.isfinite(T)) or fitness < self.icp_min_fitness or fitness < initial_fitness or
+        turned = np.rad2deg(Rotation.from_matrix(correction[:3, :3]).magnitude())
+        if (fitness < self.icp_min_fitness or fitness < initial_fitness or
                 moved > self.icp_max_translation or turned > self.icp_max_rotation_deg):
             logger.debug(f"Keeping object alignment: ICP check failed (fitness {initial_fitness:.2f} -> "
                          f"{fitness:.2f}, moved {moved:.2f} m, {turned:.1f} deg)")
