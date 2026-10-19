@@ -11,7 +11,7 @@ class RansacReg(ObjectRegistration):
         assert dim == 3, "Only 3D points supported for RANSAC registration."
         self.edge_len = edge_len
         self.max_iteration = max_iteration
-        super().__init__(0.0, 0.0, 0.0, dim)
+        super().__init__(dim)
     
     def register(self, map1: List[PointCloudObject], map2: List[PointCloudObject]):
         # For RANSAC, we take the center of each object's pointcloud.

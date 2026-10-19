@@ -23,14 +23,30 @@ class ObjectRegistration():
 
     def __init__(self, dim=3):
         self.dim = dim
-        self.icp_correspondence_distances = [1.0, 0.5, 0.25, 0.1]
-        self.icp_max_iterations = 30
-        self.icp_min_fitness = 0.2
-        self.icp_max_source_points = 10000
-        self.icp_normal_radius = 0.4
-        self.icp_normal_max_nn = 30
-        self.icp_max_translation = 1.5
-        self.icp_max_rotation_deg = 10.0
+        self.icp_set_up = False
+
+    def set_icp_params(self, *, correspondence_distances, max_iterations, min_fitness,
+                       max_source_points, normal_radius, normal_max_nn, max_translation,
+                       max_rotation_deg):
+        """Set the submap point-cloud ICP parameters (see SubmapAlignParams for their meaning).
+
+        Must be called before prepare_icp_cloud or refine_with_icp. SubmapAlignParams does
+        this when icp_on_submap_pcds is True.
+        """
+        self.icp_correspondence_distances = list(correspondence_distances)
+        self.icp_max_iterations = max_iterations
+        self.icp_min_fitness = min_fitness
+        self.icp_max_source_points = max_source_points
+        self.icp_normal_radius = normal_radius
+        self.icp_normal_max_nn = normal_max_nn
+        self.icp_max_translation = max_translation
+        self.icp_max_rotation_deg = max_rotation_deg
+        self.icp_set_up = True
+
+    def _check_icp_set_up(self):
+        if not self.icp_set_up:
+            raise RuntimeError("ICP parameters not set; call set_icp_params() "
+                               "(SubmapAlignParams does this when icp_on_submap_pcds is True)")
 
     def register(self, map1: List[Object], map2: List[Object]):
         if len(map1) == 0 or len(map2) == 0:
@@ -158,6 +174,7 @@ class ObjectRegistration():
         target_pcd for every pair that uses that submap as the target. Returns None if the
         cloud is missing or has fewer than 3 finite points.
         """
+        self._check_icp_set_up()
         if points is None:
             return None
         points = np.asarray(points, dtype=float)
@@ -191,6 +208,7 @@ class ObjectRegistration():
         target_pcd, if given, is prepare_icp_cloud(point_cloud1); pass one to reuse the
         target normals across calls that share a target cloud.
         """
+        self._check_icp_set_up()
         if self.dim != 3:
             raise ValueError("Submap point-cloud ICP requires dim=3")
         target = target_pcd if target_pcd is not None else self.prepare_icp_cloud(point_cloud1)

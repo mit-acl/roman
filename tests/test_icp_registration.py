@@ -151,6 +151,7 @@ class ICPRegistrationTests(unittest.TestCase):
         self.assertEqual(registration.icp_normal_max_nn, 20)
         self.assertEqual(registration.icp_max_translation, 2.0)
         self.assertEqual(registration.icp_max_rotation_deg, 5.0)
+        self.assertTrue(registration.icp_set_up)
         self.assertTrue(SubmapParams.from_submap_align_params(params).include_point_cloud)
         self.assertEqual(SubmapParams.from_submap_align_params(params).point_cloud_voxel_size, 0.15)
         self.assertFalse(SubmapParams.from_submap_align_params(SubmapAlignParams()).include_point_cloud)
@@ -166,6 +167,15 @@ class ICPRegistrationTests(unittest.TestCase):
                         {'icp_max_rotation_deg': np.nan}):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 SubmapAlignParams(icp_on_submap_pcds=True, **invalid)
+
+    def test_icp_requires_parameters(self):
+        for registration in (ObjectRegistration(), SubmapAlignParams().get_object_registration()):
+            with self.subTest(registration=type(registration).__name__):
+                self.assertFalse(registration.icp_set_up)
+                with self.assertRaisesRegex(RuntimeError, 'set_icp_params'):
+                    registration.prepare_icp_cloud(self.target)
+                with self.assertRaisesRegex(RuntimeError, 'set_icp_params'):
+                    registration.refine_with_icp(np.eye(4), self.target, self.source)
 
     def test_offline_alignment_passes_submap_clouds_to_refinement(self):
         from roman.align.submap_align import submap_align

@@ -182,14 +182,17 @@ class SubmapAlignParams:
             registration = RansacReg(dim=self.dim, max_iteration=self.ransac_iter)
         else:
             assert False, "Invalid method"
-        registration.icp_correspondence_distances = list(self.icp_correspondence_distances)
-        registration.icp_max_iterations = self.icp_max_iterations
-        registration.icp_min_fitness = self.icp_min_fitness
-        registration.icp_max_source_points = self.icp_max_source_points
-        registration.icp_normal_radius = self.icp_normal_radius
-        registration.icp_normal_max_nn = self.icp_normal_max_nn
-        registration.icp_max_translation = self.icp_max_translation
-        registration.icp_max_rotation_deg = self.icp_max_rotation_deg
+        if self.icp_on_submap_pcds:
+            registration.set_icp_params(
+                correspondence_distances=self.icp_correspondence_distances,
+                max_iterations=self.icp_max_iterations,
+                min_fitness=self.icp_min_fitness,
+                max_source_points=self.icp_max_source_points,
+                normal_radius=self.icp_normal_radius,
+                normal_max_nn=self.icp_normal_max_nn,
+                max_translation=self.icp_max_translation,
+                max_rotation_deg=self.icp_max_rotation_deg,
+            )
         return registration
         
     
