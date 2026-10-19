@@ -1,27 +1,19 @@
-import argparse
 import numpy as np
-from numpy.linalg import inv, norm
+from numpy.linalg import norm
 from scipy.spatial.transform import Rotation as Rot
-import pickle
-import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
-from typing import List
-import open3d as o3d
-import clipperpy
 import time
-import json
 from copy import deepcopy
 import yaml
 
 from robotdatapy.data.pose_data import PoseData
-from robotdatapy.transform import transform_to_xytheta, transform_to_xyz_quat, \
-    transform_to_xyzrpy
+from robotdatapy.transform import transform_to_xytheta, transform_to_xyzrpy
 
 from roman.map.map import Submap, SubmapParams, submaps_from_roman_map, load_roman_map
 from roman.align.object_registration import InsufficientAssociationsException
 from roman.align.dist_reg_with_pruning import GravityConstraintError
-from roman.utils import object_list_bounds, transform_rm_roll_pitch, aabb_intersects
+from roman.utils import aabb_intersects
 from roman.params.submap_align_params import SubmapAlignParams, SubmapAlignInputOutput
 from roman.align.results import save_submap_align_results, SubmapAlignResults
 
@@ -86,6 +78,7 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
 
     # Registration method
     registration = sm_params.get_object_registration()
+    icp_targets = {} # submaps[0] index -> its point cloud prepared as an ICP target (normals), reused across pairs
 
     total_time_t0 = time.time()
 
@@ -169,7 +162,14 @@ def submap_align(sm_params: SubmapAlignParams, sm_io: SubmapAlignInputOutput):
                             if np.abs(xyzrpy[3]) > np.deg2rad(90.) or np.abs(xyzrpy[4]) > np.deg2rad(90.):
                                 raise GravityConstraintError
                         if sm_params.force_rm_lc_roll_pitch:
-                            T_ij_hat = registration.T_align(submap_i.segments, submap_j.segments, associations, xyz_yaw_only=True)
+                            T_ij_hat = registration.T_align(
+                                submap_i.segments, submap_j.segments, associations, xyz_yaw_only=True)
+                        if sm_params.icp_on_submap_pcds:
+                            if i not in icp_targets:
+                                icp_targets[i] = registration.prepare_icp_cloud(submap_i.point_cloud)
+                            T_ij_hat = registration.refine_with_icp(
+                                T_ij_hat, submap_i.point_cloud, submap_j.point_cloud,
+                                xyz_yaw_only=sm_params.force_rm_lc_roll_pitch, target_pcd=icp_targets[i])
                         T_error = np.linalg.inv(T_ij_hat) @ T_ij
                         theta = Rot.from_matrix(T_error[:3, :3]).magnitude()
                         dist = np.linalg.norm(T_error[:sm_params.dim, 3])

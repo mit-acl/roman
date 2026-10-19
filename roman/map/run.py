@@ -19,17 +19,12 @@ from dataclasses import dataclass
 import time
 from copy import deepcopy
 
-from robotdatapy.data.img_data import ImgData
-from robotdatapy.data.pose_data import PoseData
-from robotdatapy.transform import transform, T_RDFFLU, T_FLURDF
 from robotdatapy.data.robot_data import NoDataNearTimeException
-from robotdatapy.camera import CameraParams
 
 from roman.object.segment import Segment
 from roman.viz import visualize_map_on_img, visualize_observations_on_img, visualize_3d_on_img
 from roman.map.mapper import Mapper
 from roman.map.fastsam_wrapper import FastSAMWrapper
-from roman.map.map import ROMANMap
 from roman.map.align_pointcloud import AlignPointCloud
 from roman.params.data_params import DataParams
 from roman.params.mapper_params import MapperParams
@@ -138,7 +133,15 @@ class ROMANMapRunner:
                 depth_data = self.depth_data.img(img_t)
         except NoDataNearTimeException:
             return None, None, None, None, None
-        
+
+        # feed the full scan (camera frame) to the mapper's aggregated point clouds
+        if self.mapper_params.store_aggregated_pcds:
+            if self.data_params.use_pointcloud:
+                self.mapper.update_point_cloud(img_t, T_odom_camera, depth_data[0])
+            else:
+                self.mapper.update_point_cloud(img_t, T_odom_camera, depth_data,
+                    is_depth_img=True, depth_projection_metadata=self.fastsam.depth_projection_metadata)
+
         observations, frame_descriptor = self.fastsam.run(img_t, T_odom_camera, img, depth_data=depth_data)
         return img_t, observations, T_odom_camera, img, frame_descriptor
 

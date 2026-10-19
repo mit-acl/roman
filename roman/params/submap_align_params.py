@@ -72,10 +72,45 @@ class SubmapAlignParams:
     cosine_max: float = 0.7
     semantics_dim: int = 768
     gravity_unc_ang_rad: float = 0.0872665
+    icp_on_submap_pcds: bool = False
+    # point-to-plane ICP (Tukey loss), coarse to fine over these correspondence distances (m)
+    icp_correspondence_distances: list = field(default_factory=lambda: [1.0, 0.5, 0.25, 0.1])
+    icp_max_iterations: int = 30                 # per stage
+    icp_min_fitness: float = 0.2                 # share of source points within the finest distance
+    icp_voxel_size: float = 0.1                  # meters, voxel downsampling of submap clouds used for ICP
+    icp_normal_radius: float = 0.4               # meters, target normal estimation (~4 voxels)
+    icp_normal_max_nn: int = 30                  # max neighbors within icp_normal_radius used per normal
+    icp_max_source_points: int = 10000           # random source subsample per ICP call (None = use all)
+    icp_max_translation: float = 1.5             # meters, keep the object alignment if ICP moves it more
+    icp_max_rotation_deg: float = 10.0           # degrees, ...or rotates it more
     
     def __post_init__(self):
         if type(self.submap_descriptor) == str and self.submap_descriptor.lower() == 'none':
             self.submap_descriptor = None
+        if self.icp_on_submap_pcds:
+            if self.dim != 3:
+                raise ValueError("Submap point-cloud ICP requires dim=3")
+            if (len(self.icp_correspondence_distances) == 0 or
+                    not all(np.isfinite(d) and d > 0 for d in self.icp_correspondence_distances)):
+                raise ValueError("icp_correspondence_distances must be a non-empty list of positive distances")
+            if (isinstance(self.icp_max_iterations, bool) or
+                    not isinstance(self.icp_max_iterations, int) or self.icp_max_iterations < 1):
+                raise ValueError("icp_max_iterations must be a positive integer")
+            if (isinstance(self.icp_normal_max_nn, bool) or
+                    not isinstance(self.icp_normal_max_nn, int) or self.icp_normal_max_nn < 3):
+                raise ValueError("icp_normal_max_nn must be an integer >= 3")
+            if not 0 <= self.icp_min_fitness <= 1:
+                raise ValueError("icp_min_fitness must be in [0, 1]")
+            if not np.isfinite(self.icp_voxel_size) or self.icp_voxel_size <= 0:
+                raise ValueError("icp_voxel_size must be finite and positive")
+            if self.icp_max_source_points is not None and (
+                    isinstance(self.icp_max_source_points, bool) or
+                    not isinstance(self.icp_max_source_points, int) or self.icp_max_source_points < 3):
+                raise ValueError("icp_max_source_points must be None or an integer >= 3")
+            for name in ("icp_normal_radius", "icp_max_translation", "icp_max_rotation_deg"):
+                value = getattr(self, name)
+                if not np.isfinite(value) or value <= 0:
+                    raise ValueError(f"{name} must be finite and positive")
 
     @classmethod
     def from_yaml(cls, yaml_file):
@@ -147,6 +182,17 @@ class SubmapAlignParams:
             registration = RansacReg(dim=self.dim, max_iteration=self.ransac_iter)
         else:
             assert False, "Invalid method"
+        if self.icp_on_submap_pcds:
+            registration.set_icp_params(
+                correspondence_distances=self.icp_correspondence_distances,
+                max_iterations=self.icp_max_iterations,
+                min_fitness=self.icp_min_fitness,
+                max_source_points=self.icp_max_source_points,
+                normal_radius=self.icp_normal_radius,
+                normal_max_nn=self.icp_normal_max_nn,
+                max_translation=self.icp_max_translation,
+                max_rotation_deg=self.icp_max_rotation_deg,
+            )
         return registration
         
     

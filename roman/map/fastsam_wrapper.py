@@ -32,8 +32,7 @@ from robotdatapy.camera import CameraParams
 
 from roman.map.observation import Observation
 from roman.params.fastsam_params import FastSAMParams
-from roman.utils import expandvars_recursive
-from roman.viz import viz_pointcloud_on_img
+from roman.utils import expandvars_recursive, unproject_depth, DepthProjectionMetadata
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARN)
@@ -310,6 +309,9 @@ class FastSAMWrapper():
             )
         self.voxel_size = voxel_size
         self.pcd_stride = pcd_stride
+        # shared by this wrapper's unprojection and the mapper's aggregated point clouds
+        self.depth_projection_metadata = None if self.use_pointcloud else \
+            DepthProjectionMetadata(self.pcd_stride, self.depth_scale, self.depth_cam_intrinsics)
         if erosion_size > 0:
             # see: https://docs.opencv.org/3.4/db/df6/tutorial_erosion_dilatation.html
             erosion_shape = cv.MORPH_ELLIPSE
@@ -378,7 +380,7 @@ class FastSAMWrapper():
             frame_descriptor = self.get_frame_descriptor(dino_output_patches)
         
         if depth_data is not None and not self.use_pointcloud:
-            depth_xyz, depth_valid = self._unproject_depth(depth_data)
+            depth_xyz, depth_valid = unproject_depth(depth_data, self.depth_projection_metadata)
 
         for mask_idx, mask in enumerate(masks):
 
@@ -542,24 +544,6 @@ class FastSAMWrapper():
             keep_mask = None
 
         return ignore_mask, keep_mask
-
-    def _unproject_depth(self, depth):
-        """
-        Unprojects every pcd_stride-th pixel of a depth image, using the same arithmetic as
-        o3d.geometry.PointCloud.create_from_depth_image.
-
-        Returns:
-            xyz ((h, w, 3) np.array): strided points in the camera frame
-            valid ((h, w) np.array): pixels open3d would keep with project_valid_depth_only
-        """
-        s = self.pcd_stride
-        z = (depth[::s, ::s].astype(np.float64) / self.depth_scale).astype(np.float32).astype(np.float64)
-        v, u = np.mgrid[0:depth.shape[0]:s, 0:depth.shape[1]:s]
-        fx, fy = self.depth_cam_intrinsics.get_focal_length()
-        cx, cy = self.depth_cam_intrinsics.get_principal_point()
-        xyz = np.stack([(u - cx) * z / fx, (v - cy) * z / fy, z], axis=-1)
-        valid = (z > 0) & (z < 1000.0) # 1000 is open3d's default depth_trunc
-        return xyz, valid
 
     def _filter_masks(self, masks, ignore_mask=None, keep_mask=None):
         """
