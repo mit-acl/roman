@@ -37,21 +37,20 @@ class DepthProjectionMetadata:
             raise ValueError("depth_intrinsics must have finite positive focal lengths")
 
 
-def unproject_depth(depth, pcd_stride, depth_scale, depth_intrinsics):
+def unproject_depth(depth, metadata: DepthProjectionMetadata):
     """Return strided camera-frame XYZ (H, W, 3) and a valid-depth mask.
 
     Matches Open3D depth unprojection, including float32 depth rounding and its
     default 1000-meter truncation. Intrinsics refer to the full-resolution image.
     """
-    metadata = DepthProjectionMetadata(pcd_stride, depth_scale, depth_intrinsics)
     depth = np.asarray(depth)
     if depth.ndim != 2:
         raise ValueError("depth image must have shape (H, W)")
     s = metadata.pcd_stride
-    z = (depth[::s, ::s].astype(np.float64) / depth_scale).astype(np.float32).astype(np.float64)
+    z = (depth[::s, ::s].astype(np.float64) / metadata.depth_scale).astype(np.float32).astype(np.float64)
     v, u = np.mgrid[0:depth.shape[0]:s, 0:depth.shape[1]:s]
-    fx, fy = depth_intrinsics.get_focal_length()
-    cx, cy = depth_intrinsics.get_principal_point()
+    fx, fy = metadata.depth_intrinsics.get_focal_length()
+    cx, cy = metadata.depth_intrinsics.get_principal_point()
     # Invalid depths are excluded by the mask; avoid warnings for inf * 0.
     with np.errstate(invalid='ignore'):
         xyz = np.stack([(u - cx) * z / fx, (v - cy) * z / fy, z], axis=-1)

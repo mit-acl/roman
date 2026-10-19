@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -18,20 +19,20 @@ class DepthProjectionTests(unittest.TestCase):
         depth = np.array([[1000., 0., 2000.], [np.nan, np.inf, -1.], [3000., 1000000., 4000.]])
         original = depth.copy()
         metadata = self.metadata(stride=2)
-        xyz, valid = unproject_depth(depth, metadata.pcd_stride, metadata.depth_scale, metadata.depth_intrinsics)
+        xyz, valid = unproject_depth(depth, metadata)
         np.testing.assert_allclose(xyz, [[[-.5, -.5, 1.], [1., -1., 2.]],
                                          [[-1.5, 1.5, 3.], [2., 2., 4.]]])
         self.assertTrue(valid.all())
-        _, valid = unproject_depth(depth, 1, 1000., metadata.depth_intrinsics)
+        _, valid = unproject_depth(depth, self.metadata(stride=1))
         np.testing.assert_equal(valid, [[True, False, True], [False, False, False], [True, False, True]])
-        meters, _ = unproject_depth(depth / 1000., 2, 1., metadata.depth_intrinsics)
+        meters, _ = unproject_depth(depth / 1000., self.metadata(scale=1., stride=2))
         np.testing.assert_equal(meters, xyz)
         np.testing.assert_equal(depth, original)
 
     def test_projection_matches_open3d(self):
         depth = np.array([[1000, 2000, 3000], [4000, 0, 1000], [2000, 3000, 4000]], dtype=np.uint16)
         metadata = self.metadata(stride=2)
-        xyz, valid = unproject_depth(depth, 2, 1000., metadata.depth_intrinsics)
+        xyz, valid = unproject_depth(depth, metadata)
         expected = o3d.geometry.PointCloud.create_from_depth_image(
             o3d.geometry.Image(depth), metadata.depth_intrinsics,
             depth_scale=1000., depth_trunc=1000., stride=2)
@@ -66,3 +67,21 @@ class DepthProjectionTests(unittest.TestCase):
         for scale, stride in [(0., 1), (np.inf, 1), (1000., 0), (1000., 1.5)]:
             with self.assertRaises(ValueError):
                 self.metadata(scale, stride)
+
+    def test_fastsam_wrapper_shares_projection_metadata(self):
+        from roman.map.fastsam_wrapper import FastSAMWrapper
+        cam = SimpleNamespace(width=3, height=3, fx=2., fy=2., cx=1., cy=1.)
+        for use_pointcloud in (False, True):
+            with self.subTest(use_pointcloud=use_pointcloud):
+                wrapper = FastSAMWrapper.__new__(FastSAMWrapper)  # skip loading models
+                wrapper.use_pointcloud = use_pointcloud
+                wrapper.setup_rgbd_params(cam, max_depth=5., depth_scale=1000., pcd_stride=2)
+                metadata = wrapper.depth_projection_metadata
+                if use_pointcloud:
+                    self.assertIsNone(metadata)
+                    continue
+                self.assertEqual((metadata.pcd_stride, metadata.depth_scale), (2, 1000.))
+                self.assertIs(metadata.depth_intrinsics, wrapper.depth_cam_intrinsics)
+                depth = np.full((3, 3), 1000, dtype=np.uint16)
+                np.testing.assert_equal(unproject_depth(depth, metadata)[0],
+                                        unproject_depth(depth, self.metadata(stride=2))[0])

@@ -28,6 +28,7 @@ class ObjectRegistration():
         self.icp_min_fitness = 0.2
         self.icp_max_source_points = 10000
         self.icp_normal_radius = 0.4
+        self.icp_normal_max_nn = 30
         self.icp_max_translation = 1.5
         self.icp_max_rotation_deg = 10.0
 
@@ -167,7 +168,7 @@ class ObjectRegistration():
             return None
         pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(points))
         pcd.estimate_normals(o3d.geometry.KDTreeSearchParamHybrid(
-            radius=self.icp_normal_radius, max_nn=30))
+            radius=self.icp_normal_radius, max_nn=self.icp_normal_max_nn))
         return pcd
 
     def refine_with_icp(self, initial_transform: np.ndarray, point_cloud1: np.ndarray,

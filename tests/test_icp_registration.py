@@ -140,6 +140,7 @@ class ICPRegistrationTests(unittest.TestCase):
         params = SubmapAlignParams(icp_on_submap_pcds=True, icp_max_iterations=12,
                                    icp_correspondence_distances=[0.8, 0.2], icp_min_fitness=0.6,
                                    icp_voxel_size=0.15, icp_max_source_points=500, icp_normal_radius=0.6,
+                                   icp_normal_max_nn=20,
                                    icp_max_translation=2.0, icp_max_rotation_deg=5.0)
         registration = params.get_object_registration()
         self.assertEqual(registration.icp_max_iterations, 12)
@@ -147,6 +148,7 @@ class ICPRegistrationTests(unittest.TestCase):
         self.assertEqual(registration.icp_min_fitness, 0.6)
         self.assertEqual(registration.icp_max_source_points, 500)
         self.assertEqual(registration.icp_normal_radius, 0.6)
+        self.assertEqual(registration.icp_normal_max_nn, 20)
         self.assertEqual(registration.icp_max_translation, 2.0)
         self.assertEqual(registration.icp_max_rotation_deg, 5.0)
         self.assertTrue(SubmapParams.from_submap_align_params(params).include_point_cloud)
@@ -159,7 +161,8 @@ class ICPRegistrationTests(unittest.TestCase):
                         {'icp_min_fitness': -0.1}, {'icp_min_fitness': np.nan},
                         {'icp_voxel_size': 0}, {'icp_voxel_size': np.inf},
                         {'icp_max_source_points': 2}, {'icp_max_source_points': 1.5},
-                        {'icp_normal_radius': 0}, {'icp_max_translation': -1},
+                        {'icp_normal_radius': 0}, {'icp_normal_max_nn': 2},
+                        {'icp_normal_max_nn': 1.5}, {'icp_max_translation': -1},
                         {'icp_max_rotation_deg': np.nan}):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 SubmapAlignParams(icp_on_submap_pcds=True, **invalid)

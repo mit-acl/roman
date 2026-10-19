@@ -29,7 +29,6 @@ from roman.map.align_pointcloud import AlignPointCloud
 from roman.params.data_params import DataParams
 from roman.params.mapper_params import MapperParams
 from roman.params.fastsam_params import FastSAMParams
-from roman.utils import DepthProjectionMetadata
 
 @dataclass
 class ProcessingTimes:
@@ -140,10 +139,8 @@ class ROMANMapRunner:
             if self.data_params.use_pointcloud:
                 self.mapper.update_point_cloud(img_t, T_odom_camera, depth_data[0])
             else:
-                metadata = DepthProjectionMetadata(self.fastsam.pcd_stride,
-                    self.fastsam.depth_scale, self.fastsam.depth_cam_intrinsics)
                 self.mapper.update_point_cloud(img_t, T_odom_camera, depth_data,
-                    is_depth_img=True, depth_projection_metadata=metadata)
+                    is_depth_img=True, depth_projection_metadata=self.fastsam.depth_projection_metadata)
 
         observations, frame_descriptor = self.fastsam.run(img_t, T_odom_camera, img, depth_data=depth_data)
         return img_t, observations, T_odom_camera, img, frame_descriptor

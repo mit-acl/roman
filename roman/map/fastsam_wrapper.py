@@ -32,7 +32,7 @@ from robotdatapy.camera import CameraParams
 
 from roman.map.observation import Observation
 from roman.params.fastsam_params import FastSAMParams
-from roman.utils import expandvars_recursive, unproject_depth
+from roman.utils import expandvars_recursive, unproject_depth, DepthProjectionMetadata
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARN)
@@ -309,6 +309,9 @@ class FastSAMWrapper():
             )
         self.voxel_size = voxel_size
         self.pcd_stride = pcd_stride
+        # shared by this wrapper's unprojection and the mapper's aggregated point clouds
+        self.depth_projection_metadata = None if self.use_pointcloud else \
+            DepthProjectionMetadata(self.pcd_stride, self.depth_scale, self.depth_cam_intrinsics)
         if erosion_size > 0:
             # see: https://docs.opencv.org/3.4/db/df6/tutorial_erosion_dilatation.html
             erosion_shape = cv.MORPH_ELLIPSE
@@ -377,8 +380,7 @@ class FastSAMWrapper():
             frame_descriptor = self.get_frame_descriptor(dino_output_patches)
         
         if depth_data is not None and not self.use_pointcloud:
-            depth_xyz, depth_valid = unproject_depth(
-                depth_data, self.pcd_stride, self.depth_scale, self.depth_cam_intrinsics)
+            depth_xyz, depth_valid = unproject_depth(depth_data, self.depth_projection_metadata)
 
         for mask_idx, mask in enumerate(masks):
 

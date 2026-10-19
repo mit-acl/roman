@@ -184,9 +184,7 @@ class Mapper():
         if is_depth_img:
             if depth_projection_metadata is None:
                 raise ValueError("depth_projection_metadata is required for depth images")
-            metadata = depth_projection_metadata
-            xyz, valid = unproject_depth(point_cloud, metadata.pcd_stride,
-                                         metadata.depth_scale, metadata.depth_intrinsics)
+            xyz, valid = unproject_depth(point_cloud, depth_projection_metadata)
             point_cloud = xyz[valid]
         else:
             point_cloud = np.asarray(point_cloud, dtype=float)

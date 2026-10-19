@@ -79,6 +79,7 @@ class SubmapAlignParams:
     icp_min_fitness: float = 0.2                 # share of source points within the finest distance
     icp_voxel_size: float = 0.1                  # meters, voxel downsampling of submap clouds used for ICP
     icp_normal_radius: float = 0.4               # meters, target normal estimation (~4 voxels)
+    icp_normal_max_nn: int = 30                  # max neighbors within icp_normal_radius used per normal
     icp_max_source_points: int = 10000           # random source subsample per ICP call (None = use all)
     icp_max_translation: float = 1.5             # meters, keep the object alignment if ICP moves it more
     icp_max_rotation_deg: float = 10.0           # degrees, ...or rotates it more
@@ -95,6 +96,9 @@ class SubmapAlignParams:
             if (isinstance(self.icp_max_iterations, bool) or
                     not isinstance(self.icp_max_iterations, int) or self.icp_max_iterations < 1):
                 raise ValueError("icp_max_iterations must be a positive integer")
+            if (isinstance(self.icp_normal_max_nn, bool) or
+                    not isinstance(self.icp_normal_max_nn, int) or self.icp_normal_max_nn < 3):
+                raise ValueError("icp_normal_max_nn must be an integer >= 3")
             if not 0 <= self.icp_min_fitness <= 1:
                 raise ValueError("icp_min_fitness must be in [0, 1]")
             if not np.isfinite(self.icp_voxel_size) or self.icp_voxel_size <= 0:
@@ -183,6 +187,7 @@ class SubmapAlignParams:
         registration.icp_min_fitness = self.icp_min_fitness
         registration.icp_max_source_points = self.icp_max_source_points
         registration.icp_normal_radius = self.icp_normal_radius
+        registration.icp_normal_max_nn = self.icp_normal_max_nn
         registration.icp_max_translation = self.icp_max_translation
         registration.icp_max_rotation_deg = self.icp_max_rotation_deg
         return registration
