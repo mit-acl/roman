@@ -273,7 +273,9 @@ def aggregate_submap_point_cloud(submap: Submap, point_clouds, voxel_size: float
         submap.point_cloud = np.empty((0, 3))
         return
     points_odom = np.concatenate([cloud.point_cloud for cloud in clouds], axis=0)
-    points = transform(np.linalg.inv(submap.pose_gravity_aligned), points_odom, axis=0)
+    # transform() returns a transposed view; open3d copies non-contiguous arrays very slowly
+    points = np.ascontiguousarray(
+        transform(np.linalg.inv(submap.pose_gravity_aligned), points_odom, axis=0))
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points)
     submap.point_cloud = np.asarray(pcd.voxel_down_sample(voxel_size).points).copy()
